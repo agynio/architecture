@@ -1,6 +1,6 @@
 # Open Questions
 
-Unresolved architectural decisions. Each item needs discussion before implementation.
+Unresolved architectural decisions requiring discussion.
 
 ---
 
@@ -8,44 +8,33 @@ Unresolved architectural decisions. Each item needs discussion before implementa
 
 **Context:** The platform is migrating to become k8s-native. A reconciliation loop is needed to converge actual state toward desired state for dynamic resources (agents, channels, workspaces).
 
-**Options to evaluate:**
+**Options:**
 
-1. **CRDs + Operators** — Use Kubernetes Custom Resource Definitions and operator pattern. Resources are k8s-native objects. The operator watches CRDs and reconciles.
-   - *Pros:* Native k8s tooling (kubectl, RBAC, etcd as store, watch semantics built-in). Ecosystem compatibility.
-   - *Cons:* Couples resource model to k8s API. CRD schema evolution can be complex. Requires operator framework expertise. Harder to run outside k8s.
+1. **CRDs + Operators** — Resources as Kubernetes Custom Resource Definitions, reconciled by operators.
+   - *Pros:* Native k8s tooling (kubectl, RBAC, etcd, watch semantics). Ecosystem compatibility.
+   - *Cons:* Couples resource model to k8s API. CRD schema evolution complexity. Requires operator expertise. Harder outside k8s.
 
-2. **Custom reconciliation loop over own data store** — Application-level reconciliation loop reading desired state from PostgreSQL/Redis and converging.
-   - *Pros:* Portable (runs outside k8s). Full control over reconciliation semantics. Simpler to test.
-   - *Cons:* Must implement watch/notification, leader election, and consistency guarantees that k8s provides for free.
+2. **Custom reconciliation loop** — Application-level loop reading desired state from PostgreSQL/Redis.
+   - *Pros:* Portable (works outside k8s). Full control. Simpler to test.
+   - *Cons:* Must reimplement watch/notification, leader election, consistency guarantees.
 
-**Decision:** TBD — Needs dedicated discussion comparing operational complexity, portability requirements, and team expertise.
-
----
-
-## Runner Split
-
-**Context:** The Runner currently combines workload scheduling (control) and workload execution (data) in a single service. This conflicts with the control/data plane separation.
-
-**Questions:**
-- What is the exact boundary between Runner Controller and Runner Worker?
-- Does the Runner Controller own workload desired state, or does it read it from the Agents orchestrator?
-- How do Controller and Worker communicate? (gRPC between them, or shared state?)
+**Decision:** TBD — Needs dedicated discussion.
 
 ---
 
 ## Agent Protocol
 
-**Context:** Most 3rd-party agents are CLI-based. The platform needs a protocol to communicate with agent processes running in containers — providing configuration, connecting MCP tools, and collecting output.
+**Context:** Most 3rd-party agents are CLI-based. The platform needs a protocol to communicate with agent processes in containers — providing configuration, connecting MCP tools, and collecting output.
 
 **Options:**
 
-1. **Push (gRPC)** — Platform pushes messages/config to the agent via gRPC. Agent exposes a gRPC server.
+1. **Push (gRPC)** — Platform pushes messages/config to the agent. Agent exposes a gRPC server.
    - *Pros:* Immediate delivery. Platform controls flow.
    - *Cons:* Agent must implement a gRPC server. Harder for simple CLI wrappers.
 
-2. **Pull** — Agent pulls pending work from the platform. No exposed methods needed on the agent side.
-   - *Pros:* Simpler agent implementation. Agent controls its own pace.
-   - *Cons:* Latency (polling interval). Platform needs a queue/inbox per agent.
+2. **Pull** — Agent pulls pending work from the platform. No exposed methods on agent side.
+   - *Pros:* Simpler agent implementation. Agent controls pace.
+   - *Cons:* Latency (polling). Platform needs a queue/inbox per agent.
 
 **Decision:** TBD
 
@@ -53,24 +42,24 @@ Unresolved architectural decisions. Each item needs discussion before implementa
 
 ## Agent Batching Protocol
 
-**Context:** In the simple case, one container is created per agent invocation. For some agents, it may be more efficient to have a single instance process multiple threads (e.g., one agent handles 10 threads).
+**Context:** Simple case is one container per agent invocation. For specific agents, a single instance processing multiple threads may be more efficient.
 
 **Questions:**
-- What triggers batch assignment? (Agent type configuration? Runtime heuristic?)
+- What triggers batch assignment? (Agent type config? Runtime heuristic?)
 - How does a batched agent receive and route messages for different threads?
-- How is isolation maintained between threads in a batched agent?
+- How is isolation maintained between threads in a batch?
 - What happens when one thread in a batch fails?
 
 ---
 
-## Threads Service Extraction
+## Threads Service Data Store
 
-**Context:** Threads is described as a standalone service, but the messaging logic is currently embedded in the platform-server monolith.
+**Context:** Threads is being extracted from the monolith into a standalone service.
 
 **Questions:**
-- What data store will Threads use? (Dedicated PostgreSQL schema? Separate database?)
-- How does Threads interact with the Agents orchestrator? (Notifications-based? Direct callback? Polling?)
-- Does Threads need its own read-status tracking, or is that a concern of the consuming service (e.g., Channels, UI)?
+- Dedicated PostgreSQL schema or separate database?
+- How does Threads interact with Agents orchestrator? (Notifications-based? Direct callback? Polling?)
+- Does Threads own read-status tracking, or is that a consumer concern?
 
 ---
 
@@ -80,15 +69,26 @@ Unresolved architectural decisions. Each item needs discussion before implementa
 
 **Questions:**
 - Is the channel interface a gRPC service contract, a container contract, or an SDK/library interface?
-- How are channel credentials managed and rotated? (Vault? Teams service? Channel-specific config store?)
-- How does the control plane detect that a channel connection is unhealthy and needs reconciliation?
+- How are channel credentials managed and rotated?
+- How does the control plane detect unhealthy channel connections for reconciliation?
 
 ---
 
 ## Filesystem Store Migration
 
-**Context:** The graph store currently uses a filesystem-based dataset for persistence. Other services use PostgreSQL and Redis.
+**Context:** Graph definitions use a filesystem-based dataset. Other services use PostgreSQL and Redis.
 
 **Questions:**
 - Will the filesystem store be migrated to PostgreSQL or another store?
-- If not, how is it backed up and replicated in a k8s environment (PVCs, object storage)?
+- If not, how is it backed up and replicated in k8s (PVCs, object storage)?
+
+---
+
+## Scheduler Service
+
+**Context:** Currently the Runner is purely data plane (executes workloads). A separate **Scheduler** service may be needed in the control plane to decide *what* and *when* to run.
+
+**Questions:**
+- Is the Scheduler the same as the Agents orchestrator, or a lower-level service that the orchestrator delegates to?
+- Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
+- What is the scheduling interface? (Request/response? Queue-based? Watch-based?)

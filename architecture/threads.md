@@ -6,11 +6,9 @@ Threads is the messaging service for conversations between participants. A singl
 
 ## Interface
 
-Threads exposes a minimal messaging interface:
-
 | Method | Description |
 |--------|-------------|
-| **CreateThread** | Create a new thread with an initial set of participants |
+| **CreateThread** | Create a new thread with initial participants |
 | **ArchiveThread** | Archive a thread (soft-delete) |
 | **AddParticipant** | Add a participant (human or agent) to an existing thread |
 | **SendMessage** | Send a message to a thread |
