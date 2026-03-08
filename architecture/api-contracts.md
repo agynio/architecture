@@ -2,7 +2,7 @@
 
 ## Schema Repository
 
-All API schemas are stored in a dedicated repository: `agynio/api`.
+All API schemas are stored in `agynio/api`.
 
 Services **do not** commit generated schema code in their own repositories. They consume schemas as dependencies at build time.
 
@@ -14,9 +14,9 @@ Services **do not** commit generated schema code in their own repositories. They
 | IDL | Protocol Buffers (proto3) |
 | Tooling | [Buf](https://buf.build) for linting, breaking change detection, and publishing |
 | Registry | `buf.build/agynio/api` |
-| Module path | `proto/` directory in `agynio/api` |
+| Module path | `proto/` in `agynio/api` |
 
-### Current Proto Services
+### Proto Services
 
 | Service | Proto Path |
 |---------|-----------|
@@ -27,8 +27,8 @@ Services **do not** commit generated schema code in their own repositories. They
 ### Conventions
 
 - Package naming: `agynio.api.<service>.v1`
-- Go package option: `github.com/agynio/api/gen/agynio/api/<service>/v1;<service>v1`
-- Buf lint rules: `STANDARD`
+- Go package: `github.com/agynio/api/gen/agynio/api/<service>/v1;<service>v1`
+- Buf lint: `STANDARD`
 - Breaking change detection: `FILE`
 
 ## External API — OpenAPI
@@ -38,9 +38,9 @@ Services **do not** commit generated schema code in their own repositories. They
 | Protocol | REST (HTTP/1.1 or HTTP/2) |
 | Spec | OpenAPI 3.0.3 |
 | Registry | GitHub Container Registry (GHCR) |
-| Spec path | `openapi/` directory in `agynio/api` |
+| Spec path | `openapi/` in `agynio/api` |
 
-### Current OpenAPI Specs
+### OpenAPI Specs
 
 | API | Spec Path |
 |-----|-----------|
@@ -48,7 +48,7 @@ Services **do not** commit generated schema code in their own repositories. They
 
 ### Conventions
 
-- Schemas are modular: one YAML file per schema component, referenced via `$ref`.
-- Linting: Spectral (`.spectral.yaml` in `agynio/api`).
-- All list endpoints use cursor-based pagination.
-- Error responses use the `Problem` schema (RFC 7807 style).
+- Modular schemas: one YAML file per component, referenced via `$ref`.
+- Linting: Spectral (`.spectral.yaml`).
+- Cursor-based pagination on all list endpoints.
+- Error responses: `Problem` schema (RFC 7807 style).
