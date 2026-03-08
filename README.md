@@ -12,12 +12,11 @@ Target architecture of the platform. Describes how the system should work.
 |----------|-------------|
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
-| [Agent](architecture/agent.md) | Agent structure, LLM loop, summarization, state, tools, interface |
+| [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
 | [Runner](architecture/runner.md) | Workload execution service |
-| [Agent State](architecture/agent-state.md) | Long-term agent context persistence |
 | [Teams](architecture/teams.md) | Team resource management |
 | [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
 | [Gateway](architecture/gateway.md) | External API surface |

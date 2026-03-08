@@ -92,3 +92,25 @@ Unresolved architectural decisions requiring discussion.
 - Is the Scheduler the same as the Agents orchestrator, or a lower-level service that the orchestrator delegates to?
 - Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
 - What is the scheduling interface? (Request/response? Queue-based? Watch-based?)
+
+---
+
+## Summarization Packaging
+
+**Context:** Summarization is currently embedded in the agent code. As we support multiple agent implementations, summarization logic needs to be reusable.
+
+**Options:**
+
+1. **Part of the agent service** — Each agent implementation bundles its own summarization. Current state.
+   - *Pros:* Simple. No external dependencies. Full control per implementation.
+   - *Cons:* Duplicated across implementations. Hard to share improvements.
+
+2. **Reusable package** — Shared library (e.g., `@agyn/summarization`) imported by agent implementations.
+   - *Pros:* Single source of truth. Each agent can opt in. Language-portable (publish for TS, Go, etc.).
+   - *Cons:* Package versioning and compatibility. Must be general enough for different agent architectures.
+
+3. **Standalone service** — Dedicated summarization service with its own gRPC API.
+   - *Pros:* Language-agnostic. Centralized. Can be scaled and monitored independently.
+   - *Cons:* Network overhead per summarization call. Another service to operate. Latency-sensitive.
+
+**Decision:** TBD
