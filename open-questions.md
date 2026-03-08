@@ -4,24 +4,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Reconciliation Approach
-
-**Context:** The platform is migrating to become k8s-native. A reconciliation loop is needed to converge actual state toward desired state for dynamic resources (agents, channels, workspaces).
-
-**Options:**
-
-1. **CRDs + Operators** — Resources as Kubernetes Custom Resource Definitions, reconciled by operators.
-   - *Pros:* Native k8s tooling (kubectl, RBAC, etcd, watch semantics). Ecosystem compatibility.
-   - *Cons:* Couples resource model to k8s API. CRD schema evolution complexity. Requires operator expertise. Harder outside k8s.
-
-2. **Custom reconciliation loop** — Application-level loop reading desired state from PostgreSQL/Redis.
-   - *Pros:* Portable (works outside k8s). Full control. Simpler to test.
-   - *Cons:* Must reimplement watch/notification, leader election, consistency guarantees.
-
-**Decision:** TBD — Needs dedicated discussion.
-
----
-
 ## Agent Protocol
 
 **Context:** Most 3rd-party agents are CLI-based. The platform needs a protocol to communicate with agent processes in containers — providing configuration, connecting MCP tools, and collecting output.

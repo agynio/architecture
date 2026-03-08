@@ -55,11 +55,26 @@ graph LR
 
 ## Reconciliation
 
-The control plane should implement a reconciliation loop that continuously converges actual state toward desired state.
+The control plane implements reconciliation loops that continuously converge actual state toward desired state.
 
-Key resources to reconcile:
+**Approach:** Custom polling loops with PostgreSQL as the source of truth. No CRDs.
+
+**Pattern:**
+
+```mermaid
+graph LR
+    PG[(PostgreSQL<br/>desired state)] --> Loop[Reconciliation Loop<br/>compare & act]
+    Runner[Runner gRPC<br/>actual state] --> Loop
+    Loop -->|start/stop workloads| Runner
+    Lease[K8s Lease<br/>leader election] -.-> Loop
+```
+
+- Each control plane service runs a polling loop on a timer.
+- Reads desired state from PostgreSQL, compares with actual state via Runner gRPC, takes corrective action.
+- Leader election via Kubernetes Lease — deploy with 2+ replicas, only the leader runs the loop.
+- Optional: subscribe to Notifications events for faster reactivity; the polling loop serves as consistency fallback.
+
+**Resources to reconcile:**
 - **Agents** — Ensure agent workloads exist for threads with pending messages; remove idle agents.
 - **Channels** — Ensure channel connections match their configuration (reconnect on credential rotation).
 - **Workspaces** — Ensure workspace containers match desired image/config; enforce TTL.
-
-The reconciliation approach (CRDs + operators vs. custom loop) is an [open question](../open-questions.md#reconciliation-approach).
