@@ -12,7 +12,8 @@ Target architecture of the platform. Describes how the system should work.
 |----------|-------------|
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
-| [Agent](architecture/agent.md) | Agent structure, LLM loop, summarization, state, tools, interface |
+| [Agent](architecture/agent.md) | Agent contract, tools, wrapper model, lifecycle, configuration |
+| [Agent Implementation](architecture/agent-implementation.md) | Our agent: LLM loop, summarization, state persistence |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |

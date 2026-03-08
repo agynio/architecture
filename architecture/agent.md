@@ -1,111 +1,84 @@
-# Agent Architecture
+# Agent
 
 ## Overview
 
-An AI agent is a workload that processes messages from a thread using an LLM. The agent is currently embedded in the platform-server monolith and will be extracted into a standalone container.
+An agent is a workload that processes messages from a thread. The platform is **implementation-agnostic** — our own agent implementation is the primary one, but the interface must support wrapping 3rd-party agents (e.g., Claude Code, Codex CLI, custom CLIs).
 
-## Core Structure
+This document describes the agent contract: what an agent is, how it connects to the platform, and how its lifecycle is managed. For our specific implementation details, see [Agent Implementation](agent-implementation.md).
+
+## Agent Contract
+
+Every agent, regardless of implementation, must satisfy the same contract:
 
 ```mermaid
 graph TB
-    subgraph Agent
-        LLMLoop[LLM Loop]
-        Summarization[Summarization]
-        StatePersistence[State Persistence]
-        Tools[Tools<br/>MCP]
-
-        LLMLoop <--> Summarization
-        LLMLoop <--> StatePersistence
-        LLMLoop --> Tools
+    subgraph "Agent Container"
+        Impl[Agent Implementation<br/>our own / 3rd-party CLI / custom]
+        MCP[MCP Tool Servers]
+        Impl --> MCP
     end
 
-    subgraph Dependencies
-        LLMProvider[LLM Provider]
-        TracingDep[Tracing<br/>optional]
+    subgraph Platform
+        Threads
+        Tracing
     end
 
-    LLMLoop --> LLMProvider
-    LLMLoop -.-> TracingDep
+    Impl -->|read messages| Threads
+    Impl -->|post responses| Threads
+    Impl -.->|optional| Tracing
 ```
 
-An agent consists of 4 core components:
-1. **LLM Loop** — handles LLM responses, manages tool calls, sends tool outputs back, manages context.
-2. **Summarization** — algorithm to reduce context size.
-3. **State Persistence** — can be in memory, file-based, or remote service.
-4. **Tools** — connected via MCP protocol. The goal is to eliminate built-in tools and provide all tools through MCP, making them reusable with any agent implementation.
-
-And 2 external dependencies:
-- **LLM Provider** — endpoint for LLM calls.
-- **Tracing** — optional tracing server.
-
-## LLM Loop
-
-The LLM loop is implemented as a `Loop` of `Reducer` stages connected by `Router` decisions:
-
-```mermaid
-graph LR
-    Load --> Summarize --> CallModel --> Route
-
-    Route -->|tool calls| CallTools
-    Route -->|restriction violated| CallModel
-    Route -->|done| Save
-
-    CallTools --> CallModel
-```
-
-| Stage | Responsibility |
-|-------|---------------|
-| **Load** | Load conversation context from state persistence |
-| **Summarize** | If token budget exceeded, fold older messages into rolling summary |
-| **Call Model** | Send context to LLM provider with system prompt prepended |
-| **Route** | Inspect response: tool calls → Call Tools; restriction violated → re-inject and Call Model; otherwise → Save |
-| **Call Tools** | Execute each tool call, collect outputs, return to Call Model |
-| **Save** | Persist updated conversation state |
-
-Each stage is a `Reducer<State, Context>` that transforms agent state. Routing is handled by `Router<State, Context>` instances.
-
-## Summarization
-
-Rolling summarization keeps LLM context within a token budget:
-
-- `summarizationKeepTokens` — number of most-recent tokens preserved verbatim.
-- `summarizationMaxTokens` — total token budget for the context sent to the LLM.
-
-When context exceeds the budget, messages beyond the verbatim tail are folded into a rolling summary by a dedicated LLM call.
-
-## State Persistence
-
-| Strategy | Description |
-|----------|-------------|
-| In-memory | Ephemeral, lost on container restart |
-| File-based | Persisted to workspace filesystem |
-| Remote (APSS) | Agent State service via gRPC (see [Agent State](agent-state.md)) |
+| Responsibility | Description |
+|---------------|-------------|
+| **Read messages** | Consume pending messages from the assigned thread |
+| **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
+| **Post responses** | Write response messages back to the thread |
+| **Use tools via MCP** | Connect to MCP servers for tool access |
+| **Report tracing** | Optionally emit tracing data |
+| **Signal completion** | Indicate when processing is done (idle) |
 
 ## Tools
 
-The goal is to **provide all tools via MCP protocol**, eliminating built-in tools and making tools reusable across any agent implementation.
+All tools are provided via **MCP protocol** (Model Context Protocol). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
 
-Current MCP integration:
-- MCP server runs inside a workspace container.
-- Communication over stdio using newline-delimited JSON-RPC 2.0.
-- Tools are namespace-prefixed (`<namespace>:<toolName>`) to prevent collisions.
-- Heartbeat and restart with configurable backoff for resilience.
+| Aspect | Details |
+|--------|---------|
+| Transport | stdio (newline-delimited JSON-RPC 2.0) |
+| Server location | Inside the workspace container (sidecar) |
+| Namespacing | `<namespace>:<toolName>` to prevent collisions |
+| Resilience | Heartbeat + restart with configurable backoff |
 
-## Agent Interface
+MCP servers are defined as team resources (see [Teams](teams.md)) and mounted into the agent container as sidecars by the Runner.
 
-The agent is designed to be implementation-agnostic. Our own agent is the primary implementation, but the interface must support wrapping 3rd-party agents.
+## Wrapper Model
 
-### Wrapper Model
+Most 3rd-party agents are implemented as CLIs. The platform provides a **wrapper** that adapts any CLI agent to the platform contract:
 
-Most 3rd-party agents are implemented as CLIs. The platform provides a wrapper that:
+```mermaid
+sequenceDiagram
+    participant W as Wrapper
+    participant CLI as Agent CLI
+    participant MCP as MCP Servers
+    participant T as Threads
+
+    W->>CLI: Start process with config
+    W->>MCP: Start MCP servers
+    W->>CLI: Connect MCP servers
+    CLI->>MCP: Tool calls
+    MCP-->>CLI: Tool results
+    CLI-->>W: Output
+    W->>T: Post response to thread
+```
+
+The wrapper:
 1. Starts the agent CLI process.
 2. Provides configuration (model, system prompt, etc.).
 3. Connects MCP tool servers to the agent.
 4. Collects output and routes it back to the thread.
 
-The communication protocol between wrapper and agent is [to be defined](../open-questions.md#agent-protocol).
+The communication protocol between the wrapper and the agent process is [to be defined](../open-questions.md#agent-protocol).
 
-## Agent Lifecycle
+## Lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -123,10 +96,11 @@ sequenceDiagram
     O->>R: Stop workload
 ```
 
-1. Detect threads with pending messages.
-2. Request Runner to start an agent container with appropriate configuration.
-3. Agent processes messages and posts responses back to the thread.
-4. On idle, agent is stopped and removed.
+1. Threads service has pending (unread-by-agent) messages.
+2. Agents orchestrator detects this and requests Runner to start an agent workload.
+3. Runner creates a container with the agent image, MCP sidecars, and configuration.
+4. Agent processes messages, posts responses back to the thread.
+5. Agent signals idle. Orchestrator requests Runner to stop the workload.
 
 ### Scaling
 
@@ -134,18 +108,18 @@ In the simple case, one container per agent invocation. For specific agents, bat
 
 ## Configuration
 
-Defined in the Teams service as agent resources:
+Agent configuration is defined in the Teams service as agent resources:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `name` | string | Agent display name |
+| `role` | string | Agent role label |
 | `model` | string | LLM model identifier (e.g., `gpt-5`) |
 | `systemPrompt` | string | System prompt injected at start of each turn |
 | `debounceMs` | integer | Debounce window for message buffer (ms) |
 | `whenBusy` | enum | `wait` or `injectAfterTools` |
 | `processBuffer` | enum | `allTogether` or `oneByOne` |
 | `sendFinalResponseToThread` | boolean | Auto-send final response to thread |
-| `summarizationKeepTokens` | integer | Verbatim token tail size |
-| `summarizationMaxTokens` | integer | Summary token budget |
 | `restrictOutput` | boolean | Enforce tool call before finishing |
-| `name` | string | Agent display name |
-| `role` | string | Agent role label |
+
+Implementation-specific configuration (e.g., summarization parameters) is documented in [Agent Implementation](agent-implementation.md#configuration).
