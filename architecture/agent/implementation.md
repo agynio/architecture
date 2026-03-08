@@ -2,7 +2,7 @@
 
 Our agent implementation. This is the primary agent — a TypeScript-based LLM loop with rolling summarization and pluggable state persistence.
 
-For the general agent contract, lifecycle, and tools, see [Agent](agent.md).
+For the general agent contract, lifecycle, and tools, see [Agent](overview.md).
 
 ## Structure
 
@@ -106,7 +106,7 @@ Rolling summarization keeps the LLM context within a token budget. When context 
 
 ### Packaging
 
-Summarization is currently embedded in the agent code. How it should be packaged is an [open question](../open-questions.md#summarization-packaging):
+Summarization is currently embedded in the agent code. How it should be packaged is an [open question](../../open-questions.md#summarization-packaging):
 
 - As part of the agent service code (current state).
 - As a separate reusable package that different agent implementations can import.
@@ -120,7 +120,7 @@ The agent needs to persist conversation state (messages, summaries) across turns
 |----------|-------|----------|
 | In-memory | Process memory | Development, short-lived agents |
 | File-based | Workspace filesystem | Agents with workspace access |
-| Remote (APSS) | [Agent State](agent-state.md) service via gRPC | Production — durable, shared |
+| Remote (APSS) | [Agent State](state.md) service via gRPC | Production — durable, shared |
 
 The remote strategy uses the Agent Persistent State Service (APSS). It provides:
 - Append/list/replace/delete conversation messages.
@@ -129,7 +129,7 @@ The remote strategy uses the Agent Persistent State Service (APSS). It provides:
 
 ## Configuration
 
-Implementation-specific configuration fields (in addition to the [base agent config](agent.md#configuration)):
+Implementation-specific configuration fields (in addition to the [base agent config](overview.md#configuration)):
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -143,4 +143,4 @@ Implementation-specific configuration fields (in addition to the [base agent con
 | LLM package (`Loop`, `Reducer`, `Router`, `LLM`, messages) | `agynio/platform` | `packages/llm/` |
 | Agent node (stage implementations, MCP integration) | `agynio/platform` | `packages/platform-server/src/nodes/agent/` |
 
-Both will be extracted into a standalone agent container as part of the [migration](../gaps/migration-roadmap.md#agent-extraction).
+Both will be extracted into a standalone agent container as part of the [migration](../../gaps/migration-roadmap.md#agent-extraction).

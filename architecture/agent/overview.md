@@ -4,7 +4,7 @@
 
 An agent is a workload that processes messages from a thread. The platform is **implementation-agnostic** — our own agent implementation is the primary one, but the interface must support wrapping 3rd-party agents (e.g., Claude Code, Codex CLI, custom CLIs).
 
-This document describes the agent contract: what an agent is, how it connects to the platform, and how its lifecycle is managed. For our specific implementation details, see [Agent Implementation](agent-implementation.md).
+This document describes the agent contract: what an agent is, how it connects to the platform, and how its lifecycle is managed. For our specific implementation details, see [Agent Implementation](implementation.md).
 
 ## Agent Contract
 
@@ -48,7 +48,7 @@ All tools are provided via **MCP protocol** (Model Context Protocol). The goal i
 | Namespacing | `<namespace>:<toolName>` to prevent collisions |
 | Resilience | Heartbeat + restart with configurable backoff |
 
-MCP servers are defined as team resources (see [Teams](teams.md)) and mounted into the agent container as sidecars by the Runner.
+MCP servers are defined as team resources (see [Teams](../teams.md)) and mounted into the agent container as sidecars by the Runner.
 
 ## Wrapper Model
 
@@ -76,7 +76,7 @@ The wrapper:
 3. Connects MCP tool servers to the agent.
 4. Collects output and routes it back to the thread.
 
-The communication protocol between the wrapper and the agent process is [to be defined](../open-questions.md#agent-protocol).
+The communication protocol between the wrapper and the agent process is [to be defined](../../open-questions.md#agent-protocol).
 
 ## Lifecycle
 
@@ -104,7 +104,7 @@ sequenceDiagram
 
 ### Scaling
 
-In the simple case, one container per agent invocation. For specific agents, batching may be desirable — a single agent instance processing multiple threads. See [open question](../open-questions.md#agent-batching-protocol).
+In the simple case, one container per agent invocation. For specific agents, batching may be desirable — a single agent instance processing multiple threads. See [open question](../../open-questions.md#agent-batching-protocol).
 
 ## Configuration
 
@@ -122,4 +122,4 @@ Agent configuration is defined in the Teams service as agent resources:
 | `sendFinalResponseToThread` | boolean | Auto-send final response to thread |
 | `restrictOutput` | boolean | Enforce tool call before finishing |
 
-Implementation-specific configuration (e.g., summarization parameters) is documented in [Agent Implementation](agent-implementation.md#configuration).
+Implementation-specific configuration (e.g., summarization parameters) is documented in [Agent Implementation](implementation.md#configuration).
