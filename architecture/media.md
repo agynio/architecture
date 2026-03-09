@@ -188,6 +188,7 @@ The Message model gains an optional `files` field:
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
 | `files` | list of string (UUID) | Referenced file IDs (may be empty) |
+| `tokens` | integer | Token count for this message. Computed once at creation via [Token Counting](token-counting.md) |
 | `read_status` | map | Per-participant read status |
 | `created_at` | timestamp | When the message was sent |
 
@@ -195,12 +196,4 @@ Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by cal
 
 ## Context Size and Summarization
 
-### Problem
-
-The current summarization logic estimates token count from text length (`text.length / 4`). This heuristic does not account for media files, which consume tokens according to the LLM provider's internal processing (e.g., image tiles for vision models, text extraction for documents).
-
-### Open Question: Token Counting for Media
-
-The current approach of estimating tokens from string length cannot work for media. The planned direction is to use the **`usage.input_tokens`** value returned by the LLM provider's response to measure actual context size after each call, rather than estimating tokens before the call.
-
-This is an **open question** — the exact mechanism and its implications for the summarization trigger are not yet decided. See [Open Questions](../open-questions.md#context-size-measurement-with-media).
+Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored per message at creation time and used by the summarization reducer.

@@ -78,17 +78,3 @@ Unresolved architectural decisions requiring discussion.
    - *Cons:* Network overhead per summarization call. Another service to operate. Latency-sensitive.
 
 **Decision:** TBD
-
----
-
-## Context Size Measurement with Media
-
-**Context:** The current summarization trigger estimates token count from text length (`text.length / 4`). With media files (images, PDFs, documents), this heuristic is invalid — the LLM provider determines actual token consumption based on internal processing (e.g., image tile count, extracted text length).
-
-**Planned direction:** Use the `usage.input_tokens` value returned by the LLM provider's response to measure actual context size after each call, rather than estimating tokens before the call.
-
-**Questions:**
-- How does the summarization trigger work if context size is only known after the LLM call? Currently, summarization runs *before* the LLM call to ensure context fits the budget. With post-call measurement, the first call may exceed the budget and need a retry after summarization.
-- Should we adopt a two-phase approach: estimate conservatively before the call, then refine with actual usage after?
-- How should media files interact with the summarization fold? Images and files cannot be "summarized" into text the same way messages can. Should they be dropped, kept verbatim, or replaced with text descriptions?
-- Does the `summarizationKeepTokens` budget include media token costs, or is it text-only?

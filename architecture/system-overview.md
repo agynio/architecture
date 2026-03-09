@@ -22,6 +22,7 @@ graph TB
         Channels[Channels]
         Threads[Threads]
         Files[Files]
+        TokenCounting[Token Counting]
         Notifications[Notifications]
         Runner[Runner]
         AgentState[Agent State]
@@ -54,6 +55,7 @@ graph TB
     Agent2 --> MCP2
     Agent1 & Agent2 --> AgentState
     Agent1 & Agent2 --> Files
+    Agent1 & Agent2 --> TokenCounting
     Agent1 & Agent2 -.-> Tracing
 
     Teams --> AgentsOrch
@@ -66,6 +68,7 @@ graph TB
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) and own apps (web, mobile) with Threads |
 | **Threads** | Conversation messaging between multiple participants (humans and agents) |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
+| **Token Counting** | Per-message token counting for LLM messages. Replaces text-length heuristic for summarization decisions |
 | **Notifications** | Real-time event fanout via persistent connections (socket). Delivers events to relevant clients |
 | **Agents** | Orchestrator that spins up agent workloads for threads with pending messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
