@@ -2,37 +2,46 @@
 
 ## Problem
 
-Models and secrets exist in the platform UI but are not owned resources — they are proxied from external systems (litellm for models, Vault for secrets). This creates a dependency problem: resources like agents reference a model by name, but the platform has no internal identifier for it. The model must be manually configured in litellm first, and the agent config uses a raw string name with no referential integrity.
+Models and secrets are not owned resources — they are proxied from external systems (litellm for models, Vault for secrets). Resources like agents reference a model by raw string name, but the platform has no internal identifier for it. The model must be manually configured in litellm first, and the agent config uses a free-form string with no referential integrity.
 
-The same applies to secrets. Vault secrets are referenced by path in environment variable configs, but there is no internal entity representing the secret. If the Vault path changes or the secret is deleted, the platform has no way to detect or report the broken reference.
+The same applies to secrets. Vault secrets are referenced by path in environment variable configs (`kind: "vault"`, `path`, `key`), but there is no internal entity representing the secret. The reference resolver (`references.ts`) resolves them at runtime by calling the Vault API directly. If the path changes or the secret is deleted, the platform has no way to detect or report the broken reference ahead of time.
 
 ## Solution
 
-Introduce **three new resource types** managed by the Teams service:
+Four new resource types managed by the Teams service:
 
-1. **LLM Provider** — connection to an LLM service (endpoint + credentials)
-2. **Model** — an internal model definition, referencing an LLM provider and a remote model name
-3. **Secret** — an internal secret reference, pointing to a secret in an external provider
+1. **LLM Provider** — connection to an LLM service (endpoint + auth)
+2. **Model** — internal model definition, referencing an LLM provider and a remote model name
+3. **Secret Provider** — connection to a secret management system (Vault for now)
+4. **Secret** — internal secret reference, pointing to a named secret in an external provider
 
-Each has a stable internal ID. Other resources (agents, MCP servers, workspaces) reference models and secrets by ID, not by external name or path.
+Each has a stable internal UUID. Other resources reference models and secrets by ID.
+
+---
 
 ## LLM Provider
 
-An LLM provider represents a connection to an external LLM service. It stores the endpoint URL and authentication token needed to make LLM calls.
+An LLM provider represents a connection to an external LLM service. It stores the endpoint URL and authentication credentials needed to make API calls.
+
+All LLM providers expose an OpenAI-compatible Responses API. The platform uses the same client for every provider — only the endpoint and auth differ.
 
 ### Resource Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | enum | Provider type. Supported values: `litellm`, `openrouter`, `openai` |
-| `endpoint` | string | Base URL of the provider API |
-| `token` | string | Authentication token for the provider API |
+| `endpoint` | string | Base URL of the provider API (e.g., `https://api.openai.com`, a litellm proxy URL, an OpenRouter URL) |
+| `authMethod` | enum | Authentication method. Supported: `bearer` |
+| `token` | string | Authentication token (used as Bearer token) |
+
+`authMethod` is `bearer` for now. The field exists so other methods (API key header, mTLS, etc.) can be added later without schema changes.
 
 ### Provisioning Flow
 
-1. User obtains an endpoint and token from a 3rd-party LLM service (litellm, OpenRouter, OpenAI, etc.).
-2. User creates an LLM Provider resource with endpoint and token.
-3. The provider is now available for creating models.
+1. User obtains an endpoint and token from a 3rd-party LLM service.
+2. User creates an LLM Provider resource with endpoint, auth method, and token.
+3. The provider is available for creating models.
+
+---
 
 ## Model
 
@@ -46,33 +55,35 @@ A model is an internal resource that maps a human-readable name to a specific mo
 | `llmProvider` | string (UUID) | Reference to an LLM Provider resource |
 | `remoteName` | string | Model identifier on the provider's side (e.g., `"gpt-5"`, `"anthropic/claude-sonnet-4-20250514"`) |
 
-### Usage
-
-The agent resource references a model by its internal ID:
+### Resolution Chain
 
 ```
 Agent.model → Model.id → Model.llmProvider → LLM Provider (endpoint + token)
 ```
 
-At runtime, the platform resolves the chain: agent → model → LLM provider, then makes LLM calls using the provider's endpoint, token, and the model's remote name.
+At runtime, the platform resolves: agent → model → LLM provider, then makes API calls using the provider's endpoint, token, and the model's remote name.
+
+---
 
 ## Secret Provider
 
-A secret provider represents a connection to an external secret management system. Currently only Vault is supported, but the design allows adding more providers later.
+A secret provider represents a connection to an external secret management system. Currently only Vault is supported; the design allows adding other providers later.
 
 ### Resource Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | enum | Provider type. Supported values: `vault` |
+| `type` | enum | Provider type. Supported: `vault` |
 | `config` | object | Provider-specific connection configuration |
 
 **Vault config:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `address` | string | Vault server address |
+| `address` | string | Vault server address (e.g., `http://vault:8200`) |
 | `token` | string | Authentication token |
+
+---
 
 ## Secret
 
@@ -83,46 +94,25 @@ A secret is an internal resource that references a specific secret in an externa
 | Field | Type | Description |
 |-------|------|-------------|
 | `secretProvider` | string (UUID) | Reference to a Secret Provider resource |
-| `remotePath` | string | Path to the secret in the external provider |
-| `remoteKey` | string | Key within the secret at the given path |
+| `remoteName` | string | Identifier of the secret in the external provider |
 
-### Usage
+The format of `remoteName` is provider-specific. For Vault, it is a composite key: `<mount>/<path>/<key>` (e.g., `secret/platform/keys/api_key`).
 
-Environment variable configs reference a secret by its internal ID instead of embedding raw Vault paths:
+### Relationship to Env Variable References
 
-**Current (vault reference by path):**
-```json
-{
-  "name": "API_KEY",
-  "value": {
-    "kind": "vault",
-    "mount": "secret",
-    "path": "platform/keys",
-    "key": "api_key"
-  }
-}
-```
+The existing env variable reference system already supports secrets via `kind: "vault"` references that are resolved at runtime by the reference resolver. The Secret resource does not replace that mechanism — it provides an internal identity layer on top of it.
 
-**New (reference by secret ID):**
-```json
-{
-  "name": "API_KEY",
-  "value": {
-    "kind": "secret",
-    "secretId": "<secret-uuid>"
-  }
-}
-```
+Env variable configs can continue using inline vault references (`kind: "vault"`, `path`, `key`). The Secret resource gives the platform a way to track which secrets exist, which resources depend on them, and detect broken references before runtime.
 
-At runtime, the platform resolves the chain: secret ID → secret resource → secret provider → fetch value from the external system.
+---
 
-## End-to-End Flow
+## End-to-End Flows
 
 ### LLM Setup
 
 ```mermaid
 flowchart LR
-    A[Create LLM Provider<br/>endpoint + token] --> B[Create Model<br/>name + provider + remoteName]
+    A[Create LLM Provider<br/>endpoint + bearer token] --> B[Create Model<br/>name + provider + remoteName]
     B --> C[Create Agent<br/>references model ID]
 ```
 
@@ -130,17 +120,6 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A[Create Secret Provider<br/>vault address + token] --> B[Create Secret<br/>provider + remotePath + remoteKey]
-    B --> C[Use in env config<br/>references secret ID]
+    A[Create Secret Provider<br/>type: vault, address + token] --> B[Create Secret<br/>provider + remoteName]
+    B --> C[Reference secret in<br/>resource configs]
 ```
-
-## Migration
-
-Existing model references (raw string model names in agent configs) and vault references (inline vault paths in env configs) continue to work during migration. New resources are additive — they do not break existing configs.
-
-The migration path:
-1. Deploy LLM Provider, Model, Secret Provider, and Secret as new resource types in the Teams service.
-2. Create provider and model/secret resources for existing external configurations.
-3. Update agent configs to reference model IDs instead of raw names.
-4. Update env configs to reference secret IDs instead of inline vault paths.
-5. Deprecate raw string model names and inline vault references.

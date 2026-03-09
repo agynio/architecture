@@ -139,6 +139,7 @@ Several resources accept environment variables. The `value` field supports two f
 
 Vault and variable references are resolved at runtime by the platform. The resolved value is never stored in config or state.
 
+
 ---
 
 ## LLM Provider
@@ -147,8 +148,8 @@ A connection to an external LLM service. See [Providers, Models, and Secrets](pr
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | enum | | Provider type: `litellm`, `openrouter`, `openai` |
 | `endpoint` | string | | Base URL of the provider API |
+| `authMethod` | enum | `"bearer"` | Authentication method: `bearer` |
 | `token` | string | | Authentication token |
 
 ---
@@ -183,5 +184,4 @@ An internal reference to a secret in an external provider. See [Providers, Model
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `secretProvider` | string (UUID) | | Reference to a Secret Provider resource |
-| `remotePath` | string | | Path to the secret in the external provider |
-| `remoteKey` | string | | Key within the secret at the given path |
+| `remoteName` | string | | Identifier of the secret in the external provider (e.g., `secret/platform/keys/api_key` for Vault) |
