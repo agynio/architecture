@@ -21,6 +21,7 @@ graph TB
         Gateway[Gateway]
         Channels[Channels]
         Threads[Threads]
+        Files[Files]
         Notifications[Notifications]
         Runner[Runner]
         AgentState[Agent State]
@@ -39,6 +40,7 @@ graph TB
     WebApp & MobileApp --> Channels
 
     Gateway --> Threads
+    Gateway --> Files
     Gateway --> Notifications
     Channels <--> Threads
     Channels --> Notifications
@@ -51,6 +53,7 @@ graph TB
     Agent1 --> MCP1
     Agent2 --> MCP2
     Agent1 & Agent2 --> AgentState
+    Agent1 & Agent2 --> Files
     Agent1 & Agent2 -.-> Tracing
 
     Teams --> AgentsOrch
@@ -62,6 +65,7 @@ graph TB
 |-----------|---------------|
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) and own apps (web, mobile) with Threads |
 | **Threads** | Conversation messaging between multiple participants (humans and agents) |
+| **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
 | **Notifications** | Real-time event fanout via persistent connections (socket). Delivers events to relevant clients |
 | **Agents** | Orchestrator that spins up agent workloads for threads with pending messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
@@ -77,6 +81,7 @@ graph TB
 | PostgreSQL | Primary relational store (agent state, platform data) |
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
+| Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
 
 ## Repository Map
 
