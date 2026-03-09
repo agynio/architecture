@@ -12,6 +12,7 @@ Target architecture of the platform. Describes how the system should work.
 |----------|-------------|
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
+| [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all team-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
@@ -21,6 +22,16 @@ Target architecture of the platform. Describes how the system should work.
 | [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
 | [Gateway](architecture/gateway.md) | External API surface |
 | [API Contracts](architecture/api-contracts.md) | gRPC and OpenAPI schema conventions |
+
+### [Operations](architecture/operations/) — CI/CD, Local Development, Configuration
+
+How services are built, deployed, run locally, and configured.
+
+| Document | Description |
+|----------|-------------|
+| [CI/CD](architecture/operations/ci-cd.md) | Image and Helm chart publishing via GitHub Actions |
+| [Local Development](architecture/operations/local-development.md) | Bootstrap cluster and DevSpace inner loop |
+| [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
 
 ### [Gaps](gaps/) — Current State vs. Desired & Roadmap
 
