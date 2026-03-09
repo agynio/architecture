@@ -4,24 +4,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Agent Protocol
-
-**Context:** Most 3rd-party agents are CLI-based. The platform needs a protocol to communicate with agent processes in containers — providing configuration, connecting MCP tools, and collecting output.
-
-**Options:**
-
-1. **Push (gRPC)** — Platform pushes messages/config to the agent. Agent exposes a gRPC server.
-   - *Pros:* Immediate delivery. Platform controls flow.
-   - *Cons:* Agent must implement a gRPC server. Harder for simple CLI wrappers.
-
-2. **Pull** — Agent pulls pending work from the platform. No exposed methods on agent side.
-   - *Pros:* Simpler agent implementation. Agent controls pace.
-   - *Cons:* Latency (polling). Platform needs a queue/inbox per agent.
-
-**Decision:** TBD
-
----
-
 ## Agent Batching Protocol
 
 **Context:** Simple case is one container per agent invocation. For specific agents, a single instance processing multiple threads may be more efficient.

@@ -56,7 +56,7 @@ Extract the agent from `platform-server` into a standalone container:
 - **Move**: `packages/llm/` (Loop, Reducer, Router, FunctionTool, messages) and agent node logic from `packages/platform-server/src/nodes/agent/`.
 - **Connect**: Agent State service (remote gRPC) for state persistence.
 - **Connect**: MCP servers for tools.
-- **Define**: Agent container interface and wrapper for 3rd-party CLI agents. See [open question](../open-questions.md#agent-protocol).
+- **Implement**: Pull + notifications communication protocol and CLI wrapper. See [agent overview](../architecture/agent/overview.md#communication-protocol).
 
 ### Threads Extraction
 
