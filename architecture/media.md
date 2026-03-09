@@ -188,6 +188,7 @@ The Message model gains an optional `files` field:
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
 | `files` | list of string (UUID) | Referenced file IDs (may be empty) |
+| `tokens` | integer | Token count for this message. Computed once at creation via [Token Counting](token-counting.md) |
 | `read_status` | map | Per-participant read status |
 | `created_at` | timestamp | When the message was sent |
 
@@ -195,8 +196,4 @@ Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by cal
 
 ## Context Size and Summarization
 
-Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. The summarization reducer uses this service to decide when and how to summarize.
-
-**Remaining questions** (see [Open Questions](../open-questions.md#context-size-measurement-with-media--decided)):
-- How should media files interact with the summarization fold? Images and files cannot be "summarized" into text the same way messages can. Should they be dropped, kept verbatim, or replaced with text descriptions?
-- Does the `summarizationKeepTokens` budget include media token costs, or is it text-only?
+Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored per message at creation time and used by the summarization reducer.

@@ -78,13 +78,3 @@ Unresolved architectural decisions requiring discussion.
    - *Cons:* Network overhead per summarization call. Another service to operate. Latency-sensitive.
 
 **Decision:** TBD
-
----
-
-## ~~Context Size Measurement with Media~~ → DECIDED
-
-**Decision:** Dedicated [Token Counting](architecture/token-counting.md) service. The `usage.input_tokens` approach via litellm does not work. Instead, a new service accepts an array of messages and returns per-message token counts, using the actual tokenizer for the target model. The summarization reducer calls this service before the LLM call.
-
-**Remaining questions:**
-- How should media files interact with the summarization fold? Images and files cannot be "summarized" into text the same way messages can. Should they be dropped, kept verbatim, or replaced with text descriptions?
-- Does the `summarizationKeepTokens` budget include media token costs, or is it text-only?

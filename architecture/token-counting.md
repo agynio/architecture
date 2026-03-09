@@ -4,7 +4,7 @@
 
 A dedicated service that counts tokens for LLM messages. It receives an array of messages and returns the token count for each message.
 
-The current platform estimates tokens using `text.length / 4`, which is inaccurate for text and does not work at all for media (images, files). This service replaces that heuristic with accurate per-message token counts, using the actual tokenizer for the target model.
+The current platform estimates tokens using `text.length / 4`, which is inaccurate for text and does not work at all for media (images, files). This service replaces that heuristic with accurate per-message token counts.
 
 ## Motivation
 
@@ -22,19 +22,8 @@ The service exposes a single method.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `model` | string | Target model identifier (e.g., `gpt-4o`, `claude-sonnet-4-20250514`) |
-| `messages` | list of Message | Messages to count tokens for |
-
-Each message in the array is a serialized OpenAI Responses API input/output item — the same shape produced by `toPlain()` on the platform's LLM message types:
-
-| Message type | Responses API shape |
-|-------------|-------------------|
-| `HumanMessage` | `ResponseInputItem.Message` (role: `user`) |
-| `SystemMessage` | `ResponseInputItem.Message` (role: `system`) |
-| `AIMessage` | `ResponseOutputMessage` (role: `assistant`) |
-| `ToolCallMessage` | `ResponseFunctionToolCall` |
-| `ToolCallOutputMessage` | `ResponseInputItem.FunctionCallOutput` |
-| `ResponseMessage` | `{ output: ResponseOutput[] }` — a wrapper containing multiple output items |
+| `model` | enum | Target model. Supported values: `gpt-5` |
+| `messages` | list of Message | Messages to count tokens for. Each message is a serialized OpenAI Responses API input/output item |
 
 Currently only OpenAI Responses API format is supported. The service is designed to be extended with other formats in the future.
 
@@ -51,7 +40,7 @@ The response array has the same length as the input `messages` array. Each eleme
 **Request:**
 ```json
 {
-  "model": "gpt-4o",
+  "model": "gpt-5",
   "messages": [
     { "type": "message", "role": "system", "content": [{ "type": "input_text", "text": "You are a helpful assistant." }] },
     { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "Hello" }] },
@@ -70,15 +59,8 @@ The response array has the same length as the input `messages` array. Each eleme
 }
 ```
 
-## Classification
+## Token Storage
 
-The Token Counting service is a **data plane** service — it is called on the hot path during agent execution, before each LLM call.
+Tokens are counted **once** when a message is created and the count is stored in the message entity in the database. This avoids calling the Token Counting service repeatedly for the same messages.
 
-## Integration with Summarization
-
-The summarization reducer currently calls `countTokensFromMessages` which uses the `text.length / 4` heuristic. This internal method is replaced with a call to the Token Counting service:
-
-1. Before the LLM call, the summarization reducer sends the current message array to the Token Counting service.
-2. The service returns per-message token counts.
-3. The reducer sums the counts and compares against `maxTokens` to decide whether to summarize.
-4. If summarization is needed, per-message counts are used for the head/tail split (`keepTokens` budget).
+The summarization reducer reads the stored token count from each message rather than re-counting. It sums the per-message counts to decide whether to summarize (`maxTokens` threshold) and uses them for the head/tail split (`keepTokens` budget).
