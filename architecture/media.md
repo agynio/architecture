@@ -195,12 +195,8 @@ Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by cal
 
 ## Context Size and Summarization
 
-### Problem
+Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. The summarization reducer uses this service to decide when and how to summarize.
 
-The current summarization logic estimates token count from text length (`text.length / 4`). This heuristic does not account for media files, which consume tokens according to the LLM provider's internal processing (e.g., image tiles for vision models, text extraction for documents).
-
-### Open Question: Token Counting for Media
-
-The current approach of estimating tokens from string length cannot work for media. The planned direction is to use the **`usage.input_tokens`** value returned by the LLM provider's response to measure actual context size after each call, rather than estimating tokens before the call.
-
-This is an **open question** — the exact mechanism and its implications for the summarization trigger are not yet decided. See [Open Questions](../open-questions.md#context-size-measurement-with-media).
+**Remaining questions** (see [Open Questions](../open-questions.md#context-size-measurement-with-media--decided)):
+- How should media files interact with the summarization fold? Images and files cannot be "summarized" into text the same way messages can. Should they be dropped, kept verbatim, or replaced with text descriptions?
+- Does the `summarizationKeepTokens` budget include media token costs, or is it text-only?

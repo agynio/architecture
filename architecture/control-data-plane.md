@@ -34,6 +34,7 @@ graph LR
         AgentState[Agent State]
         Tracing
         Files
+        TokenCounting[Token Counting]
     end
 
     Teams -->|desired state| AgentsOrch
@@ -53,6 +54,7 @@ graph LR
 | **Agent State** | Data | Stores and retrieves agent conversation context |
 | **Tracing** | Data | Ingests and serves tracing data |
 | **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
+| **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
 
 ## Reconciliation
