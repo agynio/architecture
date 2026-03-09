@@ -33,6 +33,7 @@ graph LR
         Runner
         AgentState[Agent State]
         Tracing
+        Files
     end
 
     Teams -->|desired state| AgentsOrch
@@ -51,6 +52,7 @@ graph LR
 | **Gateway** | Data | Routes external API requests to internal services |
 | **Agent State** | Data | Stores and retrieves agent conversation context |
 | **Tracing** | Data | Ingests and serves tracing data |
+| **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
 
 ## Reconciliation
