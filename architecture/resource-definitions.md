@@ -28,24 +28,6 @@ An agent definition that determines how an agent workload behaves when processin
 
 All fields are optional (the schema uses `.partial()`).
 
-### Agent Terraform Example
-
-```hcl
-resource "agyn_agent" "coding_assistant" {
-  title = "Coding Assistant"
-  config = jsonencode({
-    model                     = "gpt-5"
-    systemPrompt              = "You are a senior software engineer."
-    whenBusy                  = "injectAfterTools"
-    processBuffer             = "allTogether"
-    sendFinalResponseToThread = true
-    restrictOutput            = true
-    summarizationKeepTokens   = 2048
-    summarizationMaxTokens    = 512
-  })
-}
-```
-
 ---
 
 ## MCP Server
@@ -66,24 +48,6 @@ An MCP server definition that describes how to start and connect to an MCP tool 
 | `restart.backoffMs` | integer | `2000` | Base backoff (ms) between restart attempts |
 
 All fields are optional.
-
-### MCP Server Terraform Example
-
-```hcl
-resource "agyn_mcp_server" "filesystem" {
-  title = "Filesystem"
-  config = jsonencode({
-    namespace        = "fs"
-    command          = "npx @modelcontextprotocol/server-filesystem /workspace"
-    startupTimeoutMs = 10000
-    requestTimeoutMs = 30000
-    restart = {
-      maxAttempts = 3
-      backoffMs   = 1000
-    }
-  })
-}
-```
 
 ---
 
@@ -107,30 +71,6 @@ A workspace container configuration that defines the execution environment for a
 
 All fields are optional.
 
-### Workspace Configuration Terraform Example
-
-```hcl
-resource "agyn_workspace_configuration" "default" {
-  title = "Default Workspace"
-  config = jsonencode({
-    image        = "ghcr.io/agynio/workspace:latest"
-    cpu_limit    = "2"
-    memory_limit = "4Gi"
-    platform     = "linux/arm64"
-    ttlSeconds   = 86400
-    enableDinD   = false
-    initialScript = "apt-get update && apt-get install -y git"
-    volumes = {
-      enabled   = true
-      mountPath = "/workspace"
-    }
-    env = [
-      { name = "LANG", value = "en_US.UTF-8" }
-    ]
-  })
-}
-```
-
 ---
 
 ## Memory Bucket
@@ -141,18 +81,6 @@ A memory scope definition for persistent agent memory (vector/KV storage).
 |-------|------|---------|-------------|
 | `scope` | enum | `"global"` | `"global"` — shared across all threads. `"perThread"` — isolated per thread |
 | `collectionPrefix` | string | | Optional prefix for the underlying collection name |
-
-### Memory Bucket Terraform Example
-
-```hcl
-resource "agyn_memory_bucket" "project_knowledge" {
-  title = "Project Knowledge"
-  config = jsonencode({
-    scope            = "global"
-    collectionPrefix = "project"
-  })
-}
-```
 
 ---
 
@@ -173,16 +101,6 @@ Attachment has no `config` — the relationship is fully described by the kind a
 | Kind | Source → Target | Description |
 |------|----------------|-------------|
 | `tool_agent` | MCP Server / Tool / Workspace → Agent | Connects a tool provider to an agent |
-
-### Attachment Terraform Example
-
-```hcl
-resource "agyn_attachment" "shell_to_agent" {
-  kind      = "tool_agent"
-  source_id = agyn_mcp_server.shell.id
-  target_id = agyn_agent.developer.id
-}
-```
 
 ---
 

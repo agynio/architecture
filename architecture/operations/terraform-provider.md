@@ -4,15 +4,7 @@ The **Agyn Terraform provider** is the recommended way to configure teams, agent
 
 **Repository:** [`agynio/terraform-provider-agyn`](https://github.com/agynio/terraform-provider-agyn)
 
-## Provider Configuration
-
-```hcl
-provider "agyn" {
-  api_url = "https://agyn.dev:2496"  # Platform API base URL
-}
-```
-
-Authentication is handled via the provider configuration (API key or token — see provider docs).
+The provider connects to the platform via the **Gateway** endpoint. Setup and authentication are documented in the provider repository.
 
 ## Resources
 
@@ -50,57 +42,6 @@ Attachments link resources together:
 | `source_type` | string | Source entity type, computed |
 | `target_id` | string | Target resource UUID |
 | `target_type` | string | Target entity type, computed |
-
-## Example
-
-```hcl
-resource "agyn_workspace_configuration" "dev" {
-  title       = "Development Workspace"
-  description = "Standard development container"
-  config = jsonencode({
-    image       = "ghcr.io/agynio/workspace:latest"
-    cpu_limit   = "2"
-    memory_limit = "4Gi"
-    ttlSeconds  = 86400
-    volumes = {
-      enabled   = true
-      mountPath = "/workspace"
-    }
-  })
-}
-
-resource "agyn_mcp_server" "shell" {
-  title       = "Shell"
-  description = "Shell command execution"
-  config = jsonencode({
-    namespace = "shell"
-    command   = "mcp start --stdio"
-  })
-}
-
-resource "agyn_agent" "developer" {
-  title       = "Developer Agent"
-  description = "Coding assistant"
-  config = jsonencode({
-    model        = "gpt-5"
-    systemPrompt = "You are a helpful coding assistant."
-    whenBusy     = "injectAfterTools"
-    processBuffer = "allTogether"
-  })
-}
-
-resource "agyn_attachment" "shell_to_agent" {
-  kind      = "tool_agent"
-  source_id = agyn_mcp_server.shell.id
-  target_id = agyn_agent.developer.id
-}
-
-resource "agyn_attachment" "workspace_to_agent" {
-  kind      = "tool_agent"
-  source_id = agyn_workspace_configuration.dev.id
-  target_id = agyn_agent.developer.id
-}
-```
 
 ## Known Limitation: Untyped Config
 
