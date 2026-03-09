@@ -4,7 +4,7 @@
 
 Models and secrets are not owned resources — they are proxied from external systems (litellm for models, Vault for secrets). Resources like agents reference a model by raw string name, but the platform has no internal identifier for it. The model must be manually configured in litellm first, and the agent config uses a free-form string with no referential integrity.
 
-The same applies to secrets. Vault secrets are referenced by path in environment variable configs (`kind: "vault"`, `path`, `key`), but there is no internal entity representing the secret. The reference resolver (`references.ts`) resolves them at runtime by calling the Vault API directly. If the path changes or the secret is deleted, the platform has no way to detect or report the broken reference ahead of time.
+The same applies to secrets. There is no internal entity representing a secret, so there is no stable ID to reference or track dependencies against.
 
 ## Solution
 
@@ -97,12 +97,6 @@ A secret is an internal resource that references a specific secret in an externa
 | `remoteName` | string | Identifier of the secret in the external provider |
 
 The format of `remoteName` is provider-specific. For Vault, it is a composite key: `<mount>/<path>/<key>` (e.g., `secret/platform/keys/api_key`).
-
-### Relationship to Env Variable References
-
-The existing env variable reference system already supports secrets via `kind: "vault"` references that are resolved at runtime by the reference resolver. The Secret resource does not replace that mechanism — it provides an internal identity layer on top of it.
-
-Env variable configs can continue using inline vault references (`kind: "vault"`, `path`, `key`). The Secret resource gives the platform a way to track which secrets exist, which resources depend on them, and detect broken references before runtime.
 
 ---
 
