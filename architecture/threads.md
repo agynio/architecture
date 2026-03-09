@@ -11,7 +11,7 @@ Threads is the messaging service for conversations between participants. A singl
 | **CreateThread** | Create a new thread with initial participants |
 | **ArchiveThread** | Archive a thread (soft-delete) |
 | **AddParticipant** | Add a participant (human or agent) to an existing thread |
-| **SendMessage** | Send a message to a thread |
+| **SendMessage** | Send a message to a thread (text and/or file references) |
 | **GetThreads** | List threads with pagination |
 | **GetMessages** | List messages in a thread with pagination |
 
@@ -42,7 +42,8 @@ Threads is the messaging service for conversations between participants. A singl
 | `id` | string (UUID) | Unique message identifier |
 | `thread_id` | string (UUID) | Parent thread |
 | `sender_id` | string (UUID) | Participant who sent the message |
-| `body` | string | Message content |
+| `body` | string | Text content |
+| `files` | list | Attached file references (may be empty). See [Media](media.md) |
 | `read_status` | map | Per-participant read status |
 | `created_at` | timestamp | When the message was sent |
 

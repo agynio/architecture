@@ -77,6 +77,7 @@ graph TB
 | PostgreSQL | Primary relational store (agent state, platform data) |
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
+| Object Storage (S3) | Media file storage for thread message attachments (MinIO locally, any S3-compatible in production) |
 
 ## Repository Map
 

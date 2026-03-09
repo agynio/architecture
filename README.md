@@ -16,6 +16,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
+| [Media](architecture/media.md) | File attachments in thread messages |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
 | [Runner](architecture/runner.md) | Workload execution service |
 | [Teams](architecture/teams.md) | Team resource management |
