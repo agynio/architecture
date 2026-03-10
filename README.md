@@ -37,7 +37,6 @@ How services are built, deployed, run locally, and configured.
 | [CI/CD](architecture/operations/ci-cd.md) | Image and Helm chart publishing via GitHub Actions |
 | [Local Development](architecture/operations/local-development.md) | Bootstrap cluster and DevSpace inner loop |
 | [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
-| [New Service Development](architecture/operations/new-service.md) | End-to-end process: API schema → implementation → CI/CD → bootstrap → E2E tests |
 
 ### [Gaps](gaps/) — Current State vs. Desired & Roadmap
 
