@@ -14,7 +14,7 @@ An agent definition that determines how an agent workload behaves when processin
 |-------|------|---------|-------------|
 | `name` | string | | Friendly name (max 64 chars) |
 | `role` | string | | Role label (max 64 chars) |
-| `model` | string | `"gpt-5"` | LLM model identifier |
+| `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource |
 | `systemPrompt` | string | `"You are a helpful AI assistant."` | System prompt injected at start of each turn |
 | `debounceMs` | integer | `0` | Debounce window (ms) for message buffer. `0` = no debounce |
 | `whenBusy` | enum | `"wait"` | `"wait"` — queue new messages for next turn. `"injectAfterTools"` — inject into current turn after tool calls |
@@ -138,3 +138,50 @@ Several resources accept environment variables. The `value` field supports two f
 ```
 
 Vault and variable references are resolved at runtime by the platform. The resolved value is never stored in config or state.
+
+
+---
+
+## LLM Provider
+
+A connection to an external LLM service. See [Providers, Models, and Secrets](providers.md) for the full design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `endpoint` | string | | Base URL of the provider API |
+| `authMethod` | enum | `"bearer"` | Authentication method: `bearer` |
+| `token` | string | | Authentication token |
+
+---
+
+## Model
+
+An internal model definition mapped to a remote model on an LLM provider. See [Providers, Models, and Secrets](providers.md) for the full design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Internal display name |
+| `llmProvider` | string (UUID) | | Reference to an LLM Provider resource |
+| `remoteName` | string | | Model identifier on the provider's side |
+
+---
+
+## Secret Provider
+
+A connection to an external secret management system. See [Providers, Models, and Secrets](providers.md) for the full design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | enum | | Provider type: `vault` |
+| `config` | object | | Provider-specific connection config (see provider doc) |
+
+---
+
+## Secret
+
+An internal reference to a secret in an external provider. See [Providers, Models, and Secrets](providers.md) for the full design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `secretProvider` | string (UUID) | | Reference to a Secret Provider resource |
+| `remoteName` | string | | Identifier of the secret in the external provider (e.g., `secret/platform/keys/api_key` for Vault) |
