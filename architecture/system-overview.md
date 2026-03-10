@@ -23,6 +23,8 @@ graph TB
         Threads[Threads]
         Files[Files]
         TokenCounting[Token Counting]
+        LLM[LLM]
+        Secrets[Secrets]
         Notifications[Notifications]
         Runner[Runner]
         AgentState[Agent State]
@@ -43,6 +45,8 @@ graph TB
     Gateway --> Threads
     Gateway --> Files
     Gateway --> Notifications
+    Gateway --> LLM
+    Gateway --> Secrets
     Channels <--> Threads
     Channels --> Notifications
 
@@ -56,6 +60,7 @@ graph TB
     Agent1 & Agent2 --> AgentState
     Agent1 & Agent2 --> Files
     Agent1 & Agent2 --> TokenCounting
+    Agent1 & Agent2 --> LLM
     Agent1 & Agent2 -.-> Tracing
 
     Teams --> AgentsOrch
@@ -69,6 +74,8 @@ graph TB
 | **Threads** | Conversation messaging between multiple participants (humans and agents) |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
 | **Token Counting** | Per-message token counting for LLM messages. Replaces text-length heuristic for summarization decisions |
+| **LLM** | Manages LLM providers and models. Proxies LLM API calls from agents to providers with injected credentials |
+| **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). Delivers events to relevant clients |
 | **Agents** | Orchestrator that spins up agent workloads for threads with pending messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
