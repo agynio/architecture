@@ -1,29 +1,8 @@
 # Providers, Models, and Secrets
 
-## Problem
-
-Models and secrets are not owned resources — they are proxied from external systems (litellm for models, Vault for secrets). Resources like agents reference a model by raw string name, but the platform has no internal identifier for it. The model must be manually configured in litellm first, and the agent config uses a free-form string with no referential integrity.
-
-The same applies to secrets. There is no internal entity representing a secret, so there is no stable ID to reference or track dependencies against.
-
-## Solution
-
-Four new resource types managed by the Teams service:
-
-1. **LLM Provider** — connection to an LLM service (endpoint + auth)
-2. **Model** — internal model definition, referencing an LLM provider and a remote model name
-3. **Secret Provider** — connection to a secret management system (Vault for now)
-4. **Secret** — internal secret reference, pointing to a named secret in an external provider
-
-Each has a stable internal UUID. Other resources reference models and secrets by ID.
-
----
-
 ## LLM Provider
 
-An LLM provider represents a connection to an external LLM service. It stores the endpoint URL and authentication credentials needed to make API calls.
-
-All LLM providers expose an OpenAI-compatible Responses API. The platform uses the same client for every provider — only the endpoint and auth differ.
+An LLM provider represents a connection to an external LLM service. All LLM providers expose an OpenAI-compatible Responses API. The platform uses the same client for every provider — only the endpoint and auth differ.
 
 ### Resource Definition
 
@@ -33,7 +12,7 @@ All LLM providers expose an OpenAI-compatible Responses API. The platform uses t
 | `authMethod` | enum | Authentication method. Supported: `bearer` |
 | `token` | string | Authentication token (used as Bearer token) |
 
-`authMethod` is `bearer` for now. The field exists so other methods (API key header, mTLS, etc.) can be added later without schema changes.
+`authMethod` is `bearer` for now. The field exists so other methods (API key header, mTLS, etc.) can be added without schema changes.
 
 ### Provisioning Flow
 
@@ -45,7 +24,7 @@ All LLM providers expose an OpenAI-compatible Responses API. The platform uses t
 
 ## Model
 
-A model is an internal resource that maps a human-readable name to a specific model on an LLM provider.
+A model maps an internal name to a specific model on an LLM provider.
 
 ### Resource Definition
 
@@ -61,13 +40,13 @@ A model is an internal resource that maps a human-readable name to a specific mo
 Agent.model → Model.id → Model.llmProvider → LLM Provider (endpoint + token)
 ```
 
-At runtime, the platform resolves: agent → model → LLM provider, then makes API calls using the provider's endpoint, token, and the model's remote name.
+The platform resolves: agent → model → LLM provider, then makes API calls using the provider's endpoint, token, and the model's remote name.
 
 ---
 
 ## Secret Provider
 
-A secret provider represents a connection to an external secret management system. Currently only Vault is supported; the design allows adding other providers later.
+A secret provider represents a connection to an external secret management system. Currently only Vault is supported; the design allows adding other providers.
 
 ### Resource Definition
 
@@ -87,7 +66,7 @@ A secret provider represents a connection to an external secret management syste
 
 ## Secret
 
-A secret is an internal resource that references a specific secret in an external provider. It gives the platform a stable ID for a secret value without storing the secret itself.
+A secret references a specific secret in an external provider. The platform stores a stable ID for the secret without storing the secret value itself.
 
 ### Resource Definition
 
