@@ -45,14 +45,7 @@ For Vault, `remoteName` is a composite key (`<mount>/<path>/<key>`). The service
 
 CRUD operations for secret provider resources. See [Providers, Models, and Secrets](providers.md#secret-provider) for the resource definition.
 
-### Validation
-
-On create and update, the service validates connectivity to the external provider (e.g., Vault health check with the provided address and token).
 
 ## Secret Management
 
 CRUD operations for secret resources. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
-
-### Validation
-
-On create and update, the service validates that the referenced secret provider exists.

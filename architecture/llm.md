@@ -51,14 +51,7 @@ The proxy supports streaming responses. When the agent requests a streaming resp
 
 CRUD operations for LLM provider resources. See [Providers, Models, and Secrets](providers.md#llm-provider) for the resource definition.
 
-### Validation
-
-On create and update, the service validates that the endpoint is reachable and the token is accepted. A test request (e.g., a lightweight model list or health check) is sent to the provider's endpoint.
 
 ## Model Management
 
 CRUD operations for model resources. See [Providers, Models, and Secrets](providers.md#model) for the resource definition.
-
-### Validation
-
-On create and update, the service validates that the referenced LLM provider exists. Optionally, a test completion request can verify that the remote model name is valid on the provider.
