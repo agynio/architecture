@@ -19,6 +19,8 @@ Target architecture of the platform. Describes how the system should work.
 | [Media](architecture/media.md) | File attachments in thread messages |
 | [Token Counting](architecture/token-counting.md) | Per-message token counting service |
 | [Providers, Models, and Secrets](architecture/providers.md) | LLM provider / model and secret provider / secret resource ownership |
+| [LLM](architecture/llm.md) | LLM provider/model management and LLM call proxy |
+| [Secrets](architecture/secrets.md) | Secret provider/secret management and secret resolution |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
 | [Runner](architecture/runner.md) | Workload execution service |
 | [Teams](architecture/teams.md) | Team resource management |
