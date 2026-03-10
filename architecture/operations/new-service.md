@@ -134,92 +134,18 @@ On `v*.*.*` tag push:
 
 ## Bootstrap
 
-Register the service in `agynio/bootstrap_v2` so it is deployed in the local cluster.
-
-### Steps
-
-1. Add Terraform variables for the service's chart version, image tag overrides, and configuration values (DB passwords, endpoints, etc.).
-2. Add a `locals` block that builds the Helm values for the service (image, config, resource references).
-3. Add an `argocd_application` resource that deploys the chart from GHCR into the `platform` namespace with the appropriate sync wave.
-4. If the service requires a database, add a `kubernetes_stateful_set_v1` for the database (PostgreSQL) with its PVC, and wire the connection string into the service values.
-5. If the service requires an Istio VirtualService (externally reachable), add the routing manifest.
-
-### Argo CD Application Pattern
-
-```hcl
-resource "argocd_application" "<service>" {
-  metadata {
-    name      = "<service>"
-    namespace = "argocd"
-    annotations = {
-      "argocd.argoproj.io/sync-wave" = "<wave>"
-    }
-  }
-
-  spec {
-    project = "default"
-
-    source {
-      repo_url        = local.platform_chart_repo_host
-      chart           = "agynio/charts/<service>"
-      target_revision = var.<service>_chart_version
-
-      helm {
-        values = local.<service>_values
-      }
-    }
-
-    destination {
-      server    = var.destination_server
-      namespace = var.platform_namespace
-    }
-
-    sync_policy {
-      # automated sync based on bootstrap-level toggles
-    }
-  }
-}
-```
-
-### DevSpace
-
-Add a `devspace.yaml` to the service repo for inner-loop development against the bootstrap cluster (see [Local Development](local-development.md)).
+Register the service in `agynio/bootstrap_v2` so it is deployed in the local cluster. See [Local Development](local-development.md) for how bootstrap provisions the cluster.
 
 ---
 
 ## E2E Tests
 
-Each service includes automated end-to-end tests that verify behavior in a real cluster with real dependencies.
+Each service includes automated end-to-end tests that verify behavior against a running environment provisioned by bootstrap.
 
 ### In-Repo E2E Tests
 
-Located in `test/e2e/` within the service repo. These tests start the gRPC server in-process against a real database (PostgreSQL via testcontainers or a dedicated test instance), exercise the full request path through the gRPC API, and verify responses.
+Located in `test/e2e/` within the service repo. These tests run against the bootstrap cluster — the full platform environment with all services and dependencies running. Tests exercise the service's gRPC API and verify responses.
 
-Pattern (Go):
+### E2E Tests in CI
 
-1. Spin up the database (testcontainers or connect to a running instance).
-2. Apply migrations.
-3. Start the gRPC server on a random port.
-4. Create a gRPC client.
-5. Run test cases: create, get, list, update, delete resources; verify responses and error codes.
-
-### Smoke Tests in CI (Kind)
-
-For services with external dependencies (Redis, object storage, etc.), a Kind-based smoke test workflow runs in CI:
-
-1. Build the container image.
-2. Create a Kind cluster.
-3. Load the image into Kind.
-4. Install dependencies via Helm (Redis, MinIO, etc.).
-5. Install the service chart with the test image.
-6. Port-forward the service.
-7. Run smoke tests from `test/smoke/`.
-
-### What to Test
-
-| Category | Examples |
-|----------|---------|
-| CRUD operations | Create, get, list, update, delete for each resource type |
-| Reference integrity | Creating a resource with a non-existent foreign reference returns an error |
-| Proxy / resolution | For services with proxy endpoints (e.g., LLM proxy), verify request forwarding and response passthrough |
-| Error cases | Invalid input, not found, duplicate creation |
+A CI workflow provisions the environment using bootstrap and runs the E2E tests against it. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
