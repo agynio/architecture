@@ -22,6 +22,7 @@ Services **do not** commit generated schema code in their own repositories. They
 |---------|-----------|
 | Runner | `agynio/api/runner/v1/runner.proto` |
 | Notifications | `agynio/api/notifications/v1/notifications.proto` |
+| Files | `agynio/api/files/v1/files.proto` |
 | Agent State | `agynio/api/agent_state/v1/agent_state.proto` |
 
 ### Conventions

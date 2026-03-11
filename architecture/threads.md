@@ -43,7 +43,7 @@ Threads is the messaging service for conversations between participants. A singl
 | `thread_id` | string (UUID) | Parent thread |
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
-| `files` | list of string (UUID) | Referenced file IDs (may be empty). See [Media](media.md) |
+| `files` | list of string (UUID) | Referenced file IDs (may be empty). See [Media API](media.md#api) |
 | `tokens` | integer | Token count for this message. Computed once at creation via [Token Counting](token-counting.md) |
 | `read_status` | map | Per-participant read status |
 | `created_at` | timestamp | When the message was sent |
