@@ -38,16 +38,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Filesystem Store Migration
-
-**Context:** Graph definitions use a filesystem-based dataset. Other services use PostgreSQL and Redis.
-
-**Questions:**
-- Will the filesystem store be migrated to PostgreSQL or another store?
-- If not, how is it backed up and replicated in k8s (PVCs, object storage)?
-
----
-
 ## Scheduler Service
 
 **Context:** Currently the Runner is purely data plane (executes workloads). A separate **Scheduler** service may be needed in the control plane to decide *what* and *when* to run.
