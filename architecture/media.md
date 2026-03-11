@@ -221,7 +221,6 @@ The Message model gains an optional `files` field:
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
 | `files` | list of string (UUID) | Referenced file IDs (may be empty) |
-| `tokens` | integer | Token count for this message. Computed once at creation via [Token Counting](token-counting.md) |
 | `read_status` | map | Per-participant read status |
 | `created_at` | timestamp | When the message was sent |
 
@@ -229,4 +228,4 @@ Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by cal
 
 ## Context Size and Summarization
 
-Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored per message at creation time and used by the summarization reducer.
+Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored in the Agent State service and used by the summarization reducer.

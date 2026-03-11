@@ -61,6 +61,4 @@ The response array has the same length as the input `messages` array. Each eleme
 
 ## Token Storage
 
-Tokens are counted **once** when a message is created and the count is stored in the message entity in the database. This avoids calling the Token Counting service repeatedly for the same messages.
-
-The summarization reducer reads the stored token count from each message rather than re-counting. It sums the per-message counts to decide whether to summarize (`maxTokens` threshold) and uses them for the head/tail split (`keepTokens` budget).
+The agent counts tokens once when it processes a message and persists the count in the Agent State service. The summarization reducer reads stored token counts from agent state rather than re-counting. It sums the per-message counts to decide whether to summarize (`maxTokens` threshold) and uses them for the head/tail split (`keepTokens` budget).
