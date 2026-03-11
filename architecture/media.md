@@ -10,30 +10,30 @@ Users can attach files to messages in thread conversations. Media files are stor
 sequenceDiagram
     participant C as Client
     participant GW as Gateway
-    participant F as Files
+    participant F as Files (gRPC)
     participant OS as Object Storage
-    participant Th as Threads
+    participant Th as Threads (gRPC)
     participant Ag as Agent
     participant LLM as LLM Provider
 
-    C->>GW: Upload file (multipart)
-    GW->>F: Store file
+    C->>GW: Upload file (multipart REST)
+    GW->>F: UploadFile (client-streaming gRPC)
     F->>OS: PUT object
-    F-->>GW: File reference {id, filename, contentType, sizeBytes}
-    GW-->>C: File reference
+    F-->>GW: UploadFileResponse {id, filename, content_type, size_bytes}
+    GW-->>C: File reference (REST)
 
     C->>GW: SendMessage {text, files: [{id}]}
-    GW->>Th: Store message with file IDs
+    GW->>Th: SendMessage (gRPC)
     Th-->>GW: Message stored
 
     Note over Ag: Agent picks up message
-    Ag->>Th: GetMessages
+    Ag->>Th: GetMessages (gRPC)
     Th-->>Ag: Messages with file IDs
-    Ag->>F: Resolve file IDs → pre-signed URLs
+    Ag->>F: GetDownloadUrl (gRPC)
     F-->>Ag: Pre-signed download URLs
     Ag->>LLM: File URLs as part of conversation context
     LLM-->>Ag: Response
-    Ag->>Th: Post response
+    Ag->>Th: SendMessage (gRPC)
 ```
 
 ## Files Service
@@ -45,7 +45,7 @@ A dedicated service responsible for file upload, metadata storage, and download 
 | Responsibility | Description |
 |---------------|-------------|
 | **Upload** | Accept file content, store in object storage, persist metadata |
-| **Metadata** | Store and serve file metadata (filename, contentType, sizeBytes) |
+| **Metadata** | Store and serve file metadata (filename, content_type, size_bytes) |
 | **Download URLs** | Generate pre-signed URLs for file access on demand |
 
 ### File Record
@@ -54,8 +54,8 @@ A dedicated service responsible for file upload, metadata storage, and download 
 |-------|------|-------------|
 | `id` | string (UUID) | Unique file identifier |
 | `filename` | string | Original filename |
-| `contentType` | string | MIME type |
-| `sizeBytes` | integer | File size in bytes |
+| `content_type` | string | MIME type |
+| `size_bytes` | integer | File size in bytes |
 | `created_at` | timestamp | Upload time |
 
 ### Classification
@@ -98,61 +98,94 @@ Pre-signed URL expiration should be long enough for LLM provider processing (rec
 
 ## API
 
-### Upload
+### Proto Definition
 
-```
-POST /files
-Content-Type: multipart/form-data
-```
+```protobuf
+syntax = "proto3";
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `file` | binary | File content (multipart) |
+package agynio.api.files.v1;
 
-**Response** (`201 Created`):
+import "google/protobuf/timestamp.proto";
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string (UUID) | File identifier |
-| `filename` | string | Original filename |
-| `contentType` | string | MIME type |
-| `sizeBytes` | integer | File size in bytes |
+option go_package = "github.com/agynio/api/gen/agynio/api/files/v1;filesv1";
 
-### Get Download URL
-
-```
-GET /files/{fileId}/url
+service FilesService {
+  // Client-side streaming upload. First message = metadata, subsequent = chunks.
+  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+  rpc GetDownloadUrl(GetDownloadUrlRequest) returns (GetDownloadUrlResponse);
+  rpc GetFileMetadata(GetFileMetadataRequest) returns (GetFileMetadataResponse);
+}
 ```
 
-**Response** (`200 OK`):
+### Messages
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `url` | string | Pre-signed download URL |
-| `expiresAt` | timestamp | URL expiration time |
+```protobuf
+message UploadFileRequest {
+  oneof payload {
+    UploadFileMetadata metadata = 1;  // MUST be first message
+    bytes chunk_data = 2;             // Subsequent messages
+  }
+}
 
-### Get File Metadata
+message UploadFileMetadata {
+  string filename = 1;
+  string content_type = 2;
+}
 
+message UploadFileResponse {
+  string id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+}
+
+message GetDownloadUrlRequest {
+  string file_id = 1;
+}
+
+message GetDownloadUrlResponse {
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message GetFileMetadataRequest {
+  string file_id = 1;
+}
+
+message GetFileMetadataResponse {
+  string id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
 ```
-GET /files/{fileId}
-```
 
-**Response** (`200 OK`):
+### Upload Streaming Protocol
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string (UUID) | File identifier |
-| `filename` | string | Original filename |
-| `contentType` | string | MIME type |
-| `sizeBytes` | integer | File size in bytes |
-| `created_at` | timestamp | Upload time |
+1. **Message 1 (metadata):** `UploadFileRequest.metadata` with `filename` and `content_type`.
+2. **Messages 2..N (chunks):** `UploadFileRequest.chunk_data` (recommended 64 KiB chunks).
+3. **Stream close:** Client closes send side. Server computes `size_bytes`, writes to object storage, persists metadata, returns `UploadFileResponse`.
 
-### Constraints
+**Error codes:**
 
-| Constraint | Value |
-|------------|-------|
-| Max file size | TBD (recommended: 20 MB) |
-| Allowed MIME types | TBD (at minimum: images, PDFs, text files, common documents) |
+| Condition | gRPC Status Code |
+|---|---|
+| First message missing metadata | `INVALID_ARGUMENT` |
+| Disallowed MIME type | `INVALID_ARGUMENT` |
+| File exceeds max size | `RESOURCE_EXHAUSTED` |
+| File not found (Get/Download RPCs) | `NOT_FOUND` |
+| Object storage write failure | `INTERNAL` |
+
+### Gateway Translation (External REST → Internal gRPC)
+
+The Gateway receives `POST /files` (multipart/form-data) from external clients and translates to the `UploadFile` client-streaming gRPC call:
+
+1. Parse multipart form, extract `filename`, `content_type`, body stream.
+2. Open `UploadFile` stream, send metadata message first.
+3. Read file body in 64 KiB chunks, stream as `chunk_data` messages (no full-file buffering).
+4. Close stream, await response, translate to HTTP 201 JSON response.
+5. Map gRPC errors → HTTP: `INVALID_ARGUMENT` → 400, `RESOURCE_EXHAUSTED` → 413, `INTERNAL` → 502.
 
 ## Threads Integration
 

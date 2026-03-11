@@ -21,11 +21,13 @@ graph TB
     subgraph Platform
         Threads
         Notifications
+        Files
         Tracing
     end
 
     Impl -->|read messages| Threads
     Impl -->|post responses| Threads
+    Impl -->|resolve files| Files
     Impl -->|subscribe| Notifications
     Impl -.->|optional| Tracing
 ```
@@ -33,6 +35,7 @@ graph TB
 | Responsibility | Description |
 |---------------|-------------|
 | **Read messages** | Pull pending messages from the assigned thread via Threads API |
+| **Resolve file URLs** | Request pre-signed download URLs for file references via Files API |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for new-message events to react without polling delay |
@@ -79,7 +82,7 @@ sequenceDiagram
 
 - **Notifications are signals, not data.** The notification tells the agent "something happened on your thread." The agent always reads the actual messages from the Threads API. This keeps the Threads API as the single source of truth.
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream) and Threads (gRPC calls). No server, no open port, no service discovery per agent.
+- **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), and Files (gRPC calls). No server, no open port, no service discovery per agent.
 
 ## Tools
 

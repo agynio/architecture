@@ -24,6 +24,7 @@ graph LR
         S9[Agents orchestrator]
         S10[Tracing service]
         S11[k8s-runner]
+        S12[Files service]
     end
 
     S1 --> S5
@@ -33,6 +34,7 @@ graph LR
 
     S5 --> S6 --> S7
     S7 --> S8 --> S9
+    S7 --> S12
     S9 --> S10 & S11
 ```
 
@@ -98,6 +100,14 @@ New service replacing the removed tracing stack:
 
 - Extended OpenTelemetry protocol for real-time in-progress events.
 - Ingestion and query APIs.
+
+### Files Service
+
+New data plane service for file attachments:
+
+- gRPC API for upload, metadata, and download URLs.
+- Object storage integration with metadata persistence.
+- Gateway streams multipart uploads to the gRPC client-streaming API.
 
 ### k8s-runner
 

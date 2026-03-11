@@ -8,6 +8,7 @@ The Gateway exposes platform methods for external usage. It is the single entry 
 
 - Route external API requests to internal services.
 - Translate between external (OpenAPI/REST) and internal protocols.
+- Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
 - Validate requests and responses against OpenAPI specs.
 - Handle authentication at the boundary.
 
