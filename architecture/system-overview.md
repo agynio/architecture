@@ -38,7 +38,12 @@ graph TB
         MCP2[MCP Server]
     end
 
-    WebApp & MobileApp --> Gateway
+    subgraph Monolith
+        PS[platform-server]
+    end
+
+    WebApp & MobileApp -- "/apiv2/" --> Gateway
+    WebApp & MobileApp -- "/api" --> PS
     ThirdParty <--> Channels
     WebApp & MobileApp --> Channels
 
@@ -82,7 +87,7 @@ graph TB
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
-| **Gateway** | Exposes platform methods for external usage |
+| **Gateway** | Exposes platform methods for external usage. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
 
 ## Data Stores
 

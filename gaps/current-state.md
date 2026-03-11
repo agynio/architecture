@@ -41,6 +41,7 @@ graph TB
 | Language | Go |
 | API | REST (OpenAPI 3.0.3), proxy to platform-server |
 | Current scope | Team Management API (`/team/v1/`) with request/response validation. Proxies `/api/*` and `/health` to upstream platform-server |
+| Ingress | `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped). The UI uses the path-based route |
 | Helm chart | `charts/gateway/` |
 | Dependencies | Platform-server (upstream proxy target) |
 | Gap | Currently proxies most routes to monolith. Needs to route to individual services as they are extracted |
@@ -90,6 +91,17 @@ These components exist inside `agynio/platform` (`packages/platform-server`) and
 | Channels (Slack trigger) | `packages/platform-server/src/nodes/` (trigger nodes) | Standalone Channels service |
 | Agents orchestrator | `packages/platform-server/src/agents/` | Standalone control plane service |
 | Tracing | Removed (issue #760). Historical references remain | New standalone Tracing service |
+
+### Platform UI — API Consumption
+
+The web app (platform-ui) consumes two API base paths on the same origin (`agyn.dev`):
+
+| Base Path | Backend | Content |
+|-----------|---------|---------|
+| `/api` | platform-server (monolith) | Legacy REST API — all current platform functionality |
+| `/apiv2/` | gateway (new services) | New REST API — Team Management, future extracted services |
+
+As services are extracted from the monolith and exposed through the gateway, endpoints migrate from `/api` to `/apiv2/`. The `/api` path will be removed when the monolith is fully decomposed.
 
 ## Monolith Components
 
