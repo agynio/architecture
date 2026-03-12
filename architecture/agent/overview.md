@@ -39,7 +39,7 @@ graph TB
 | **Resolve file URLs** | Request pre-signed download URLs for file references via Files API |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
-| **Subscribe to notifications** | Listen for `message.created` events on `participant:{agentId}` room |
+| **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
@@ -58,7 +58,7 @@ sequenceDiagram
     participant T as Threads
 
     Note over A: Startup
-    A->>N: Subscribe to participant:{agentId} room
+    A->>N: Subscribe to thread_participant:{agentId} room
     A->>T: GetUnackedMessages(agentId)
     A->>A: Process messages
     A->>T: AckMessages
@@ -77,15 +77,14 @@ sequenceDiagram
     A->>T: AckMessages
 ```
 
-1. On startup, the agent subscribes to its `participant:{agentId}` notification room and pulls unacknowledged messages from Threads.
-2. During processing, new messages may arrive. The Notifications service delivers a `message.created` event instantly, waking the agent to check for new messages at the appropriate point in its processing loop.
+1. On startup, the agent subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages from Threads via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+2. During processing, new messages may arrive. The Notifications service delivers a `message.created` event, waking the agent to check for new messages at the appropriate point in its processing loop.
 3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
 4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.
-5. The polling loop is a **fallback** — it catches anything missed during notification gaps (reconnects, race conditions). The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
+5. The polling loop is a **fallback**. The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
 
 ### Design Principles
 
-- **Notifications are signals, not data.** The notification tells the agent "something happened." The agent always reads the actual messages from the Threads API. This keeps the Threads API as the single source of truth.
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
 - **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), and Files (gRPC calls). No server, no open port, no service discovery per agent.
 
@@ -114,7 +113,7 @@ sequenceDiagram
     participant T as Threads
     participant N as Notifications
 
-    W->>N: Subscribe to participant:{agentId} room
+    W->>N: Subscribe to thread_participant:{agentId} room
     W->>CLI: Start process with config
     W->>MCP: Start MCP servers
     W->>CLI: Connect MCP servers

@@ -80,15 +80,27 @@ Rooms are scoped by resource type and ID:
 
 | Pattern | Example | Used by |
 |---------|---------|---------|
-| `participant:{id}` | `participant:550e8400-...` | Threads → message recipients (agents, channels, users) |
+| `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, channels, users) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
 | `agent:{id}` | `agent:f47ac10b-...` | Teams → agent resource updates |
 
-Consumers subscribe to rooms matching their identity or the resources they observe. A channel subscribes to `participant:{channelId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
+Consumers subscribe to rooms matching their identity or the resources they observe. A channel subscribes to `thread_participant:{channelId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
 
 ## Delivery Guarantees
 
-Notifications provides **fire-and-forget delivery**. Events may be lost due to network issues, consumer disconnects, or slow consumer eviction. Consumers must treat notifications as latency optimization, not as a reliable delivery mechanism. The source of truth is always the owning service's database, accessed via pull (e.g., `GetUnackedMessages`, `GetWorkload`).
+Notifications provides **fire-and-forget delivery**. Events may be lost due to network issues, consumer disconnects, or slow consumer eviction. The source of truth is always the owning service's database, accessed via pull (e.g., `GetUnackedMessages`, `GetWorkload`).
+
+### Consumer Sync Protocol
+
+Consumers must follow this protocol to avoid duplicates and ordering races when combining notifications with pull:
+
+1. **Subscribe** to the relevant notification room(s).
+2. **Buffer** incoming events (do not process yet).
+3. **Fetch** current state from the owning service (e.g., `GetUnackedMessages`).
+4. **Discard** buffered events already covered by the fetch result.
+5. **Apply** remaining buffered events and continue processing real-time events.
+
+On reconnect, repeat from step 1. The fetch in step 3 guarantees no messages are lost — notifications only reduce latency between fetches.
 
 ## Internal Design
 

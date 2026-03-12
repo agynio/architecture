@@ -72,6 +72,6 @@ This separation handles crash recovery: a consumer can read messages, process th
 
 ## Notification Publishing
 
-On `SendMessage`, Threads publishes a `message.created` event to the [Notifications](notifications.md) service for each recipient. The target room is `participant:{participantId}`. Each consumer subscribes to its own room — one subscription regardless of how many threads it participates in.
+On `SendMessage`, Threads publishes a `message.created` event to the [Notifications](notifications.md) service for each recipient. The target room is `thread_participant:{participantId}`. Each consumer subscribes to its own room — one subscription regardless of how many threads it participates in.
 
-Notifications are fire-and-forget signals. The source of truth is the `MessageRecipient` table. Consumers that miss a notification discover the message on their next `GetUnackedMessages` pull.
+Consumers combine notifications with pull to avoid duplicates — see [Consumer Sync Protocol](notifications.md#consumer-sync-protocol).

@@ -42,7 +42,7 @@ sequenceDiagram
 
 ### Outbound
 
-1. Channel receives a `message.created` notification on its `participant:{channelId}` room.
+1. Channel receives a `message.created` notification on its `thread_participant:{channelId}` room.
 2. Channel pulls unacknowledged messages via `GetUnackedMessages(channelId)` — returns messages from all threads the channel participates in.
 3. Channel translates and sends the messages to the 3rd-party API.
 4. Channel acknowledges the messages via `AckMessages`.
