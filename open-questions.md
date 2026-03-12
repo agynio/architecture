@@ -22,29 +22,17 @@ Unresolved architectural decisions requiring discussion.
 
 **Questions:**
 - Dedicated PostgreSQL schema or separate database?
-- How does Threads interact with Agents orchestrator? (Notifications-based? Direct callback? Polling?)
-- Does Threads own read-status tracking, or is that a consumer concern?
 
 ---
 
 ## Channel Interface Definition
 
-**Context:** Channels need a formal interface that all implementations (Slack, web app, mobile app) must satisfy.
+**Context:** Channels need a formal interface that all implementations (Slack, etc.) must satisfy.
 
 **Questions:**
 - Is the channel interface a gRPC service contract, a container contract, or an SDK/library interface?
 - How are channel credentials managed and rotated?
 - How does the control plane detect unhealthy channel connections for reconciliation?
-
----
-
-## Filesystem Store Migration
-
-**Context:** Graph definitions use a filesystem-based dataset. Other services use PostgreSQL and Redis.
-
-**Questions:**
-- Will the filesystem store be migrated to PostgreSQL or another store?
-- If not, how is it backed up and replicated in k8s (PVCs, object storage)?
 
 ---
 

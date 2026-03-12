@@ -25,7 +25,7 @@ graph TB
         Tracing
     end
 
-    Impl -->|read messages| Threads
+    Impl -->|read/ack messages| Threads
     Impl -->|post responses| Threads
     Impl -->|resolve files| Files
     Impl -->|subscribe| Notifications
@@ -34,11 +34,12 @@ graph TB
 
 | Responsibility | Description |
 |---------------|-------------|
-| **Read messages** | Pull pending messages from the assigned thread via Threads API |
+| **Read messages** | Pull unacknowledged messages via `GetUnackedMessages` |
+| **Acknowledge messages** | Call `AckMessages` after successful processing |
 | **Resolve file URLs** | Request pre-signed download URLs for file references via Files API |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
-| **Subscribe to notifications** | Listen for new-message events to react without polling delay |
+| **Subscribe to notifications** | Listen for `message.created` events on `participant:{agentId}` room |
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
@@ -57,30 +58,34 @@ sequenceDiagram
     participant T as Threads
 
     Note over A: Startup
-    A->>N: Subscribe to thread room
-    A->>T: GetMessages (unread)
+    A->>N: Subscribe to participant:{agentId} room
+    A->>T: GetUnackedMessages(agentId)
     A->>A: Process messages
+    A->>T: AckMessages
 
     Note over A: Mid-run: new message arrives
-    N-->>A: message.created event
-    A->>T: GetMessages (unread)
+    N-->>A: message.created
+    A->>T: GetUnackedMessages(agentId)
     A->>A: Process new messages
+    A->>T: AckMessages
 
     Note over A: Idle: no messages
     A->>A: Wait for notification or poll interval
-    N-->>A: message.created event
-    A->>T: GetMessages (unread)
+    N-->>A: message.created
+    A->>T: GetUnackedMessages(agentId)
     A->>A: Process messages
+    A->>T: AckMessages
 ```
 
-1. On startup, the agent subscribes to notifications for its thread and pulls pending messages from the Threads API.
+1. On startup, the agent subscribes to its `participant:{agentId}` notification room and pulls unacknowledged messages from Threads.
 2. During processing, new messages may arrive. The Notifications service delivers a `message.created` event instantly, waking the agent to check for new messages at the appropriate point in its processing loop.
-3. When idle (current turn complete, no pending messages), the agent waits for either a notification or the poll interval to expire, then checks again.
-4. The polling loop is a **fallback** — it catches anything missed during notification gaps (reconnects, race conditions). The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
+3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
+4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.
+5. The polling loop is a **fallback** — it catches anything missed during notification gaps (reconnects, race conditions). The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
 
 ### Design Principles
 
-- **Notifications are signals, not data.** The notification tells the agent "something happened on your thread." The agent always reads the actual messages from the Threads API. This keeps the Threads API as the single source of truth.
+- **Notifications are signals, not data.** The notification tells the agent "something happened." The agent always reads the actual messages from the Threads API. This keeps the Threads API as the single source of truth.
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
 - **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), and Files (gRPC calls). No server, no open port, no service discovery per agent.
 
@@ -109,29 +114,31 @@ sequenceDiagram
     participant T as Threads
     participant N as Notifications
 
-    W->>N: Subscribe to thread room
+    W->>N: Subscribe to participant:{agentId} room
     W->>CLI: Start process with config
     W->>MCP: Start MCP servers
     W->>CLI: Connect MCP servers
-    W->>T: GetMessages (unread)
+    W->>T: GetUnackedMessages(agentId)
     W->>CLI: Feed messages
     CLI->>MCP: Tool calls
     MCP-->>CLI: Tool results
     CLI-->>W: Output
     W->>T: Post response to thread
+    W->>T: AckMessages
     Note over W: Wait for notification or poll
     N-->>W: message.created
-    W->>T: GetMessages (unread)
+    W->>T: GetUnackedMessages(agentId)
     W->>CLI: Feed new messages
 ```
 
 The wrapper:
-1. Subscribes to notifications for the assigned thread.
+1. Subscribes to notifications for the agent's participant room.
 2. Starts the agent CLI process with configuration.
 3. Connects MCP tool servers to the agent.
-4. Pulls messages from Threads and feeds them to the CLI.
+4. Pulls unacknowledged messages from Threads and feeds them to the CLI.
 5. Collects CLI output and posts responses to the thread.
-6. Waits for notifications or poll fallback for new messages.
+6. Acknowledges processed messages via `AckMessages`.
+7. Waits for notifications or poll fallback for new messages.
 
 ## Lifecycle
 
@@ -142,10 +149,10 @@ sequenceDiagram
     participant R as Runner
     participant A as Agent Container
 
-    T->>O: Pending message (reconciliation loop)
+    T->>O: Unacknowledged messages (reconciliation loop)
     O->>R: StartWorkload
     R->>A: Create container
-    A->>A: Subscribe, pull, process
+    A->>A: Subscribe, pull, process, ack
     A->>T: Post response
 
     Note over A,O: Agent idle, waiting for messages
@@ -154,10 +161,10 @@ sequenceDiagram
     O->>R: StopWorkload
 ```
 
-1. The orchestrator's reconciliation loop detects threads with pending messages.
+1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
 2. Orchestrator requests Runner to start an agent workload with thread ID and agent config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent subscribes to notifications, pulls messages, processes, posts responses.
+4. Agent subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
 5. Agent waits for new messages (notification or poll fallback).
 6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the workload via Runner.
 
