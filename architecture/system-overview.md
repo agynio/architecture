@@ -19,6 +19,7 @@ graph TB
 
     subgraph Data Plane
         Gateway[Gateway]
+        Chat[Chat]
         Channels[Channels]
         Threads[Threads]
         Files[Files]
@@ -45,23 +46,24 @@ graph TB
     WebApp & MobileApp -- "/apiv2/" --> Gateway
     WebApp & MobileApp -- "/api" --> PS
     ThirdParty <--> Channels
-    WebApp & MobileApp --> Channels
 
-    Gateway --> Threads
+    Gateway --> Chat
     Gateway --> Files
     Gateway --> Notifications
     Gateway --> LLM
     Gateway --> Secrets
-    Channels <--> Threads
-    Channels --> Notifications
+    Chat --> Threads
+    Channels --> Threads
 
-    Threads --> Notifications
+    Threads -->|publish events| Notifications
     AgentsOrch --> Runner
     AgentsOrch --> Threads
 
     Runner --> Agent1 & Agent2
     Agent1 --> MCP1
     Agent2 --> MCP2
+    Agent1 & Agent2 --> Threads
+    Agent1 & Agent2 --> Notifications
     Agent1 & Agent2 --> AgentState
     Agent1 & Agent2 --> Files
     Agent1 & Agent2 --> TokenCounting
@@ -75,14 +77,15 @@ graph TB
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) and own apps (web, mobile) with Threads |
-| **Threads** | Conversation messaging between multiple participants (humans and agents) |
+| **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
+| **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
+| **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
-| **Token Counting** | Per-message token counting for LLM messages. Replaces text-length heuristic for summarization decisions |
+| **Token Counting** | Per-message token counting for LLM messages |
 | **LLM** | Manages LLM providers and models. Proxies LLM API calls from agents to providers with injected credentials |
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
-| **Notifications** | Real-time event fanout via persistent connections (socket). Delivers events to relevant clients |
-| **Agents** | Orchestrator that spins up agent workloads for threads with pending messages |
+| **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
+| **Agents** | Orchestrator that spins up agent workloads for threads with unacknowledged messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
