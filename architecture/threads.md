@@ -46,6 +46,7 @@ Business logic (chat UX, agent processing, channel integration) is implemented b
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
 | `files` | list of string (UUID) | Referenced file IDs (may be empty). See [Media API](media.md#api) |
+| `ack_status` | map | Per-participant acknowledgment status |
 | `created_at` | timestamp | When the message was sent |
 
 ## Message Acknowledgment

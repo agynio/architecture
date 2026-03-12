@@ -6,13 +6,15 @@ The Chat service implements the built-in web and mobile app chat experience on t
 
 Threads is a generic messaging service. Chat adds the application-level logic specific to the platform's own clients.
 
-## Responsibilities
+## Interface
 
-| Responsibility | Description |
-|---------------|-------------|
-| **Thread lifecycle** | Create threads, add participants, archive threads for the built-in app |
-| **Unread counts** | Track and serve per-user unread message counts based on Threads acknowledgment state |
-| **Message delivery** | Receive messages from the UI via Gateway, forward to Threads |
+| Method | Description |
+|--------|-------------|
+| **CreateChat** | Create a new chat thread between users (and optionally agents) |
+| **GetChats** | List chats for a user with pagination |
+| **GetMessages** | List messages in a chat with pagination and unread count |
+| **SendMessage** | Send a message in a chat |
+| **MarkAsRead** | Mark messages as read for a user (calls Threads AckMessages) |
 
 ## Relationship to Threads
 
