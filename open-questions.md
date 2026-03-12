@@ -22,14 +22,12 @@ Unresolved architectural decisions requiring discussion.
 
 **Questions:**
 - Dedicated PostgreSQL schema or separate database?
-- How does Threads interact with Agents orchestrator? (Notifications-based? Direct callback? Polling?)
-- Does Threads own read-status tracking, or is that a consumer concern?
 
 ---
 
 ## Channel Interface Definition
 
-**Context:** Channels need a formal interface that all implementations (Slack, web app, mobile app) must satisfy.
+**Context:** Channels need a formal interface that all implementations (Slack, etc.) must satisfy.
 
 **Questions:**
 - Is the channel interface a gRPC service contract, a container contract, or an SDK/library interface?
@@ -38,13 +36,22 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Filesystem Store Migration
+## Message Delivery Unification
 
-**Context:** Graph definitions use a filesystem-based dataset. Other services use PostgreSQL and Redis.
+**Context:** Three distinct delivery patterns exist for consuming messages from Threads:
 
-**Questions:**
-- Will the filesystem store be migrated to PostgreSQL or another store?
-- If not, how is it backed up and replicated in k8s (PVCs, object storage)?
+1. **Notifications service** — fire-and-forget socket-based events for real-time web UI. No delivery guarantee.
+2. **Agent pull** — agents read unacknowledged messages when ready, acknowledge after processing. Queue-like semantics.
+3. **Channel push** — channels need guaranteed delivery of outbound messages to external apps.
+
+These patterns need alignment.
+
+**Options:**
+
+1. **Message broker** — Threads publishes messages to a broker (e.g., NATS, Kafka). Consumers subscribe with their own delivery semantics (at-least-once for agents/channels, best-effort for UI).
+2. **Fire-and-forget notifications + pull fallback** — Notifications service delivers real-time signals. All consumers pull unacknowledged messages from Threads as the reliable path. Notifications only reduce latency.
+
+**Decision:** TBD
 
 ---
 

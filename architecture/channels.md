@@ -2,7 +2,9 @@
 
 ## Overview
 
-Channels are the bidirectional interface connecting 3rd-party products and Agyn's own apps with the Threads service. Each channel translates between an external messaging protocol and the internal thread model.
+Channels are the bidirectional interface connecting 3rd-party products with the Threads service. Each channel translates between an external messaging protocol and the internal thread model.
+
+Channels create and manage their own threads based on the logic of the specific integration (e.g., one thread per Slack channel, one thread per Slack thread).
 
 ## Responsibilities
 
@@ -15,22 +17,19 @@ A channel has two concerns:
 
 ```mermaid
 sequenceDiagram
-    participant Ext as External App<br/>(Slack, Web, Mobile)
+    participant Ext as External App<br/>(Slack, etc.)
     participant Ch as Channel
     participant Th as Threads
-    participant N as Notifications
-    participant A as Agent
 
-    Note over Ext,A: Inbound
+    Note over Ext,Th: Inbound
     Ext->>Ch: User sends message
     Ch->>Th: Translate & forward to thread
-    Th->>A: Pending message triggers agent
 
-    Note over Ext,A: Outbound
-    A->>Th: Post response to thread
-    Th->>N: Emit new-message event
-    N->>Ch: Notification delivered
+    Note over Ext,Th: Outbound
+    Ch->>Th: Check for unacknowledged messages
+    Th-->>Ch: Messages
     Ch->>Ext: Translate & forward to external app
+    Ch->>Th: AckMessages
 ```
 
 ### Inbound
@@ -38,18 +37,16 @@ sequenceDiagram
 1. External event arrives (e.g., Slack message).
 2. Channel translates the event into a thread message.
 3. Channel sends the message to Threads.
-4. Pending message triggers the Agents orchestrator.
 
 ### Outbound
 
-1. Agent posts a response to the thread.
-2. Notifications service emits a new-message event.
-3. Channel receives the notification (subscribed to relevant rooms).
-4. Channel translates and sends the message to the 3rd-party API.
+1. Channel detects unacknowledged messages on its threads (via delivery mechanism — see [open question](../open-questions.md#message-delivery-unification)).
+2. Channel translates and sends the messages to the 3rd-party API.
+3. Channel acknowledges the messages via `AckMessages`.
 
 ## Channel Interface
 
-Every channel implementation (Slack, web app, mobile app, etc.) must implement the same channel interface. Agyn's own web and mobile apps are also channel implementations.
+Every channel implementation (Slack, etc.) must implement the same channel interface. The platform's own web and mobile apps are **not** channels — they are served by the [Chat](chat.md) service.
 
 ## Channel Configuration
 

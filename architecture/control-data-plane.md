@@ -36,6 +36,7 @@ graph LR
         Files
         TokenCounting[Token Counting]
         LLM
+        Chat
         Secrets
     end
 
@@ -59,6 +60,7 @@ graph LR
 | **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
 | **LLM** | Data | Proxies LLM API calls from agents to providers on the hot path during agent execution |
 | **Secrets** | Data | Resolves secret values from external providers at runtime |
+| **Chat** | Data | Built-in app chat experience on top of Threads |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
 
 ## Reconciliation
