@@ -221,7 +221,7 @@ The Message model gains an optional `files` field:
 | `sender_id` | string (UUID) | Participant who sent the message |
 | `body` | string | Text content |
 | `files` | list of string (UUID) | Referenced file IDs (may be empty) |
-| `read_status` | map | Per-participant read status |
+| `ack_status` | map | Per-participant acknowledgment status |
 | `created_at` | timestamp | When the message was sent |
 
 Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by calling the Files service.
