@@ -19,7 +19,7 @@ The path-based route allows the web app (platform-ui) to call new gateway-backed
 - Translate between external (OpenAPI/REST) and internal protocols.
 - Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
 - Validate requests and responses against OpenAPI specs.
-- Handle authentication at the boundary.
+- Authenticate requests and resolve identity + tenant context. See [Authentication](authn.md).
 
 ## Classification
 

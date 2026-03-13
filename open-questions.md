@@ -45,6 +45,23 @@ Unresolved architectural decisions requiring discussion.
 - Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
 - What is the scheduling interface? (Request/response? Queue-based? Watch-based?)
 
+
+---
+
+## OpenZiti Integration
+
+**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, channels, runners, and the Agents Orchestrator. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
+
+**Questions:**
+- How does Runner integrate with the OpenZiti Controller API to manage agent identities? (SDK? CLI? REST?)
+- What is the identity lifecycle for agent containers on crash/orphan? (Runner cleanup? TTL on identity? Reconciliation?)
+- How are OpenZiti service policies managed? (Per-agent? Per-tenant? Static set of allowed services?)
+- How does Gateway extract identity from OpenZiti mTLS connections?
+- Can OpenZiti identities carry tenant metadata, or must the platform maintain a separate identity-to-tenant mapping?
+- How does an external runner enroll with the platform's OpenZiti network? (Same service token flow?)
+- What services can agent containers on external runners access? (Only Gateway? Direct access to Threads, Files?)
+- How is end-user identity propagated across internal service boundaries? (gRPC metadata key convention?)
+
 ---
 
 ## Summarization Packaging
