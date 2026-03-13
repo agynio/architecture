@@ -140,12 +140,18 @@ Register the service in `agynio/bootstrap_v2` so it is deployed in the local clu
 
 ## E2E Tests
 
-Each service includes automated end-to-end tests that verify behavior against a running environment provisioned by bootstrap.
+Each service includes end-to-end tests that verify behavior against a running environment provisioned by bootstrap. Tests run **inside the cluster** in a dedicated test pod via DevSpace — the service pods run their pinned release images untouched. See [E2E Testing](e2e-testing.md) for the full methodology.
 
-### In-Repo E2E Tests
+### Structure
 
-Located in `test/e2e/` within the service repo. These tests run against the bootstrap cluster — the full platform environment with all services and dependencies running. Tests exercise the service's gRPC API and verify responses.
+- Tests live in `test/e2e/` within the service repo.
+- Tests connect to services via Kubernetes DNS (e.g., `teams:50051`, `threads:50051`).
+- A separate test pod is deployed by DevSpace using `component-chart`. The dev container image depends on the test language (Go, Node, Playwright, etc.).
+
+### DevSpace Setup
+
+Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart), a `dev.e2e-runner` (sync), and a `pipelines.test:e2e` (deploy → sync → exec → cleanup). The user-facing command is `devspace run test:e2e`. Follow the pattern in [E2E Testing](e2e-testing.md).
 
 ### E2E Tests in CI
 
-A CI workflow provisions the environment using bootstrap and runs the E2E tests against it. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+The CI workflow provisions the environment using bootstrap and runs `devspace run test:e2e` inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
