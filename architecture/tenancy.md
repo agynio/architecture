@@ -12,6 +12,16 @@ The platform supports multiple tenants. A **tenant** is an isolated organization
 | `name` | string | Display name |
 | `created_at` | timestamp | Creation time |
 
+## Users and Tenants
+
+Users authenticate via a system-wide OIDC provider (see [Authentication](authn.md)). After authenticating, a user can:
+
+- **Create a tenant** — becomes the owner.
+- **Be granted access** to an existing tenant by the tenant owner.
+- **Belong to multiple tenants** — selects the active tenant in the UI.
+
+The user-tenant relationship is many-to-many. Tenant membership is managed within the platform, not in the IdP.
+
 ## Resource Scoping
 
 Every resource in the platform belongs to a tenant. The `tenant_id` is present on all resource tables and used in all queries as a mandatory filter.
@@ -34,4 +44,4 @@ Object storage (S3) keys are prefixed with `tenant_id` to partition files by ten
 
 ## Identity and Tenant Association
 
-Every authenticated identity (user, agent, channel, runner) is associated with exactly one tenant. The tenant is resolved during authentication and propagated in request context to all downstream services. See [Authentication](authn.md) for identity types and authentication flows.
+Every authenticated identity (user, agent, channel, runner) is associated with a tenant. For non-user identities (agents, channels, runners), the tenant is fixed — determined at identity creation. For users, the active tenant is selected per session from the user's tenant memberships. The tenant is resolved during authentication and propagated in request context to all downstream services. See [Authentication](authn.md).

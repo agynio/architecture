@@ -8,10 +8,10 @@ The platform authenticates four types of identities. Each identity type has its 
 
 | Type | Description | Authentication Method |
 |------|-------------|----------------------|
-| **User** | Human operator using web/mobile app | OIDC (external IdP) |
-| **Agent** | Agent container calling platform APIs | Network identity (OpenZiti) |
-| **Channel** | Channel service connecting to external apps | Service token |
-| **Runner** | Runner executing workloads | Service token |
+| **User** | Human operator using web/mobile app | OIDC |
+| **Agent** | Agent container calling platform APIs | OpenZiti (network identity) |
+| **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
+| **Runner** | Runner executing workloads | OpenZiti (network identity) |
 
 ## Internal Identity
 
@@ -23,11 +23,11 @@ After authentication, every request carries a resolved identity in its context:
 | `identity_type` | enum | `user`, `agent`, `channel`, `runner` |
 | `tenant_id` | string (UUID) | Tenant this identity belongs to |
 
-All downstream services receive tenant and identity context. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
+All downstream services receive tenant and identity context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
 
 ## User Authentication (OIDC)
 
-Users authenticate via OIDC-compliant identity providers. The platform does not manage user credentials directly.
+Users authenticate via a system-wide OIDC-compliant identity provider. The platform does not manage user credentials directly. After authenticating, users can create tenants or be granted access to existing tenants. See [Multi-Tenancy](tenancy.md).
 
 ### Flow
 
@@ -44,83 +44,181 @@ sequenceDiagram
     U->>GW: Authorization code
     GW->>IdP: Exchange code for tokens
     IdP->>GW: ID token + access token
-    GW->>GW: Validate ID token, resolve tenant + user identity
+    GW->>GW: Validate ID token, resolve user identity
     GW->>U: Session established
 ```
 
 ### Configuration
 
-Each tenant configures its own OIDC provider connection:
+The OIDC provider is configured system-wide (not per-tenant):
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `issuer` | string | OIDC issuer URL (used for discovery) |
 | `client_id` | string | OAuth2 client ID |
 | `client_secret` | string | OAuth2 client secret |
-| `allowed_domains` | list of string | Optional email domain restriction |
 
-Multiple tenants can use the same IdP (e.g., shared Google Workspace) — tenant resolution uses the configured `client_id` and issuer mapping.
+## Network Identity (OpenZiti)
 
-## Agent Authentication (Network Identity)
+Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
 
-Agent containers authenticate via network-level identity. The target architecture uses **OpenZiti** to assign each agent container a unique cryptographic identity at startup.
+### Enrollment
 
-### Target Architecture
+Non-user identities bootstrap onto the OpenZiti network using a **service token**. The token is a one-time bootstrap credential — it is not used for ongoing API authentication.
 
 ```mermaid
 sequenceDiagram
+    participant Admin as Admin / Platform
+    participant SVC as Service (Runner, Channel)
+    participant ZC as OpenZiti Controller
+
+    Admin->>SVC: Provision with service token
+    SVC->>ZC: Present token to enrollment endpoint
+    ZC->>ZC: Validate token, create identity
+    ZC->>SVC: Enrollment JWT
+    SVC->>ZC: Enroll (exchange JWT for x509 cert)
+    Note over SVC: From this point: mTLS via OpenZiti
+```
+
+1. Admin creates a Runner or Channel in the platform. The system generates a service token.
+2. The operator configures the Runner/Channel with the token.
+3. On first start, the service presents the token to the platform's enrollment endpoint.
+4. The platform validates the token, creates an OpenZiti identity, and returns an enrollment JWT.
+5. The service enrolls with the OpenZiti Controller, exchanging the JWT for an x509 certificate.
+6. All subsequent communication uses mTLS. The service token is no longer needed.
+
+### Agent Identity Lifecycle
+
+Agent containers are short-lived. Their OpenZiti identities are created and destroyed with the container.
+
+```mermaid
+sequenceDiagram
+    participant O as Agents Orchestrator
     participant R as Runner
     participant ZC as OpenZiti Controller
     participant A as Agent Container
-    participant GW as Gateway
 
+    O->>R: StartWorkload (via OpenZiti)
     R->>ZC: Create identity for agent
-    ZC->>R: Enrollment token (JWT)
-    R->>A: Start container with enrollment token
+    ZC->>R: Enrollment JWT
+    R->>A: Start container with enrollment JWT
     A->>ZC: Enroll (exchange JWT for x509 cert)
-    A->>GW: API call (mTLS — identity in cert)
-    GW->>GW: Extract identity from cert, resolve tenant
+    A->>A: Call platform APIs via OpenZiti mTLS
+
+    Note over O: Idle timeout exceeded
+    O->>R: StopWorkload (via OpenZiti)
+    R->>A: Stop container
+    R->>ZC: Delete agent identity
 ```
 
-1. Runner requests an OpenZiti identity for the agent container before starting it.
-2. OpenZiti Controller issues a one-time enrollment token.
-3. Agent container enrolls on startup, receiving an x509 certificate.
-4. All API calls from the agent use mTLS. The Gateway extracts identity from the client certificate.
-5. No application-level tokens are stored in or accessible to the agent container.
+1. Runner requests an OpenZiti identity for the agent before starting the container.
+2. Agent container enrolls on startup, receiving an x509 certificate.
+3. All API calls from the agent use mTLS. The Gateway extracts identity from the client certificate.
+4. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
 
-The agent's OpenZiti identity is scoped to specific services (e.g., Gateway, Threads, Files) via OpenZiti service policies. The agent cannot reach services it is not authorized for.
+### OpenZiti Identities
 
-### Cleanup
+| Identity | Lifecycle | Calls via OpenZiti |
+|----------|-----------|--------------------|
+| Agents Orchestrator | Persistent (enrolled once) | Runner |
+| Runner | Persistent (enrolled via service token) | OpenZiti Controller (identity management) |
+| Agent container | Ephemeral (per container) | Gateway |
+| Channel | Persistent (enrolled via service token) | Gateway |
 
-When Runner stops a workload, it deletes the corresponding OpenZiti identity from the controller. The certificate becomes invalid.
+## Two Network Layers
 
-## Channel and Runner Authentication (Service Tokens)
+The platform uses two independent network layers. They do not conflict and have no ordering dependency.
 
-Channels and Runners authenticate using long-lived service tokens.
+```mermaid
+graph TB
+    subgraph OpenZiti Overlay
+        direction LR
+        ExtRunner[External Runner]
+        AgentExt[Agent Container<br/>external]
+        Channel[Channel]
+    end
 
-### Target Architecture
+    subgraph Kubernetes Cluster
+        subgraph Istio Mesh
+            GW[Gateway]
+            Chat[Chat]
+            Threads[Threads]
+            Files[Files]
+            Notif[Notifications]
+            Other[Other Services]
+        end
 
-In the target architecture, Channels and Runners first obtain OpenZiti identities, then use network-level mTLS for all API communication — identical to agent authentication but with persistent (not per-container) identities.
+        subgraph Istio + OpenZiti
+            Orch[Agents Orchestrator]
+            IntRunner[Internal Runner]
+        end
 
-### Current Architecture
+        AgentInt[Agent Container<br/>internal]
+        ZR[OpenZiti Router]
+    end
 
-Until OpenZiti is deployed, Channels and Runners authenticate using static bearer tokens issued per service instance and stored as Kubernetes secrets.
+    ExtRunner -.->|OpenZiti| ZR
+    AgentExt -.->|OpenZiti| ZR
+    Channel -.->|OpenZiti| ZR
+    AgentInt -.->|OpenZiti| ZR
+    Orch -.->|OpenZiti| ExtRunner
+    Orch -.->|Istio| IntRunner
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `token` | string | Opaque bearer token |
-| `identity_type` | enum | `channel` or `runner` |
-| `tenant_id` | string (UUID) | Associated tenant |
+    ZR -->|Istio| GW
+    GW -->|Istio| Chat & Threads & Files & Notif & Other
+```
 
-The Gateway validates the token and resolves identity and tenant context.
+### Istio — Internal Service Mesh
+
+Istio provides mTLS between all pods within the Kubernetes cluster. Identity is based on Kubernetes ServiceAccounts. AuthorizationPolicies control which service can call which.
+
+| Concern | Mechanism |
+|---------|-----------|
+| Pod-to-pod mTLS | Automatic via sidecar/ambient mode |
+| Identity model | SPIFFE certificates from ServiceAccounts |
+| Policy enforcement | `PeerAuthentication` (strict mTLS), `AuthorizationPolicy` (service-level access) |
+| Scope | Within the cluster only |
+
+### OpenZiti — Cross-Boundary Overlay
+
+OpenZiti provides identity and connectivity for actors that are outside the cluster or need application-level identity (not just pod identity).
+
+| Concern | Mechanism |
+|---------|-----------|
+| mTLS | Per-identity x509 certificates from OpenZiti Controller |
+| Identity model | Platform-managed identities (agent ID, runner ID, channel ID) |
+| Policy enforcement | OpenZiti service policies (which identity can dial which service) |
+| Scope | Cross-boundary (external runners, agents) and internal (agents in cluster) |
+
+### Why Both
+
+**Istio** secures internal service-to-service communication. It knows nothing about external actors or application-level identity (which specific agent, which tenant).
+
+**OpenZiti** provides application-level identity for external actors. It creates the overlay network that lets external runners and agents reach internal services. It also provides a uniform identity model for agents regardless of whether they run inside or outside the cluster.
+
+They operate on different connections:
+
+| Connection | Layer |
+|------------|-------|
+| Agent → Gateway | OpenZiti |
+| Channel → Gateway | OpenZiti |
+| Orchestrator → external Runner | OpenZiti |
+| Orchestrator → internal Runner | Istio |
+| Orchestrator → Threads | Istio |
+| Gateway → internal services | Istio |
+| Internal service → internal service | Istio |
+
+### Deployment Independence
+
+Istio and OpenZiti have no ordering dependency. They can be deployed independently and in any order. Istio operates on pod-to-pod traffic via the Envoy sidecar. OpenZiti operates on overlay connections via the OpenZiti Router. They never intercept the same traffic.
+
+The OpenZiti Router running inside the cluster should be in the Istio mesh (sidecar-injected namespace) so that the last hop from the router to the destination pod is covered by Istio mTLS.
 
 ## Authentication Boundary
 
-Authentication is enforced at the **Gateway** for external traffic. Internal service-to-service communication within the cluster is unauthenticated in the current architecture.
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC. Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate).
 
-### Target Architecture
-
-Internal service-to-service communication will use **mTLS** enforced by Istio service mesh. This authenticates the calling service (not the end-user identity). End-user identity is propagated via request metadata (headers/gRPC metadata) after Gateway authentication.
+**Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
 
 ## Participants and Identities
 
