@@ -149,3 +149,7 @@ Located in `test/e2e/` within the service repo. These tests run against the boot
 ### E2E Tests in CI
 
 A CI workflow provisions the environment using bootstrap and runs the E2E tests against it. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+
+### Cross-System E2E Tests
+
+In addition to in-repo gRPC E2E tests, add cross-system tests to the `agynio/e2e` repository. These tests verify the service's behavior through externally-visible surfaces: Gateway REST API, platform UI, and Terraform provider. See [E2E Testing](e2e-testing.md) for the full framework, tagging taxonomy, and instructions.
