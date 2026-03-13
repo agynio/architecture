@@ -48,6 +48,19 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
+## Authorization
+
+**Context:** Gateway validates tenant membership for user requests. Beyond that, the platform needs fine-grained authorization — controlling which identities can perform which actions on which resources. This is not yet designed.
+
+**Questions:**
+- What is the permission model? (RBAC? Resource-level ACLs? Attribute-based?)
+- What are the roles? (Owner, admin, member, viewer? Per-service granularity?)
+- Where is authorization enforced? (Gateway? Each service? Dedicated authz service e.g. OPA?)
+- How are permissions stored and evaluated?
+- Do non-user identities (agents, channels, runners) have roles, or are they implicitly authorized for their operational scope?
+
+---
+
 ## OpenZiti Integration
 
 **Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, channels, runners, and the Agents Orchestrator. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).

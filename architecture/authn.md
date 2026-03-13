@@ -31,26 +31,41 @@ Users authenticate via a system-wide OIDC-compliant identity provider. The platf
 
 ### Flow
 
+The OIDC authorization code flow is handled by the UI application (browser). Gateway validates the resulting token on every request.
+
 ```mermaid
 sequenceDiagram
-    participant U as User (Browser)
-    participant GW as Gateway
+    participant U as UI App (Browser)
     participant IdP as External IdP
+    participant GW as Gateway
+    participant S as Backend Service
 
-    U->>GW: Request (no session)
-    GW->>U: Redirect to IdP
-    U->>IdP: Authenticate
+    U->>IdP: Redirect to authorize endpoint
     IdP->>U: Authorization code
-    U->>GW: Authorization code
-    GW->>IdP: Exchange code for tokens
-    IdP->>GW: ID token + access token
-    GW->>GW: Validate ID token, resolve user identity
-    GW->>U: Session established
+    U->>IdP: Exchange code for tokens
+    IdP->>U: ID token + access token
+    U->>GW: API request (access token + X-Tenant-Id header)
+    GW->>GW: Validate token, extract identity
+    GW->>GW: Validate tenant membership
+    GW->>S: gRPC call (identity_id + tenant_id in metadata)
 ```
+
+1. UI app redirects the user to the IdP's authorization endpoint.
+2. User authenticates with the IdP.
+3. IdP returns an authorization code to the UI app.
+4. UI app exchanges the code for an ID token and access token.
+5. UI app includes the access token and `X-Tenant-Id` header in every API request to Gateway.
+6. Gateway validates the token, extracts the user identity, validates the user is a member of the claimed tenant, and propagates `identity_id` + `tenant_id` to backend services via gRPC metadata.
+
+### Tenant Selection
+
+Users can belong to multiple tenants. The active tenant is selected in the UI and sent to Gateway via the `X-Tenant-Id` header on every request. See [Multi-Tenancy — Tenant Selection](tenancy.md#tenant-selection).
+
+For non-user identities (agents, channels, runners), the tenant is fixed at identity creation. No header is needed — Gateway resolves the tenant from the identity.
 
 ### Configuration
 
-The OIDC provider is configured system-wide (not per-tenant):
+The OIDC provider is configured system-wide:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -210,9 +225,11 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC. Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate).
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC token validation. Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate).
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
+
+Gateway validates tenant membership for user requests (user must be a member of the tenant specified in `X-Tenant-Id`). For non-user identities, the tenant is resolved from the identity — no tenant header is needed.
 
 ## Participants and Identities
 

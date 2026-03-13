@@ -22,6 +22,14 @@ Users authenticate via a system-wide OIDC provider (see [Authentication](authn.m
 
 The user-tenant relationship is many-to-many. Tenant membership is managed within the platform, not in the IdP.
 
+## Tenant Selection
+
+Users select the active tenant in the UI. The selected tenant ID is stored in a cookie on the shared parent domain (`.agyn.dev`), which syncs the selection across all UI applications (configuration, tracing, chat) served from subdomains of `agyn.dev`.
+
+Each API request from the UI includes the tenant ID in the `X-Tenant-Id` header. Gateway validates that the user is a member of the specified tenant before forwarding the request to backend services.
+
+For non-user identities (agents, channels, runners), the tenant is fixed at identity creation. No header or selection is needed — the tenant is resolved from the identity.
+
 ## Resource Scoping
 
 Every resource in the platform belongs to a tenant. The `tenant_id` is present on all resource tables and used in all queries as a mandatory filter.
