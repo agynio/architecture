@@ -106,7 +106,8 @@ graph TB
 | Repository | Contents | Language | Status |
 |------------|----------|----------|--------|
 | `agynio/api` | API schemas: protobuf (internal gRPC) and OpenAPI (external) | Proto, YAML | Active |
-| `agynio/platform` | Monolith: platform-server, docker-runner, LLM package, platform-ui | TypeScript | Active (being decomposed) |
+| `agynio/platform` | Monolith: platform-server, LLM package, platform-ui | TypeScript | Active (being decomposed) |
+| `agynio/docker-runner` | Docker Runner service | TypeScript | Active |
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
