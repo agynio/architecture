@@ -45,6 +45,42 @@ Unresolved architectural decisions requiring discussion.
 - Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
 - What is the scheduling interface? (Request/response? Queue-based? Watch-based?)
 
+
+---
+
+## OpenZiti Integration
+
+**Context:** Agent containers, channels, and runners will use OpenZiti for network-level identity and mTLS. This replaces application-level tokens for authentication.
+
+**Questions:**
+- How does Runner integrate with the OpenZiti Controller API? (SDK? CLI? REST?)
+- What is the identity lifecycle for agent containers? (create on start, delete on stop — what about crashes/orphans?)
+- How are OpenZiti service policies managed? (Per-agent? Per-tenant? Static set of allowed services?)
+- How does Gateway extract identity from OpenZiti mTLS connections? (Istio integration? Direct cert inspection?)
+- Can OpenZiti identities carry tenant metadata, or must the platform maintain a separate identity-to-tenant mapping?
+
+---
+
+## Internal Service Authentication
+
+**Context:** Internal service-to-service communication is currently unauthenticated. The target is Istio mTLS with strict PeerAuthentication policies.
+
+**Questions:**
+- How is end-user identity propagated across service boundaries? (gRPC metadata? Header convention?)
+- Should services verify the calling service identity (e.g., only Gateway can call Chat), or is network policy sufficient?
+
+---
+
+## External Runner Connectivity
+
+**Context:** Users will connect their own runners in external networks to the platform using OpenZiti.
+
+**Questions:**
+- How does an external runner enroll with the platform's OpenZiti network?
+- How are agent containers started by external runners given OpenZiti identities? (Runner requests identity from platform's OpenZiti Controller?)
+- What services can agent containers on external runners access? (Only Gateway? Direct access to Threads, Files?)
+- How does the platform verify that an external runner is authorized to start workloads for a given tenant?
+
 ---
 
 ## Summarization Packaging

@@ -6,6 +6,8 @@ The Teams service manages team resources — the configuration entities that def
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
+All resources are scoped to a [tenant](tenancy.md). Every API call requires an authenticated identity with a resolved tenant. See [Authentication](authn.md).
+
 ## External API
 
 Defined in `agynio/api` at `openapi/team/v1/openapi.yaml`. Released to GHCR as OpenAPI specs.

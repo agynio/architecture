@@ -2,7 +2,7 @@
 
 Canonical schema for all team-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Teams API, and UI should all align to these definitions.
 
-Resources are managed by the Teams service and stored in PostgreSQL. Each resource has a common envelope (`id`, `title`, `description`) plus a resource-specific `config` object.
+Resources are managed by the Teams service and stored in PostgreSQL. Each resource has a common envelope (`id`, `title`, `description`) plus a resource-specific `config` object. All resources are scoped to a [tenant](tenancy.md).
 
 ---
 

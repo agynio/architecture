@@ -27,6 +27,10 @@ graph LR
     Chat --> Threads
 ```
 
+## Identity
+
+Chat identifies users by the authenticated `identity_id` from request context (see [Authentication](authn.md)). The `identity_id` is used as the participant ID in Threads and for resolving display names.
+
 ## Classification
 
 The Chat service is a **data plane** service.

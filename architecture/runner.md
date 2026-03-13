@@ -85,4 +85,4 @@ A workload consists of:
 
 ## Authentication
 
-The docker-runner uses HMAC-based authentication. Every gRPC request includes metadata derived from a shared secret (`DOCKER_RUNNER_SHARED_SECRET`).
+The docker-runner currently uses HMAC-based authentication with a shared secret (`DOCKER_RUNNER_SHARED_SECRET`). The target architecture uses service tokens and eventually OpenZiti network identity. See [Authentication](authn.md).

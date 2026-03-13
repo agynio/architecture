@@ -1,6 +1,6 @@
 # System Overview
 
-Agyn is a Kubernetes-native AI agent orchestrator. It manages the lifecycle of AI agents that communicate with humans and each other through threaded conversations, with tools provided via MCP (Model Context Protocol).
+Agyn is a Kubernetes-native AI agent orchestrator. It manages the lifecycle of AI agents that communicate with humans and each other through threaded conversations, with tools provided via MCP (Model Context Protocol). The platform is [multi-tenant](tenancy.md) — all resources are scoped to a tenant. See [Authentication](authn.md) for identity types.
 
 ## Component Diagram
 
