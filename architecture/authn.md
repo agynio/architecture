@@ -127,7 +127,7 @@ sequenceDiagram
 
 ## Two Network Layers
 
-The platform uses two independent network layers. They do not conflict and have no ordering dependency.
+The platform uses two network layers.
 
 ```mermaid
 graph TB
@@ -207,12 +207,6 @@ They operate on different connections:
 | Orchestrator → Threads | Istio |
 | Gateway → internal services | Istio |
 | Internal service → internal service | Istio |
-
-### Deployment Independence
-
-Istio and OpenZiti have no ordering dependency. They can be deployed independently and in any order. Istio operates on pod-to-pod traffic via the Envoy sidecar. OpenZiti operates on overlay connections via the OpenZiti Router. They never intercept the same traffic.
-
-The OpenZiti Router running inside the cluster should be in the Istio mesh (sidecar-injected namespace) so that the last hop from the router to the destination pod is covered by Istio mTLS.
 
 ## Authentication Boundary
 
