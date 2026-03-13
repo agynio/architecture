@@ -47,7 +47,7 @@ These services are already extracted and running independently:
 | Gateway | `agynio/gateway` | Serves Team API, proxies remaining to monolith |
 | Agent State (APSS) | `agynio/agent-state` | gRPC service with PostgreSQL |
 | Notifications | `agynio/notifications` | gRPC + Socket.IO, Redis pub/sub |
-| Docker Runner | `agynio/platform` (separate deploy) | gRPC, HMAC auth, Helm chart |
+| Docker Runner | `agynio/docker-runner` | fully extracted |
 
 ## Phase 2 — Extract from Monolith
 
