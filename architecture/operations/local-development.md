@@ -4,11 +4,11 @@
 
 The single source of truth for running the full Agyn cluster locally is:
 
-**Repository:** [`agynio/bootstrap_v2`](https://github.com/agynio/bootstrap_v2)
+**Repository:** [`agynio/bootstrap`](https://github.com/agynio/bootstrap)
 
 No other custom docker-compose files or local setups should exist. All services are configured and deployed from this repo.
 
-Bootstrap uses **Terraform** to provision a local Kubernetes cluster (k3d) and deploy all services via **Argo CD**. Setup instructions, stack descriptions, and local endpoints are documented in the [bootstrap_v2 repository](https://github.com/agynio/bootstrap_v2).
+Bootstrap uses **Terraform** to provision a local Kubernetes cluster (k3d) and deploy all services via **Argo CD**. Setup instructions, stack descriptions, and local endpoints are documented in the [bootstrap repository](https://github.com/agynio/bootstrap).
 
 ## Service Development with DevSpace
 

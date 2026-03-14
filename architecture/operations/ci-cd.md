@@ -6,7 +6,7 @@ Every service follows the same CI/CD pattern: GitHub Actions publish a container
 
 | Artifact | Registry | Tag pattern |
 |----------|----------|-------------|
-| Container image | `ghcr.io/agynio/<service>` | `sha-<short>`, `main`, `<semver>`, `latest` |
+| Container image | `ghcr.io/agynio/<service>` | `sha-<short>`, `<semver>`, `latest` |
 | Helm chart | `oci://ghcr.io/agynio/charts/<service>` | `<semver>` (from tag `v*.*.*`) |
 
 ## Workflows
@@ -15,15 +15,14 @@ Each service repository contains GitHub Actions workflows under `.github/workflo
 
 ### Image Build (`docker-ghcr.yml` or combined `release.yml`)
 
-**Trigger:** Push to `main` branch or push of a `v*.*.*` tag.
+**Trigger:** Push of a `v*.*.*` tag.
 
 **Steps:**
 1. Checkout repository.
 2. Set up Docker Buildx (multi-platform: `linux/amd64`, `linux/arm64`).
 3. Log in to GHCR using `GITHUB_TOKEN`.
 4. Build and push image with metadata-driven tags:
-   - `sha-<short>` — every push.
-   - `main` — pushes to main branch.
+   - `sha-<short>` — every release.
    - `<major>.<minor>.<patch>`, `<major>.<minor>`, `<major>` — semver tags.
    - `latest` — stable semver tags (no pre-release suffix).
 5. Layer caching via GitHub Actions cache (`type=gha`).
