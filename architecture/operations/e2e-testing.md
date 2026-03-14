@@ -440,7 +440,7 @@ package e2e
 | Integration | Service + real DB (Docker) | `go test` with Docker containers | Every PR |
 | E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test:e2e` (separate pod) | Every PR and push to `main` |
 
-All three layers run on every PR by default. Exceptions for expensive tests (e.g., long-running regression suites) will be explicitly marked.
+All three layers run on every PR. E2E tests also run on push to `main`. Exceptions for expensive tests (e.g., long-running regression suites) will be explicitly marked.
 
 ## Summary
 
