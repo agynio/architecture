@@ -438,7 +438,7 @@ package e2e
 |-------|-------|--------|------|
 | Unit | Single function / method | `go test ./internal/...` | Every PR |
 | Integration | Service + real DB (Docker) | `go test` with Docker containers | Every PR |
-| E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test:e2e` (separate pod) | Every PR |
+| E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test:e2e` (separate pod) | Every PR and push to `main` |
 
 All three layers run on every PR by default. Exceptions for expensive tests (e.g., long-running regression suites) will be explicitly marked.
 

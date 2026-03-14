@@ -174,7 +174,7 @@ Add GitHub Actions workflows under `.github/workflows/` in the service repo. All
 
 | Workflow | Trigger | Artifacts |
 |----------|---------|-----------|
-| `ci.yml` | Pull requests | Lint, test, build |
+| `ci.yml` | Pull requests, push to `main` | Lint, test, build |
 | `release.yml` | `v*.*.*` tag | Container image + Helm chart to GHCR |
 
 ### Image Tags
@@ -214,4 +214,4 @@ Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart
 
 ### E2E Tests in CI
 
-The CI workflow provisions the environment using bootstrap and runs `devspace run test:e2e` inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+The CI workflow provisions the environment using bootstrap and runs `devspace run test:e2e` inside the cluster. This runs on every pull request and on push to `main`. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
