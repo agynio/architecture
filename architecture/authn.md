@@ -214,6 +214,8 @@ They operate on different connections:
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
 
+Authentication establishes *who* the caller is. Fine-grained access control (*what* the caller can do with *which* resources) is handled by the [Authorization](authz.md) service.
+
 ## Participants and Identities
 
 The Threads service identifies participants by opaque UUIDs. When a user sends a message via Chat, the `sender_id` is the user's `identity_id`. When an agent sends a message, the `sender_id` is the agent's `identity_id`. Threads does not distinguish between identity types — it operates on IDs only. See [Threads](threads.md).
