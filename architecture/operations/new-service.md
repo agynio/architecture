@@ -83,7 +83,6 @@ agynio/<service>/
 ├── devspace.yaml          # DevSpace config: dev mode + E2E tests
 ├── Dockerfile
 ├── README.md
-├── Makefile
 └── go.mod
 ```
 
@@ -176,7 +175,7 @@ Add GitHub Actions workflows under `.github/workflows/` in the service repo. All
 | Workflow | Trigger | Artifacts |
 |----------|---------|-----------|
 | `ci.yml` | Pull requests | Lint, test, build |
-| `release.yml` | Push to `main` or `v*.*.*` tag | Container image + Helm chart to GHCR |
+| `release.yml` | `v*.*.*` tag | Container image + Helm chart to GHCR |
 
 ### Image Tags
 
@@ -195,7 +194,7 @@ On `v*.*.*` tag push:
 
 ## Bootstrap
 
-Register the service in `agynio/bootstrap_v2` so it is deployed in the local cluster. See [Local Development](local-development.md) for how bootstrap provisions the cluster.
+Register the service in `agynio/bootstrap` so it is deployed in the local cluster. See [Local Development](local-development.md) for how bootstrap provisions the cluster.
 
 ---
 
