@@ -141,6 +141,8 @@ The wrapper:
 
 ## Lifecycle
 
+The [Agents Orchestrator](../orchestrator.md) manages the full agent workload lifecycle — starting containers when demand exists, stopping them when idle. This section summarizes the lifecycle from the agent's perspective.
+
 ```mermaid
 sequenceDiagram
     participant T as Threads

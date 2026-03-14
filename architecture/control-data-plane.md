@@ -49,7 +49,7 @@ graph LR
 | Service | Plane | Rationale |
 |---------|-------|-----------|
 | **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
-| **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
+| **[Agents Orchestrator](orchestrator.md)** | Control | Reconciles agent workloads: starts containers for threads with unacknowledged agent messages, stops idle agents |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Threads** | Data | Carries conversation messages between participants |
