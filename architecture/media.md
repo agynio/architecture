@@ -71,7 +71,7 @@ A new S3-compatible object storage backend is required. In production, this can 
 | Aspect | Details |
 |--------|---------|
 | Protocol | S3-compatible API |
-| Local | MinIO deployed via bootstrap_v2 |
+| Local | MinIO deployed via bootstrap |
 | Production | Any S3-compatible provider |
 
 ### Object Key

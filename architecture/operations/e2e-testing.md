@@ -4,7 +4,7 @@ E2E tests run inside the cluster in a dedicated test pod, separate from the serv
 
 ## How It Works
 
-DevSpace deploys a dedicated test pod using its built-in `component-chart`. This pod runs a dev container image with `sleep infinity`, giving DevSpace a target to sync source code into and exec test commands against. The service deployments managed by ArgoCD are untouched — they keep running their pinned release images.
+DevSpace deploys a dedicated test pod using [`component-chart`](https://devspace.sh/component-chart/docs/introduction) — a generic Helm chart provided by DevSpace for deploying containers without writing custom chart templates. This pod runs a dev container image with `sleep infinity`, giving DevSpace a target to sync source code into and exec test commands against. The service deployments managed by ArgoCD are untouched — they keep running their pinned release images.
 
 ```mermaid
 graph LR

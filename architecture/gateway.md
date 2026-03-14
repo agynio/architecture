@@ -35,7 +35,7 @@ The gateway (`agynio/gateway`, Go) currently:
 
 ### Ingress Routing
 
-The gateway receives traffic through two Istio VirtualService routes (defined in `agynio/bootstrap_v2`, `stacks/platform/main.tf`):
+The gateway receives traffic through two Istio VirtualService routes (defined in `agynio/bootstrap`, `stacks/platform/main.tf`):
 
 1. **Subdomain route** (`virtualservice_gateway`): `gateway.agyn.dev/*` → `gateway-gateway:8080`. No URI rewrite.
 2. **Path-based route** (`virtualservice_platform_ui`): `agyn.dev/apiv2/*` → `gateway-gateway:8080` with URI rewrite (`/apiv2/` → `/`). This route is defined on the same VirtualService as the platform-ui and platform-server routes.
