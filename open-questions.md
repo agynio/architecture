@@ -36,14 +36,13 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Scheduler Service
+## Orchestrator Horizontal Scaling
 
-**Context:** Currently the Runner is purely data plane (executes workloads). A separate **Scheduler** service may be needed in the control plane to decide *what* and *when* to run.
+**Context:** The [Agents Orchestrator](architecture/orchestrator.md) runs a single reconciliation loop. For horizontal scaling, reconciliation passes need to be partitioned across instances.
 
 **Questions:**
-- Is the Scheduler the same as the Agents orchestrator, or a lower-level service that the orchestrator delegates to?
-- Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
-- What is the scheduling interface? (Request/response? Queue-based? Watch-based?)
+- Sharding strategy: tenant-based, consistent hashing over agent identity IDs, or leader election?
+- How is shard assignment coordinated? (Lease-based via PostgreSQL? External coordination service?)
 
 
 ---

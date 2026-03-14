@@ -93,7 +93,7 @@ graph TB
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
-| **Agents** | Orchestrator that spins up agent workloads for threads with unacknowledged messages |
+| **[Agents Orchestrator](orchestrator.md)** | Reconciles agent workloads — starts containers for threads with unacknowledged agent messages, stops idle agents. See [Orchestrator](orchestrator.md) |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
