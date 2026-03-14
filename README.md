@@ -13,6 +13,7 @@ Target architecture of the platform. Describes how the system should work.
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
 | [Multi-Tenancy](architecture/tenancy.md) | Tenant model, resource scoping, data isolation |
 | [Authentication](architecture/authn.md) | Identity types, OIDC, agent network auth, service tokens |
+| [Authorization](architecture/authz.md) | Fine-grained access control via OpenFGA. Authorization service, model, deployment |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
 | [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all team-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |

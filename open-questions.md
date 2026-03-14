@@ -83,3 +83,15 @@ Unresolved architectural decisions requiring discussion.
    - *Cons:* Network overhead per summarization call. Another service to operate. Latency-sensitive.
 
 **Decision:** TBD
+
+---
+
+## Authorization Model Completeness
+
+**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, tenant roles, and agent state. The full model needs to cover all resource types and access patterns.
+
+**Questions:**
+- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, channels, secrets)?
+- How are tracing data permissions modeled? (Tenant-level visibility, or per-agent restriction?)
+- How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
+- What is the relationship tuple cleanup strategy when resources are deleted?

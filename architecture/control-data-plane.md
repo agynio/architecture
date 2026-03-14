@@ -38,6 +38,7 @@ graph LR
         LLM
         Chat
         Secrets
+        Authorization
     end
 
     Teams -->|desired state| AgentsOrch
@@ -61,6 +62,7 @@ graph LR
 | **LLM** | Data | Proxies LLM API calls from agents to providers on the hot path during agent execution |
 | **Secrets** | Data | Resolves secret values from external providers at runtime |
 | **Chat** | Data | Built-in app chat experience on top of Threads |
+| **Authorization** | Data | Checks permissions and manages relationship tuples. Thin proxy to OpenFGA on the live request path |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
 
 ## Reconciliation

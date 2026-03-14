@@ -30,6 +30,7 @@ graph TB
         Runner[Runner]
         AgentState[Agent State]
         Tracing[Tracing]
+        Authorization[Authorization]
     end
 
     subgraph Workloads
@@ -70,6 +71,12 @@ graph TB
     Agent1 & Agent2 --> LLM
     Agent1 & Agent2 -.-> Tracing
 
+    Chat --> Authorization
+    Files --> Authorization
+    Threads --> Authorization
+    Teams --> Authorization
+    Authorization --> OpenFGA[(OpenFGA)]
+
     Teams --> AgentsOrch
 ```
 
@@ -85,6 +92,7 @@ graph TB
 | **LLM** | Manages LLM providers and models. Proxies LLM API calls from agents to providers with injected credentials |
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
+| **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
 | **Agents** | Orchestrator that spins up agent workloads for threads with unacknowledged messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
@@ -100,6 +108,7 @@ graph TB
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
+| OpenFGA | Relationship-based access control (authorization model and relationship tuples). PostgreSQL-backed |
 
 ## Repository Map
 
@@ -110,4 +119,5 @@ graph TB
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
+| `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |
