@@ -42,7 +42,7 @@ Each service repository contains GitHub Actions workflows under `.github/workflo
 
 ### CI (`ci.yml`)
 
-**Trigger:** Pull requests.
+**Trigger:** Pull requests and push to `main`.
 
 **Steps:** Lint, test, build — service-specific.
 
