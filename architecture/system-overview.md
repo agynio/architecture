@@ -120,4 +120,5 @@ graph TB
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
+| `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |

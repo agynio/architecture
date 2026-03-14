@@ -35,79 +35,26 @@ The Authorization service is a **data plane** service — it handles permission 
 
 The authorization model defines types, relations, and how permissions are computed. Written in OpenFGA's DSL and deployed via Terraform (see [Model Deployment](#model-deployment)).
 
-### Identity Types
+### Identities
 
-All platform identities map to OpenFGA users:
+All platform identities (users, agents, channels, runners) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
 
-| Platform Identity | OpenFGA User Format | Description |
-|-------------------|---------------------|-------------|
-| User | `user:<identity_id>` | Human operator |
-| Agent | `agent:<identity_id>` | Agent container |
-| Channel | `channel:<identity_id>` | Channel service |
-| Runner | `runner:<identity_id>` | Runner service |
+### Tenant Permissions (Users)
 
-### Tenant Roles (Users)
+Users have permissions within a tenant. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
-Users have roles within a tenant. The role determines access to tenant-level operations.
-
-| Role | Capabilities |
-|------|-------------|
+| Permission | Capabilities |
+|------------|-------------|
 | **owner** | Full access. Manage tenant settings, membership, all resources. Delete tenant |
-| **admin** | Manage resources (agents, models, workspaces, MCP servers). View tracing. Chat |
 | **member** | Chat. View tracing. View resources (read-only) |
 
-Modeled as direct relations on the `tenant` type:
-
-```
-type tenant
-  relations
-    define owner: [user]
-    define admin: [user]
-    define member: [user] or admin or owner
-```
-
-`member` is implied by `admin` and `owner` — no need to assign both.
+`owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `tenant` type without changing the model structure.
 
 ### Non-User Identities
 
-Agents, channels, and runners do not have configurable roles. Their `identity_type` determines their operational scope. OpenZiti service policies restrict which services they can reach (first layer). The Authorization service enforces resource-level access (second layer).
+Agents, channels, and runners do not have tenant-level roles. Their access is determined by resource-level relationships in the authorization graph. OpenZiti service policies restrict which services they can reach (first layer). The Authorization service enforces resource-level access (second layer).
 
 For example, an agent can only access threads it participates in, files attached to those threads, and its own agent state. These constraints are expressed as relationships in OpenFGA, not as static role assignments.
-
-### Resource Types and Relations
-
-```
-type thread
-  relations
-    define tenant: [tenant]
-    define participant: [user, agent, channel]
-    define can_read: participant
-    define can_write: participant
-
-type file
-  relations
-    define tenant: [tenant]
-    define owner: [user, agent, channel]
-    define parent_thread: [thread]
-    define can_upload: owner
-    define can_download: owner or can_read from parent_thread
-
-type agent_config
-  relations
-    define tenant: [tenant]
-    define can_manage: admin from tenant or owner from tenant
-    define can_view: member from tenant
-
-type agent_state
-  relations
-    define agent: [agent]
-    define can_read: agent
-    define can_write: agent
-```
-
-The `file` type demonstrates contextual access: a file is downloadable by its owner, or by any participant of a thread the file is attached to. When a file is sent in a message, the service writes a `parent_thread` relationship linking the file to the thread. OpenFGA resolves the transitive access — no cross-service call needed.
-
-This model is illustrative. The exact types and relations are defined in the authorization model repository and evolve as the platform grows.
 
 ## How Services Use Authorization
 
@@ -116,46 +63,14 @@ This model is illustrative. The exact types and relations are defined in the aut
 Before performing an operation, a service calls `Check` on the Authorization service:
 
 ```
-Check(user:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
+Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
 ```
 
 If denied, the service returns a permission error. The identity and tenant are available in gRPC metadata (see [Authentication](authn.md)).
 
 ### Relationship Writes
 
-When state changes, the owning service writes relationship tuples:
-
-| Event | Service | Tuple Written |
-|-------|---------|---------------|
-| User uploads a file | Files | `file:<id>#owner@user:<identity_id>` |
-| File sent in a message | Chat / Threads consumer | `file:<id>#parent_thread@thread:<thread_id>` |
-| Participant added to thread | Chat / Threads | `thread:<id>#participant@user:<identity_id>` |
-| User granted tenant role | Teams | `tenant:<id>#admin@user:<identity_id>` |
-| Agent workload started | Runner | `agent_state:<agent_id>#agent@agent:<identity_id>` |
-
-Writes use the `Write` method, which supports atomic multi-tuple writes (adds and deletes in a single call).
-
-### Flow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant GW as Gateway
-    participant S as Service
-    participant AZ as Authorization
-    participant FGA as OpenFGA
-
-    C->>GW: API request
-    GW->>GW: Authenticate, resolve tenant
-    GW->>S: gRPC (identity + tenant in metadata)
-    S->>AZ: Check(user:X, can_read, thread:Y)
-    AZ->>FGA: Check (with store_id, model_id)
-    FGA-->>AZ: allowed: true
-    AZ-->>S: allowed: true
-    S->>S: Execute operation
-    S-->>GW: Response
-    GW-->>C: Response
-```
+When state changes, the owning service writes relationship tuples through the Authorization service's `Write` method. `Write` supports atomic multi-tuple writes (adds and deletes in a single call).
 
 ## Model Deployment
 
