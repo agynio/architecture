@@ -33,7 +33,7 @@ Each service repository contains GitHub Actions workflows under `.github/workflo
 
 - **Base images** — Use only official multi-arch base images. Verify that the chosen tag publishes manifests for both `amd64` and `arm64`.
 - **No architecture-specific artifacts** — Do not download pre-built binaries by hard-coded architecture. Use `ARG TARGETARCH` and select architecture at build time.
-- **Go services** — Use `CGO_ENABLED=0` for static linking. Do not set `GOARCH` explicitly — BuildKit handles cross-compilation via `--platform`.
+- **Go services** — Use `CGO_ENABLED=0` for static linking. Set `GOARCH=$TARGETARCH` explicitly when using `FROM --platform=$BUILDPLATFORM` — this enables native-speed cross-compilation without QEMU emulation.
 - **Multi-stage builds** — Build stage uses `FROM --platform=$BUILDPLATFORM`; runtime stage uses the default (target) platform.
 
 Example Dockerfile:
@@ -46,7 +46,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
-ENV CGO_ENABLED=0 GOOS=$TARGETOS
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 RUN go build -o /out/service ./cmd/service
 
 FROM alpine:3.19

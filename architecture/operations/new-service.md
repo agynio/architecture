@@ -100,7 +100,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
-ENV CGO_ENABLED=0 GOOS=$TARGETOS
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 RUN go build -o /out/service ./cmd/service
 
 FROM alpine:3.19
