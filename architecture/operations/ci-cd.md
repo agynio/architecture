@@ -19,13 +19,41 @@ Each service repository contains GitHub Actions workflows under `.github/workflo
 
 **Steps:**
 1. Checkout repository.
-2. Set up Docker Buildx (multi-platform: `linux/amd64`, `linux/arm64`).
+2. Set up Docker Buildx with multi-platform support. Build targets: `linux/amd64`, `linux/arm64`.
 3. Log in to GHCR using `GITHUB_TOKEN`.
 4. Build and push image with metadata-driven tags:
    - `sha-<short>` — every release.
    - `<major>.<minor>.<patch>`, `<major>.<minor>`, `<major>` — semver tags.
    - `latest` — stable semver tags (no pre-release suffix).
 5. Layer caching via GitHub Actions cache (`type=gha`).
+6. Verify the pushed manifest includes `linux/amd64` and `linux/arm64`:
+   `docker buildx imagetools inspect ghcr.io/agynio/<service>:<tag>`.
+
+#### Multi-Architecture Image Requirements
+
+- **Base images** — Use only official multi-arch base images. Verify that the chosen tag publishes manifests for both `amd64` and `arm64`.
+- **No architecture-specific artifacts** — Do not download pre-built binaries by hard-coded architecture. Use `ARG TARGETARCH` and select architecture at build time.
+- **Go services** — Use `CGO_ENABLED=0` for static linking. Set `GOARCH=$TARGETARCH` explicitly when using `FROM --platform=$BUILDPLATFORM` — this enables native-speed cross-compilation without QEMU emulation.
+- **Multi-stage builds** — Build stage uses `FROM --platform=$BUILDPLATFORM`; runtime stage uses the default (target) platform.
+
+Example Dockerfile:
+
+```Dockerfile
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG TARGETOS TARGETARCH
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
+RUN go build -o /out/service ./cmd/service
+
+FROM alpine:3.19
+WORKDIR /app
+COPY --from=build /out/service /app/service
+ENTRYPOINT ["/app/service"]
+```
 
 ### Helm Release (`helm-release.yml` or combined `release.yml`)
 

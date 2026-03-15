@@ -86,6 +86,36 @@ agynio/<service>/
 └── go.mod
 ```
 
+### Dockerfile
+
+Dockerfiles must produce images that run on both `linux/amd64` and `linux/arm64`. Follow the [Multi-Architecture Image Requirements](ci-cd.md#multi-architecture-image-requirements) when authoring images.
+
+**Template (Go services):**
+
+```Dockerfile
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG TARGETOS TARGETARCH
+ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
+RUN go build -o /out/service ./cmd/service
+
+FROM alpine:3.19
+WORKDIR /app
+COPY --from=build /out/service /app/service
+ENTRYPOINT ["/app/service"]
+```
+
+**Rules:**
+- Use multi-stage builds (builder + runtime).
+- Set `CGO_ENABLED=0` for Go binaries.
+- Declare `ARG TARGETOS TARGETARCH`.
+- Use only official multi-arch base images for all stages.
+- When downloading prebuilt tools, select by `TARGETARCH`.
+
 ### README
 
 Each service README follows a standard structure:
@@ -176,6 +206,8 @@ Add GitHub Actions workflows under `.github/workflows/` in the service repo. All
 |----------|---------|-----------|
 | `ci.yml` | Pull requests, push to `main` | Lint, test, build |
 | `release.yml` | `v*.*.*` tag | Container image + Helm chart to GHCR |
+
+The `release.yml` workflow builds images for `linux/amd64` and `linux/arm64` using Docker Buildx and verifies the multi-architecture manifest list after pushing. See [Multi-Architecture Image Requirements](ci-cd.md#multi-architecture-image-requirements).
 
 ### Image Tags
 
