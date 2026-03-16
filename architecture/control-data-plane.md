@@ -22,7 +22,7 @@
 graph LR
     subgraph Control Plane
         Teams
-        AgentsOrch[Agents Orchestrator]
+        Orch[Orchestrator]
     end
 
     subgraph Data Plane
@@ -41,15 +41,15 @@ graph LR
         Authorization
     end
 
-    Teams -->|desired state| AgentsOrch
-    AgentsOrch -->|schedule workloads| Runner
-    AgentsOrch -->|read pending messages| Threads
+    Teams -->|desired state| Orch
+    Orch -->|schedule workloads| Runner
+    Orch -->|read pending messages| Threads
 ```
 
 | Service | Plane | Rationale |
 |---------|-------|-----------|
 | **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
-| **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
+| **[Orchestrator](orchestrator.md)** | Control | Reconciles all workloads: agents, MCP servers, and discovery signals. Starts MCP server dependencies before agents, stops idle workloads |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Threads** | Data | Carries conversation messages between participants |
@@ -88,5 +88,5 @@ graph LR
 
 **Resources to reconcile:**
 - **Agents** — Ensure agent workloads exist for threads with pending messages; remove idle agents.
+- **MCP Servers** — Ensure MCP server workloads are running for agents that need them; manage discovery signals with TTL.
 - **Channels** — Ensure channel connections match their configuration (reconnect on credential rotation).
-- **Workspaces** — Ensure workspace containers match desired image/config; enforce TTL.

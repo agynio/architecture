@@ -60,7 +60,7 @@ The OIDC provider is configured system-wide (not per-tenant):
 
 ## Network Identity (OpenZiti)
 
-Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
+Agents, MCP servers, Channels, and Runners authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
 
 ### Enrollment
 
@@ -93,7 +93,7 @@ Agent containers are short-lived. Their OpenZiti identities are created and dest
 
 ```mermaid
 sequenceDiagram
-    participant O as Agents Orchestrator
+    participant O as Orchestrator
     participant R as Runner
     participant ZC as OpenZiti Controller
     participant A as Agent Container
@@ -120,7 +120,7 @@ sequenceDiagram
 
 | Identity | Lifecycle | Calls via OpenZiti |
 |----------|-----------|--------------------|
-| Agents Orchestrator | Persistent (enrolled once) | Runner |
+| Orchestrator | Persistent (enrolled once) | Runner |
 | Runner | Persistent (enrolled via service token) | OpenZiti Controller (identity management) |
 | Agent container | Ephemeral (per container) | Gateway |
 | Channel | Persistent (enrolled via service token) | Gateway |
@@ -149,7 +149,7 @@ graph TB
         end
 
         subgraph Istio + OpenZiti
-            Orch[Agents Orchestrator]
+            Orch[Orchestrator]
             IntRunner[Internal Runner]
         end
 

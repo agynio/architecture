@@ -83,6 +83,8 @@ Rooms are scoped by resource type and ID:
 | `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, channels, users) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
 | `agent:{id}` | `agent:f47ac10b-...` | Teams → agent resource updates |
+| `threads:messages:new` | `threads:messages:new` | Threads → broadcast on every new message. Consumed by Orchestrator |
+| `runner:workloads:status` | `runner:workloads:status` | Runner → broadcast on workload state transitions. Consumed by Orchestrator |
 
 Consumers subscribe to rooms matching their identity or the resources they observe. A channel subscribes to `thread_participant:{channelId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
 
