@@ -38,7 +38,7 @@ Unresolved architectural decisions requiring discussion.
 
 ## Orchestrator Horizontal Scaling
 
-**Context:** The [Agents Orchestrator](architecture/orchestrator.md) runs a single reconciliation loop. For horizontal scaling, reconciliation passes need to be partitioned across instances.
+**Context:** The [Orchestrator](architecture/orchestrator.md) runs a single reconciliation loop. For horizontal scaling, reconciliation passes need to be partitioned across instances.
 
 **Questions:**
 - Sharding strategy: tenant-based, consistent hashing over agent identity IDs, or leader election?
@@ -49,7 +49,7 @@ Unresolved architectural decisions requiring discussion.
 
 ## OpenZiti Integration
 
-**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, channels, runners, and the Agents Orchestrator. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
+**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, MCP servers, channels, and runners. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
 
 **Questions:**
 - How does Runner integrate with the OpenZiti Controller API to manage agent identities? (SDK? CLI? REST?)
@@ -60,6 +60,7 @@ Unresolved architectural decisions requiring discussion.
 - How does an external runner enroll with the platform's OpenZiti network? (Same service token flow?)
 - What services can agent containers on external runners access? (Only Gateway? Direct access to Threads, Files?)
 - How is end-user identity propagated across internal service boundaries? (gRPC metadata key convention?)
+- How are OpenZiti service policies scoped per MCP server workload? (Per-MCP-server identity? Derived from MCP server config?)
 
 ---
 

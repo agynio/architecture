@@ -12,10 +12,14 @@ Every agent, regardless of implementation, must satisfy the same contract:
 
 ```mermaid
 graph TB
-    subgraph "Agent Container"
+    subgraph "Agent Workload"
         Impl[Agent Implementation<br/>our own / 3rd-party CLI / custom]
-        MCP[MCP Tool Servers]
-        Impl --> MCP
+        Ziti[OpenZiti Tunnel]
+    end
+
+    subgraph "MCP Workloads (separate)"
+        MCP1[MCP Server 1<br/>adapter + server]
+        MCP2[MCP Server 2<br/>adapter + server]
     end
 
     subgraph Platform
@@ -25,6 +29,8 @@ graph TB
         Tracing
     end
 
+    Impl -->|gRPC over OpenZiti| MCP1
+    Impl -->|gRPC over OpenZiti| MCP2
     Impl -->|read/ack messages| Threads
     Impl -->|post responses| Threads
     Impl -->|resolve files| Files
@@ -40,10 +46,10 @@ graph TB
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
-| **Use tools via MCP** | Connect to MCP servers for tool access |
+| **Use tools via MCP** | Call MCP servers over gRPC via [MCP Adapter](../mcp-adapter.md) |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections.
+The agent is a **pure client** — it makes outbound connections to platform services and MCP servers. It does not expose any server or accept inbound connections.
 
 ## Communication Protocol
 
@@ -86,20 +92,22 @@ sequenceDiagram
 ### Design Principles
 
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), and Files (gRPC calls). No server, no open port, no service discovery per agent.
+- **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), Files (gRPC calls), and MCP servers (gRPC via OpenZiti). No server, no open port, no service discovery per agent.
 
 ## Tools
 
-All tools are provided via **MCP protocol** (Model Context Protocol). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
+All tools are provided via **MCP protocol** (Model Context Protocol) through the [MCP Adapter](../mcp-adapter.md). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
+
+Each MCP server runs as a **separate workload** with its own OpenZiti identity. The agent connects to MCP servers over gRPC via OpenZiti — the same network layer used for platform services.
 
 | Aspect | Details |
 |--------|---------|
-| Transport | stdio (newline-delimited JSON-RPC 2.0) |
-| Server location | Inside the workspace container (sidecar) |
+| Agent-side transport | gRPC over OpenZiti |
+| MCP server-side transport | [MCP Adapter](../mcp-adapter.md) bridges gRPC ↔ stdio or Streamable HTTP |
 | Namespacing | `<namespace>:<toolName>` to prevent collisions |
-| Resilience | Heartbeat + restart with configurable backoff |
+| Server lifecycle | Managed by the [Orchestrator](../orchestrator.md), not the agent |
 
-MCP servers are defined as team resources (see [Teams](../teams.md)) and mounted into the agent container as sidecars by the Runner.
+MCP servers are defined as team resources (see [Teams](../teams.md)) and attached to agents via [attachments](../resource-definitions.md#attachment). The [Orchestrator](../orchestrator.md) starts MCP server workloads before the agent workload and passes MCP server gRPC endpoints to the agent as configuration.
 
 ## Wrapper Model
 
@@ -109,17 +117,17 @@ Most 3rd-party agents are implemented as CLIs. The platform provides a **wrapper
 sequenceDiagram
     participant W as Wrapper
     participant CLI as Agent CLI
-    participant MCP as MCP Servers
+    participant MCP as MCP Servers (gRPC)
     participant T as Threads
     participant N as Notifications
 
     W->>N: Subscribe to thread_participant:{agentId} room
     W->>CLI: Start process with config
-    W->>MCP: Start MCP servers
+    W->>MCP: Connect to MCP servers via gRPC
     W->>CLI: Connect MCP servers
     W->>T: GetUnackedMessages(agentId)
     W->>CLI: Feed messages
-    CLI->>MCP: Tool calls
+    CLI->>MCP: Tool calls (gRPC)
     MCP-->>CLI: Tool results
     CLI-->>W: Output
     W->>T: Post response to thread
@@ -133,7 +141,7 @@ sequenceDiagram
 The wrapper:
 1. Subscribes to notifications for the agent's participant room.
 2. Starts the agent CLI process with configuration.
-3. Connects MCP tool servers to the agent.
+3. Connects to MCP servers via gRPC (endpoints provided by the Orchestrator).
 4. Pulls unacknowledged messages from Threads and feeds them to the CLI.
 5. Collects CLI output and posts responses to the thread.
 6. Acknowledges processed messages via `AckMessages`.
@@ -141,39 +149,46 @@ The wrapper:
 
 ## Lifecycle
 
-The [Agents Orchestrator](../orchestrator.md) manages the full agent workload lifecycle — starting containers when demand exists, stopping them when idle. This section summarizes the lifecycle from the agent's perspective.
+The [Orchestrator](../orchestrator.md) manages the full agent workload lifecycle — starting containers when demand exists, stopping them when idle. This section summarizes the lifecycle from the agent's perspective.
 
 ```mermaid
 sequenceDiagram
     participant T as Threads
-    participant O as Agents Orchestrator
+    participant O as Orchestrator
     participant R as Runner
-    participant A as Agent Container
+    participant M as MCP Server Workloads
+    participant A as Agent Workload
 
     T->>O: Unacknowledged messages (reconciliation loop)
-    O->>R: StartWorkload
-    R->>A: Create container
+    O->>R: Start MCP server workloads
+    R->>M: Create MCP containers
+    Note over M: MCP servers ready
+    O->>R: StartWorkload (agent)
+    R->>A: Create agent container
+    A->>M: Connect to MCP servers (gRPC)
     A->>A: Subscribe, pull, process, ack
     A->>T: Post response
 
     Note over A,O: Agent idle, waiting for messages
     O->>O: Activity check (reconciliation loop)
     Note over O: Idle timeout exceeded
-    O->>R: StopWorkload
+    O->>R: StopWorkload (agent)
+    Note over O: No agents reference MCP servers
+    O->>R: StopWorkload (MCP servers)
 ```
 
-1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
-2. Orchestrator requests Runner to start an agent workload with thread ID and agent config.
-3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
+1. The Orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
+2. Orchestrator ensures the agent's MCP server dependencies are running.
+3. Orchestrator requests Runner to start an agent workload with thread ID, agent config, and MCP server endpoints.
+4. Agent connects to MCP servers over gRPC, subscribes to notifications, pulls messages, processes, responds, acknowledges.
 5. Agent waits for new messages (notification or poll fallback).
-6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the workload via Runner.
+6. The Orchestrator monitors agent activity. When idle timeout is exceeded, it stops the agent workload. MCP server workloads are stopped when no agents reference them.
 
 ### Idle Timeout
 
-The **orchestrator** owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload`.
+The **Orchestrator** owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload`.
 
-The agent container does not implement idle detection. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
+The agent container does not implement idle detection. It may exit naturally (process completion, crash), but the Orchestrator is the authority for lifecycle management.
 
 ### Scaling
 

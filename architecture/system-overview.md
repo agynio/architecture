@@ -14,7 +14,7 @@ graph TB
 
     subgraph Control Plane
         Teams[Teams]
-        AgentsOrch[Agents<br/>Orchestrator]
+        Orch[Orchestrator]
     end
 
     subgraph Data Plane
@@ -34,10 +34,10 @@ graph TB
     end
 
     subgraph Workloads
-        Agent1[Agent Container]
-        Agent2[Agent Container]
-        MCP1[MCP Server]
-        MCP2[MCP Server]
+        Agent1[Agent Workload]
+        Agent2[Agent Workload]
+        MCP1[MCP Server Workload]
+        MCP2[MCP Server Workload]
     end
 
     subgraph Monolith
@@ -57,12 +57,13 @@ graph TB
     Channels --> Threads
 
     Threads -->|publish events| Notifications
-    AgentsOrch --> Runner
-    AgentsOrch --> Threads
+    Orch --> Runner
+    Orch --> Threads
 
     Runner --> Agent1 & Agent2
-    Agent1 --> MCP1
-    Agent2 --> MCP2
+    Runner --> MCP1 & MCP2
+    Agent1 -->|gRPC over OpenZiti| MCP1
+    Agent2 -->|gRPC over OpenZiti| MCP2
     Agent1 & Agent2 --> Threads
     Agent1 & Agent2 --> Notifications
     Agent1 & Agent2 --> AgentState
@@ -77,7 +78,7 @@ graph TB
     Teams --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
-    Teams --> AgentsOrch
+    Teams --> Orch
 ```
 
 ## Component Summary
@@ -93,12 +94,13 @@ graph TB
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
-| **[Agents Orchestrator](orchestrator.md)** | Reconciles agent workloads — starts containers for threads with unacknowledged agent messages, stops idle agents. See [Orchestrator](orchestrator.md) |
+| **[Orchestrator](orchestrator.md)** | Reconciles all workloads — agents, MCP servers, and discovery signals. Starts MCP server dependencies before agents, stops idle workloads. See [Orchestrator](orchestrator.md) |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
 | **Gateway** | Exposes platform methods for external usage. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
+| **[MCP Adapter](mcp-adapter.md)** | Standalone binary wrapping any MCP server. Bridges stdio/HTTP to gRPC. Entrypoint of every MCP server workload |
 
 ## Data Stores
 
@@ -121,4 +123,5 @@ graph TB
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
+| `agynio/mcp-adapter` | MCP Adapter binary | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |
