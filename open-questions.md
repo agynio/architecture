@@ -48,12 +48,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## ~~OpenZiti Integration~~ — Resolved
-
-Resolved. See [OpenZiti Integration](architecture/openziti.md) for the full implementation design covering: Ziti Management service, identity lifecycle, service policies, Gateway identity extraction, tenant metadata, internal identity propagation, external runner enrollment, and agent access scope.
-
----
-
 ## OpenZiti: Agent-to-Agent Private Networking
 
 **Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
