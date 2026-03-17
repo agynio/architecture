@@ -87,4 +87,4 @@ A workload consists of:
 
 The docker-runner currently uses HMAC-based authentication with a shared secret (`DOCKER_RUNNER_SHARED_SECRET`). The target architecture uses OpenZiti network identity — the Runner enrolls using a service token and then authenticates all connections via mTLS. See [Authentication](authn.md).
 
-The Runner also manages OpenZiti identities for agent containers: creating an identity before starting a container and deleting it when the container stops.
+The Runner does not manage OpenZiti identities. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).

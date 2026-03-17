@@ -31,6 +31,7 @@ graph TB
         AgentState[Agent State]
         Tracing[Tracing]
         Authorization[Authorization]
+        ZitiMgmt[Ziti Management]
     end
 
     subgraph Workloads
@@ -48,6 +49,7 @@ graph TB
     WebApp & MobileApp -- "/api" --> PS
     ThirdParty <--> Channels
 
+    Gateway --> ZitiMgmt
     Gateway --> Chat
     Gateway --> Files
     Gateway --> Notifications
@@ -58,6 +60,7 @@ graph TB
 
     Threads -->|publish events| Notifications
     AgentsOrch --> Runner
+    AgentsOrch --> ZitiMgmt
     AgentsOrch --> Threads
 
     Runner --> Agent1 & Agent2
@@ -99,6 +102,7 @@ graph TB
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
 | **Gateway** | Exposes platform methods for external usage. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
+| **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 
 ## Data Stores
 
