@@ -32,12 +32,11 @@ All fields are optional (the schema uses `.partial()`).
 
 ## MCP Server
 
-An MCP server definition that describes how to run an MCP tool server as a separate workload. Each MCP server runs behind the [MCP Adapter](mcp-adapter.md), which launches the server process and exposes a uniform gRPC interface over OpenZiti.
+An MCP server definition. Runs as a sidecar within an [agent workload](orchestrator.md#agent-workload) via the [MCP Adapter](mcp-adapter.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | string | `""` | Namespace prefix for exposed tools. Tools are named `<namespace>_<toolName>` |
-| `image` | string | | Container image containing the MCP server runtime (e.g., `node:22`, `python:3.12`) |
 | `command` | string | `"mcp start --stdio"` | Command to start the MCP server process (executed by the adapter) |
 | `transport` | enum | `"stdio"` | `"stdio"` — adapter communicates via stdin/stdout. `"http"` — adapter communicates via Streamable HTTP |
 | `httpPort` | integer | | Port the MCP server listens on (required when `transport` is `"http"`) |
@@ -50,7 +49,9 @@ An MCP server definition that describes how to run an MCP tool server as a separ
 | `restart.maxAttempts` | integer | `5` | Maximum restart attempts during resilient start |
 | `restart.backoffMs` | integer | `2000` | Base backoff (ms) between restart attempts |
 
-All fields are optional except `image` and `command`.
+All fields are optional except `command`.
+
+The container image is determined by the workspace, not by this resource.
 
 ---
 

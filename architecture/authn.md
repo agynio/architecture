@@ -60,7 +60,7 @@ The OIDC provider is configured system-wide (not per-tenant):
 
 ## Network Identity (OpenZiti)
 
-Agents, MCP servers, Channels, and Runners authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
+Agents, Channels, and Runners authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
 
 ### Enrollment
 
@@ -89,31 +89,32 @@ sequenceDiagram
 
 ### Agent Identity Lifecycle
 
-Agent containers are short-lived. Their OpenZiti identities are created and destroyed with the container.
+Agent workloads are short-lived. Each receives an OpenZiti identity scoped to `agentId + threadId`. MCP server sidecars share this identity.
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
+    participant O as Agents Orchestrator
     participant R as Runner
     participant ZC as OpenZiti Controller
-    participant A as Agent Container
+    participant A as Agent Workload (agent + MCP sidecars)
 
     O->>R: StartWorkload (via OpenZiti)
-    R->>ZC: Create identity for agent
+    R->>ZC: Create identity (agentId + threadId)
     ZC->>R: Enrollment JWT
-    R->>A: Start container with enrollment JWT
+    R->>A: Start pod with enrollment JWT
     A->>ZC: Enroll (exchange JWT for x509 cert)
-    A->>A: Call platform APIs via OpenZiti mTLS
+    A->>A: Agent calls platform APIs via OpenZiti mTLS
+    A->>A: Agent calls MCP sidecars via gRPC
 
     Note over O: Idle timeout exceeded
     O->>R: StopWorkload (via OpenZiti)
-    R->>A: Stop container
+    R->>A: Stop pod
     R->>ZC: Delete agent identity
 ```
 
-1. Runner requests an OpenZiti identity for the agent before starting the container.
+1. Runner requests an OpenZiti identity for the agent workload.
 2. Agent container enrolls on startup, receiving an x509 certificate.
-3. All API calls from the agent use mTLS. The Gateway extracts identity from the client certificate.
+3. All API calls from the agent use mTLS via the OpenZiti sidecar. The Gateway extracts identity from the client certificate.
 4. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
 
 ### OpenZiti Identities
@@ -122,7 +123,7 @@ sequenceDiagram
 |----------|-----------|--------------------|
 | Orchestrator | Persistent (enrolled once) | Runner |
 | Runner | Persistent (enrolled via service token) | OpenZiti Controller (identity management) |
-| Agent container | Ephemeral (per container) | Gateway |
+| Agent workload | Ephemeral (per agentId + threadId) | Gateway |
 | Channel | Persistent (enrolled via service token) | Gateway |
 
 ## Two Network Layers

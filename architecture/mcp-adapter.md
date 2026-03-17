@@ -2,20 +2,18 @@
 
 ## Overview
 
-The MCP Adapter is a standalone binary that wraps any MCP server and exposes a uniform gRPC interface. It is the entrypoint of every MCP server workload.
+The MCP Adapter is a standalone binary that wraps any MCP server and exposes a uniform gRPC interface. It runs as the entrypoint of each MCP server sidecar within an [agent workload](orchestrator.md#agent-workload).
 
-The adapter handles the protocol translation between the MCP server's native transport (stdio or Streamable HTTP) and the gRPC interface that agents consume over [OpenZiti](authn.md). Agents never interact with MCP servers directly — they always talk gRPC to the adapter.
+The adapter translates between the MCP server's native transport (stdio or Streamable HTTP) and gRPC.
 
 ## Architecture
 
 ```
-MCP Workload
-├── Main container
-│   ├── MCP Adapter binary (entrypoint)
-│   │   ├── gRPC server (external, over OpenZiti)
-│   │   └── MCP client (local, stdio or HTTP)
-│   └── MCP server process (launched by adapter)
-└── Sidecar: OpenZiti tunnel
+MCP Server Sidecar (one per MCP server in the pod)
+├── MCP Adapter binary (entrypoint)
+│   ├── gRPC server (port N)
+│   └── MCP client (stdio or HTTP to subprocess)
+└── MCP server process (launched by adapter)
 ```
 
 The adapter is added to any MCP server image and used as the container entrypoint. The MCP server image provides the runtime and dependencies (Node.js, Python, etc.). The adapter binary is a static executable with no runtime dependencies.
@@ -50,14 +48,12 @@ The adapter owns the MCP server process lifecycle:
 
 1. **Start** — launch the MCP server subprocess with the configured command.
 2. **Initialize** — perform the MCP `initialize` handshake (capability exchange).
-3. **Ready** — begin accepting gRPC connections from agents.
+3. **Ready** — begin accepting gRPC connections.
 4. **Health check** — periodic heartbeat to detect MCP server failures.
 5. **Restart** — if the MCP server process dies, restart it with configurable backoff.
 6. **Shutdown** — on SIGTERM, gracefully stop the MCP server process and drain gRPC connections.
 
 ## gRPC Interface
-
-The adapter exposes a gRPC service that mirrors the MCP protocol operations. Agents call these RPCs over OpenZiti.
 
 The gRPC proto is defined in `agynio/api`. Key operations:
 
@@ -70,7 +66,7 @@ The gRPC proto is defined in `agynio/api`. Key operations:
 | `ListPrompts` | `prompts/list` | List available prompts |
 | `GetPrompt` | `prompts/get` | Get a prompt |
 
-The adapter translates between gRPC request/response types and MCP JSON-RPC messages. Streaming tool results are supported via server-streaming RPCs.
+Streaming tool results are supported via server-streaming RPCs.
 
 ## Configuration
 
