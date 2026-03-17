@@ -87,4 +87,4 @@ A workload consists of:
 
 The docker-runner currently uses HMAC-based authentication with a shared secret (`DOCKER_RUNNER_SHARED_SECRET`). The target architecture uses OpenZiti network identity — the Runner enrolls using a service token and then authenticates all connections via mTLS. See [Authentication](authn.md).
 
-The Runner also manages OpenZiti identities for agent workloads: creating an identity scoped to `agentId + threadId` before starting the pod and deleting it when the pod stops. MCP server sidecars within the agent workload share the agent's OpenZiti identity.
+The Runner also manages OpenZiti identities for agent workloads — see [Agent Identity Lifecycle](authn.md#agent-identity-lifecycle).

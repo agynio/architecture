@@ -32,7 +32,7 @@ All fields are optional (the schema uses `.partial()`).
 
 ## MCP Server
 
-An MCP server definition that describes how to run an MCP tool server as a sidecar container within an [agent workload](orchestrator.md#agent-workload). Each MCP server sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the server process and exposes a gRPC interface.
+An MCP server definition. Runs as a sidecar within an [agent workload](orchestrator.md#agent-workload) via the [MCP Adapter](mcp-adapter.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -51,7 +51,7 @@ An MCP server definition that describes how to run an MCP tool server as a sidec
 
 All fields are optional except `command`.
 
-The container image for the MCP server sidecar is determined by the workspace, not by the MCP server resource itself.
+The container image is determined by the workspace, not by this resource.
 
 ---
 

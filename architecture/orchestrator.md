@@ -8,17 +8,17 @@ The orchestrator is a **control plane** service. It does not touch messages, pro
 
 ## Agent Workload
 
-An agent workload is a single pod containing the agent process, its MCP server sidecars, and an OpenZiti sidecar. The workload identity is scoped to `agentId + threadId`.
-
-All containers share the pod's network namespace and filesystem volumes. Each MCP sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the MCP server process and exposes gRPC.
+An agent workload is a single pod. All containers share the network namespace and filesystem volumes.
 
 ```
-Agent Workload (single pod)
+Agent Workload (pod)
 ├── Main container: agent image (our implementation or wrapped 3rd-party CLI)
 ├── Sidecar: MCP server A (adapter + server process, port 50051)
 ├── Sidecar: MCP server B (adapter + server process, port 50052)
-└── Sidecar: OpenZiti tunnel (agentId + threadId identity)
+└── Sidecar: OpenZiti tunnel
 ```
+
+The workload [identity](authn.md#agent-identity-lifecycle) is scoped to `agentId + threadId`. Each [MCP sidecar](mcp-adapter.md) launches its MCP server process and exposes gRPC.
 
 ## Reconciliation
 
@@ -112,8 +112,8 @@ stateDiagram-v2
 When starting an agent workload, the orchestrator assembles the full `StartWorkloadRequest` for the Runner:
 
 1. **Resolve agent config** from [Teams](teams.md) — image, model, system prompt, behavior settings, attached MCP servers, workspace configuration.
-2. **Build container specs** — main agent container + MCP server sidecars (each running the [MCP Adapter](mcp-adapter.md)) + OpenZiti sidecar + workspace volumes.
-3. **Provision identity** — request an [OpenZiti identity](authn.md) for the agent workload, scoped to `agentId + threadId`. The identity is created before the workload starts and deleted when it stops.
+2. **Build container specs** — main agent container + [MCP sidecars](mcp-adapter.md) + OpenZiti sidecar + workspace volumes.
+3. **Provision [identity](authn.md#agent-identity-lifecycle)** — created before the workload starts, deleted when it stops.
 4. **Inject configuration** — thread ID, agent identity, platform service endpoints, MCP server ports — passed as environment variables or mounted config.
 
 The orchestrator does not fetch the full agent config on every reconciliation pass. Config is fetched when starting a new workload. For running workloads, config changes are not hot-reloaded — the agent runs with the config it was started with.
@@ -132,7 +132,7 @@ The agent container does not implement idle detection. It may exit naturally (pr
 |---------|----------|
 | `StartWorkload` fails | Assignment marked `failed`. Retried on next reconciliation pass if demand still exists |
 | Agent container crashes | Runner publishes workload status change. Orchestrator detects demand without supply on next pass → restarts |
-| Runner unreachable | Orchestrator cannot confirm supply. Logs error, retries next pass. Running agents continue independently (they communicate with Threads/Notifications directly) |
+| Runner unreachable | Orchestrator cannot confirm supply. Logs error, retries next pass. Running agents continue independently |
 | Orchestrator crashes | Restarts, loads assignments from PostgreSQL, queries Runner for actual state, reconciles the diff |
 
 ## Notification Rooms

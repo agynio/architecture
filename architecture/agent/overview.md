@@ -8,14 +8,14 @@ This document describes the agent contract: what an agent is, how it connects to
 
 ## Agent Contract
 
-Every agent, regardless of implementation, must satisfy the same contract:
+Every agent, regardless of implementation, must satisfy the same contract. The agent workload structure is defined in [Orchestrator — Agent Workload](../orchestrator.md#agent-workload).
 
 ```mermaid
 graph TB
-    subgraph "Agent Workload (single pod)"
-        Impl[Agent Implementation<br/>our own / 3rd-party CLI / custom]
-        MCP1[MCP Server 1<br/>adapter sidecar]
-        MCP2[MCP Server 2<br/>adapter sidecar]
+    subgraph "Agent Workload (pod)"
+        Impl[Agent Implementation]
+        MCP1[MCP Sidecar 1]
+        MCP2[MCP Sidecar 2]
         Ziti[OpenZiti Tunnel]
         Impl -->|gRPC| MCP1
         Impl -->|gRPC| MCP2
@@ -43,10 +43,10 @@ graph TB
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
-| **Use tools via MCP** | Call MCP server sidecars via gRPC (see [MCP Adapter](../mcp-adapter.md)) |
+| **Use tools via MCP** | Call [MCP sidecars](../mcp-adapter.md) via gRPC |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections. MCP servers are sidecars within the same pod — all containers share the network namespace and filesystem volumes.
+The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections.
 
 ## Communication Protocol
 
@@ -93,9 +93,7 @@ sequenceDiagram
 
 ## Tools
 
-All tools are provided via **MCP protocol** (Model Context Protocol) through the [MCP Adapter](../mcp-adapter.md). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
-
-MCP servers run as **sidecar containers** within the agent workload pod. The agent and MCP sidecars share the network namespace and filesystem volumes.
+All tools are provided via **MCP protocol** (Model Context Protocol) through [MCP Adapter](../mcp-adapter.md) sidecars. The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
 
 | Aspect | Details |
 |--------|---------|
@@ -104,7 +102,7 @@ MCP servers run as **sidecar containers** within the agent workload pod. The age
 | Namespacing | `<namespace>:<toolName>` to prevent collisions |
 | Resilience | Adapter handles heartbeat + restart with configurable backoff |
 
-MCP servers are defined as team resources (see [Teams](../teams.md)) and attached to agents via [attachments](../resource-definitions.md#attachment). The [Agents Orchestrator](../orchestrator.md) includes MCP server sidecars in the agent workload spec at startup.
+MCP servers are defined as team resources (see [Teams](../teams.md)) and attached to agents via [attachments](../resource-definitions.md#attachment). The [Agents Orchestrator](../orchestrator.md) includes them as sidecars when assembling the workload.
 
 ## Wrapper Model
 
@@ -120,7 +118,7 @@ sequenceDiagram
 
     W->>N: Subscribe to thread_participant:{agentId} room
     W->>CLI: Start process with config
-    W->>MCP: Connect to MCP servers via gRPC
+    W->>MCP: Connect via gRPC
     W->>CLI: Connect MCP servers
     W->>T: GetUnackedMessages(agentId)
     W->>CLI: Feed messages
@@ -138,7 +136,7 @@ sequenceDiagram
 The wrapper:
 1. Subscribes to notifications for the agent's participant room.
 2. Starts the agent CLI process with configuration.
-3. Connects to MCP server sidecars via gRPC.
+3. Connects to MCP sidecars via gRPC.
 4. Pulls unacknowledged messages from Threads and feeds them to the CLI.
 5. Collects CLI output and posts responses to the thread.
 6. Acknowledges processed messages via `AckMessages`.
@@ -146,7 +144,7 @@ The wrapper:
 
 ## Lifecycle
 
-The [Agents Orchestrator](../orchestrator.md) manages the full agent workload lifecycle — starting containers when demand exists, stopping them when idle. This section summarizes the lifecycle from the agent's perspective.
+The [Agents Orchestrator](../orchestrator.md) manages the full workload lifecycle — starting pods when demand exists, stopping them when idle.
 
 ```mermaid
 sequenceDiagram
@@ -156,9 +154,9 @@ sequenceDiagram
     participant A as Agent Workload
 
     T->>O: Unacknowledged messages (reconciliation loop)
-    O->>R: StartWorkload (agent + MCP sidecars + OpenZiti)
+    O->>R: StartWorkload
     R->>A: Create pod
-    Note over A: MCP sidecars start, agent starts
+    Note over A: Sidecars start, agent starts
     A->>A: Subscribe, pull, process, ack
     A->>T: Post response
 
@@ -167,13 +165,6 @@ sequenceDiagram
     Note over O: Idle timeout exceeded
     O->>R: StopWorkload
 ```
-
-1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
-2. Orchestrator requests Runner to start an agent workload — main container, MCP sidecars, OpenZiti sidecar, shared volumes.
-3. Runner creates the pod. MCP adapter sidecars start and initialize their MCP server processes.
-4. Agent subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
-5. Agent waits for new messages (notification or poll fallback).
-6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the entire workload via Runner.
 
 ### Idle Timeout
 

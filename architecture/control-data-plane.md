@@ -49,7 +49,7 @@ graph LR
 | Service | Plane | Rationale |
 |---------|-------|-----------|
 | **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
-| **[Agents Orchestrator](orchestrator.md)** | Control | Reconciles agent workloads (agent + MCP sidecars). Starts pods when threads have unacked agent messages, stops idle agents |
+| **[Agents Orchestrator](orchestrator.md)** | Control | Reconciles [agent workloads](orchestrator.md#agent-workload). Starts pods when threads have unacked agent messages, stops idle agents |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Threads** | Data | Carries conversation messages between participants |
@@ -87,5 +87,5 @@ graph LR
 - Optional: subscribe to Notifications events for faster reactivity; the polling loop serves as consistency fallback.
 
 **Resources to reconcile:**
-- **Agents** — Ensure agent workloads (agent + MCP sidecars) exist for threads with pending messages; remove idle agents.
+- **Agents** — Ensure [agent workloads](orchestrator.md#agent-workload) exist for threads with pending messages; remove idle agents.
 - **Channels** — Ensure channel connections match their configuration (reconnect on credential rotation).

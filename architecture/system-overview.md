@@ -102,13 +102,13 @@ graph TB
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
-| **[Agents Orchestrator](orchestrator.md)** | Reconciles agent workloads — starts pods (agent + MCP sidecars) for threads with unacknowledged agent messages, stops idle agents. See [Orchestrator](orchestrator.md) |
+| **[Agents Orchestrator](orchestrator.md)** | Reconciles [agent workloads](orchestrator.md#agent-workload) — starts pods for threads with unacknowledged agent messages, stops idle agents |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
 | **Gateway** | Exposes platform methods for external usage. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
-| **[MCP Adapter](mcp-adapter.md)** | Standalone binary wrapping any MCP server. Bridges stdio/HTTP to gRPC. Runs as sidecar entrypoint in agent workloads |
+| **[MCP Adapter](mcp-adapter.md)** | Wraps any MCP server, bridges stdio/HTTP to gRPC. See [MCP Adapter](mcp-adapter.md) |
 
 ## Data Stores
 

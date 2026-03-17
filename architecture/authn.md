@@ -60,7 +60,7 @@ The OIDC provider is configured system-wide (not per-tenant):
 
 ## Network Identity (OpenZiti)
 
-Agents, Channels, and Runners authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. MCP servers run as sidecars within the agent workload pod and share the agent's OpenZiti identity. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
+Agents, Channels, and Runners authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
 
 ### Enrollment
 
@@ -89,7 +89,7 @@ sequenceDiagram
 
 ### Agent Identity Lifecycle
 
-Agent workloads are short-lived. Each agent workload receives an OpenZiti identity scoped to `agentId + threadId`. MCP server sidecars within the same pod share the agent's identity — they do not receive separate identities.
+Agent workloads are short-lived. Each receives an OpenZiti identity scoped to `agentId + threadId`. MCP server sidecars share this identity.
 
 ```mermaid
 sequenceDiagram
@@ -112,11 +112,10 @@ sequenceDiagram
     R->>ZC: Delete agent identity
 ```
 
-1. Runner requests an OpenZiti identity for the agent workload, scoped to `agentId + threadId`.
+1. Runner requests an OpenZiti identity for the agent workload.
 2. Agent container enrolls on startup, receiving an x509 certificate.
 3. All API calls from the agent use mTLS via the OpenZiti sidecar. The Gateway extracts identity from the client certificate.
-4. MCP server sidecars share the pod network namespace — no OpenZiti involvement in agent-to-MCP communication.
-5. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
+4. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
 
 ### OpenZiti Identities
 

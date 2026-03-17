@@ -4,24 +4,19 @@
 
 The MCP Adapter is a standalone binary that wraps any MCP server and exposes a uniform gRPC interface. It runs as the entrypoint of each MCP server sidecar within an [agent workload](orchestrator.md#agent-workload).
 
-The adapter translates between the MCP server's native transport (stdio or Streamable HTTP) and gRPC. All containers in the agent pod share the network namespace, so the agent reaches MCP sidecars on `localhost` — no external network is involved.
+The adapter translates between the MCP server's native transport (stdio or Streamable HTTP) and gRPC.
 
 ## Architecture
 
 ```
-Agent Workload (single pod)
-├── Main container: agent
-├── Sidecar: MCP server
-│   ├── MCP Adapter binary (entrypoint)
-│   │   ├── gRPC server (port N)
-│   │   └── MCP client (stdio or HTTP to subprocess)
-│   └── MCP server process (launched by adapter)
-├── Sidecar: another MCP server
-│   └── ...
-└── Sidecar: OpenZiti tunnel
+MCP Server Sidecar (one per MCP server in the pod)
+├── MCP Adapter binary (entrypoint)
+│   ├── gRPC server (port N)
+│   └── MCP client (stdio or HTTP to subprocess)
+└── MCP server process (launched by adapter)
 ```
 
-The adapter is added to any MCP server image and used as the sidecar container entrypoint. The MCP server image provides the runtime and dependencies (Node.js, Python, etc.). The adapter binary is a static executable with no runtime dependencies.
+The adapter is added to any MCP server image and used as the container entrypoint. The MCP server image provides the runtime and dependencies (Node.js, Python, etc.). The adapter binary is a static executable with no runtime dependencies.
 
 ## Transport Modes
 
@@ -60,8 +55,6 @@ The adapter owns the MCP server process lifecycle:
 
 ## gRPC Interface
 
-The adapter exposes a gRPC service that mirrors the MCP protocol operations.
-
 The gRPC proto is defined in `agynio/api`. Key operations:
 
 | RPC | MCP Method | Description |
@@ -73,7 +66,7 @@ The gRPC proto is defined in `agynio/api`. Key operations:
 | `ListPrompts` | `prompts/list` | List available prompts |
 | `GetPrompt` | `prompts/get` | Get a prompt |
 
-The adapter translates between gRPC request/response types and MCP JSON-RPC messages. Streaming tool results are supported via server-streaming RPCs.
+Streaming tool results are supported via server-streaming RPCs.
 
 ## Configuration
 
