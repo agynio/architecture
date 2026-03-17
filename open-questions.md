@@ -48,19 +48,31 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## OpenZiti Integration
+## ~~OpenZiti Integration~~ — Resolved
 
-**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, channels, runners, and the Agents Orchestrator. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
+Resolved. See [OpenZiti Integration](architecture/openziti.md) for the full implementation design covering: Ziti Management service, identity lifecycle, service policies, Gateway identity extraction, tenant metadata, internal identity propagation, external runner enrollment, and agent access scope.
+
+---
+
+## OpenZiti: Agent-to-Agent Private Networking
+
+**Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
 
 **Questions:**
-- How does Runner integrate with the OpenZiti Controller API to manage agent identities? (SDK? CLI? REST?)
-- What is the identity lifecycle for agent containers on crash/orphan? (Runner cleanup? TTL on identity? Reconciliation?)
-- How are OpenZiti service policies managed? (Per-agent? Per-tenant? Static set of allowed services?)
-- How does Gateway extract identity from OpenZiti mTLS connections?
-- Can OpenZiti identities carry tenant metadata, or must the platform maintain a separate identity-to-tenant mapping?
-- How does an external runner enroll with the platform's OpenZiti network? (Same service token flow?)
-- What services can agent containers on external runners access? (Only Gateway? Direct access to Threads, Files?)
-- How is end-user identity propagated across internal service boundaries? (gRPC metadata key convention?)
+- How does the agent request port sharing? (Platform API tool? Agent SDK primitive?)
+- What is the resource model? (Does the platform define "agent networks" as a team resource, or is each share ad-hoc?)
+- Does the binding agent create the OpenZiti service dynamically, or does the Ziti Management service pre-provision it?
+
+---
+
+## OpenZiti: User-to-Agent Direct Connection
+
+**Context:** Future capability. Users should be able to connect directly to a specific agent from their machine via OpenZiti, bypassing the Gateway for certain use cases. The platform will ship a CLI that enrolls the user's machine. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
+
+**Questions:**
+- What is the CLI enrollment UX? (OIDC browser flow → enrollment JWT → local identity file?)
+- What protocol does the user use to connect to the agent? (Raw TCP? HTTP? gRPC?)
+- How is the direct connection authorized relative to the user's tenant permissions?
 
 ---
 

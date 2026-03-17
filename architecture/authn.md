@@ -91,37 +91,20 @@ sequenceDiagram
 
 Agent containers are short-lived. Their OpenZiti identities are created and destroyed with the container.
 
-```mermaid
-sequenceDiagram
-    participant O as Agents Orchestrator
-    participant R as Runner
-    participant ZC as OpenZiti Controller
-    participant A as Agent Container
+1. The Agents Orchestrator creates an OpenZiti identity via the Ziti Management service before requesting the container.
+2. The Orchestrator passes the enrollment JWT to Runner as part of `StartWorkload` configuration.
+3. Runner starts the container with the JWT. The agent enrolls on startup, receiving an x509 certificate.
+4. All API calls from the agent use mTLS. The Gateway extracts identity from the connection.
+5. When the Orchestrator stops the workload, it deletes the OpenZiti identity via Ziti Management. The certificate becomes invalid.
 
-    O->>R: StartWorkload (via OpenZiti)
-    R->>ZC: Create identity for agent
-    ZC->>R: Enrollment JWT
-    R->>A: Start container with enrollment JWT
-    A->>ZC: Enroll (exchange JWT for x509 cert)
-    A->>A: Call platform APIs via OpenZiti mTLS
-
-    Note over O: Idle timeout exceeded
-    O->>R: StopWorkload (via OpenZiti)
-    R->>A: Stop container
-    R->>ZC: Delete agent identity
-```
-
-1. Runner requests an OpenZiti identity for the agent before starting the container.
-2. Agent container enrolls on startup, receiving an x509 certificate.
-3. All API calls from the agent use mTLS. The Gateway extracts identity from the client certificate.
-4. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
+The Runner is not involved in identity management — it treats the enrollment JWT as opaque configuration. See [OpenZiti Integration](openziti.md) for the full lifecycle diagram and implementation details.
 
 ### OpenZiti Identities
 
 | Identity | Lifecycle | Calls via OpenZiti |
 |----------|-----------|--------------------|
 | Agents Orchestrator | Persistent (enrolled once) | Runner |
-| Runner | Persistent (enrolled via service token) | OpenZiti Controller (identity management) |
+| Runner | Persistent (enrolled via service token) | — (receives work, doesn't dial) |
 | Agent container | Ephemeral (per container) | Gateway |
 | Channel | Persistent (enrolled via service token) | Gateway |
 

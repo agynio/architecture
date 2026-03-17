@@ -39,10 +39,12 @@ graph LR
         Chat
         Secrets
         Authorization
+        ZitiMgmt[Ziti Management]
     end
 
     Teams -->|desired state| AgentsOrch
     AgentsOrch -->|schedule workloads| Runner
+    AgentsOrch -->|manage identities| ZitiMgmt
     AgentsOrch -->|read pending messages| Threads
 ```
 
@@ -64,6 +66,7 @@ graph LR
 | **Chat** | Data | Built-in app chat experience on top of Threads |
 | **Authorization** | Data | Checks permissions and manages relationship tuples. Thin proxy to OpenFGA on the live request path |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
+| **Ziti Management** | Data | Manages OpenZiti identities, services, and policies. Thin proxy to OpenZiti Controller |
 
 ## Reconciliation
 
@@ -88,5 +91,6 @@ graph LR
 
 **Resources to reconcile:**
 - **Agents** — Ensure agent workloads exist for threads with pending messages; remove idle agents.
+- **Agent OpenZiti identities** — Ensure every running agent has a corresponding OpenZiti identity; delete orphaned identities with no matching workload. See [OpenZiti Integration](openziti.md).
 - **Channels** — Ensure channel connections match their configuration (reconnect on credential rotation).
 - **Workspaces** — Ensure workspace containers match desired image/config; enforce TTL.
