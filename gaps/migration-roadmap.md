@@ -21,7 +21,7 @@ graph LR
 
     subgraph "Phase 3: New Services"
         S8[Channels service]
-        S9[Orchestrator]
+        S9[Agents Orchestrator]
         S10[Tracing service]
         S11[k8s-runner]
         S12[Files service]
@@ -86,13 +86,13 @@ New service implementing the channel interface:
 - Live connections to 3rd-party APIs (data plane side).
 - Replace Slack trigger node from platform-server.
 
-### Orchestrator
+### Agents Orchestrator
 
 New control plane service:
 
 - Watch for threads with pending messages.
-- Reconcile agent workloads via Runner.
-- Manage agent lifecycle (start, monitor, stop).
+- Reconcile agent workloads (agent + MCP sidecars) via Runner.
+- Manage agent lifecycle (start, monitor, idle timeout, stop).
 
 ### Tracing Service
 

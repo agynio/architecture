@@ -19,7 +19,7 @@ graph TB
         TM[Teams<br/>resource management]
         CH[Channels<br/>Slack trigger]
         TR[Tracing<br/>removed, planned]
-        AO[Orchestrator<br/>scheduling]
+        AO[Agents Orchestrator<br/>scheduling]
     end
 
     subgraph "Monolith (agynio/platform)"
@@ -89,7 +89,7 @@ These components exist inside `agynio/platform` (`packages/platform-server`) and
 | Threads (messaging) | `packages/platform-server/src/agents/threads.controller.ts` | Standalone Threads service |
 | Teams (resource management) | Partially extracted (Gateway proxies to platform-server) | Standalone Teams service |
 | Channels (Slack trigger) | `packages/platform-server/src/nodes/` (trigger nodes) | Standalone Channels service |
-| Orchestrator | `packages/platform-server/src/agents/` | Standalone control plane service |
+| Agents Orchestrator | `packages/platform-server/src/agents/` | Standalone Agents Orchestrator service |
 | Tracing | Removed (issue #760). Historical references remain | New standalone Tracing service |
 
 ### Platform UI — API Consumption

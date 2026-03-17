@@ -36,31 +36,42 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Orchestrator Horizontal Scaling
+## Agents Orchestrator Horizontal Scaling
 
-**Context:** The [Orchestrator](architecture/orchestrator.md) runs a single reconciliation loop. For horizontal scaling, reconciliation passes need to be partitioned across instances.
+**Context:** The [Agents Orchestrator](architecture/orchestrator.md) runs a single reconciliation loop. For horizontal scaling, reconciliation passes need to be partitioned across instances.
 
 **Questions:**
 - Sharding strategy: tenant-based, consistent hashing over agent identity IDs, or leader election?
 - How is shard assignment coordinated? (Lease-based via PostgreSQL? External coordination service?)
 
+---
+
+## MCP Discovery Service
+
+**Context:** MCP servers run as sidecars within agent workloads. For tool discovery (e.g., UI listing available tools from an MCP server), an ephemeral MCP workload must be started without an agent. This is handled by a separate MCP Discovery service, not the Agents Orchestrator.
+
+**Questions:**
+- What is the interface for requesting tool discovery? (gRPC API? Signal table in PostgreSQL?)
+- How does the UI query the running MCP server's tool listing? (Through a platform service? Direct gRPC?)
+- How is the ephemeral workload composed? (Adapter sidecar + OpenZiti sidecar, no agent container?)
+- What identity does a discovery workload use? (Ephemeral identity? Service-scoped identity?)
+- How is the TTL managed? (Discovery service reconciliation loop? Timer?)
 
 ---
 
 ## OpenZiti Integration
 
-**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, MCP servers, channels, and runners. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
+**Context:** The platform uses OpenZiti for network-level identity and mTLS for agents, channels, and runners. Service tokens bootstrap enrollment. See [Authentication](architecture/authn.md).
 
 **Questions:**
 - How does Runner integrate with the OpenZiti Controller API to manage agent identities? (SDK? CLI? REST?)
-- What is the identity lifecycle for agent containers on crash/orphan? (Runner cleanup? TTL on identity? Reconciliation?)
+- What is the identity lifecycle for agent workloads on crash/orphan? (Runner cleanup? TTL on identity? Reconciliation?)
 - How are OpenZiti service policies managed? (Per-agent? Per-tenant? Static set of allowed services?)
 - How does Gateway extract identity from OpenZiti mTLS connections?
 - Can OpenZiti identities carry tenant metadata, or must the platform maintain a separate identity-to-tenant mapping?
 - How does an external runner enroll with the platform's OpenZiti network? (Same service token flow?)
 - What services can agent containers on external runners access? (Only Gateway? Direct access to Threads, Files?)
 - How is end-user identity propagated across internal service boundaries? (gRPC metadata key convention?)
-- How are OpenZiti service policies scoped per MCP server workload? (Per-MCP-server identity? Derived from MCP server config?)
 
 ---
 

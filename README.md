@@ -17,8 +17,8 @@ Target architecture of the platform. Describes how the system should work.
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
 | [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all team-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
-| [Orchestrator](architecture/orchestrator.md) | Workload lifecycle — reconciles agents, MCP servers, and discovery signals |
-| [MCP Adapter](architecture/mcp-adapter.md) | Standalone binary wrapping any MCP server — bridges stdio/HTTP to gRPC |
+| [Agents Orchestrator](architecture/orchestrator.md) | Agent workload lifecycle — reconciles agent pods (agent + MCP sidecars) |
+| [MCP Adapter](architecture/mcp-adapter.md) | Standalone binary wrapping any MCP server — runs as sidecar, bridges stdio/HTTP to gRPC |
 | [Chat](architecture/chat.md) | Built-in web/mobile app chat on top of Threads |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
