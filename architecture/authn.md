@@ -104,7 +104,7 @@ sequenceDiagram
     R->>A: Start pod with enrollment JWT
     A->>ZC: Enroll (exchange JWT for x509 cert)
     A->>A: Agent calls platform APIs via OpenZiti mTLS
-    A->>A: Agent calls MCP sidecars via gRPC localhost
+    A->>A: Agent calls MCP sidecars via gRPC
 
     Note over O: Idle timeout exceeded
     O->>R: StopWorkload (via OpenZiti)
@@ -115,7 +115,7 @@ sequenceDiagram
 1. Runner requests an OpenZiti identity for the agent workload, scoped to `agentId + threadId`.
 2. Agent container enrolls on startup, receiving an x509 certificate.
 3. All API calls from the agent use mTLS via the OpenZiti sidecar. The Gateway extracts identity from the client certificate.
-4. MCP server sidecars communicate with the agent on `localhost` — no OpenZiti involvement.
+4. MCP server sidecars share the pod network namespace — no OpenZiti involvement in agent-to-MCP communication.
 5. When Runner stops the workload, it deletes the OpenZiti identity. The certificate becomes invalid.
 
 ### OpenZiti Identities

@@ -32,7 +32,7 @@ All fields are optional (the schema uses `.partial()`).
 
 ## MCP Server
 
-An MCP server definition that describes how to run an MCP tool server as a sidecar container within an [agent workload](orchestrator.md#agent-workload). Each MCP server sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the server process and exposes a gRPC interface on `localhost`.
+An MCP server definition that describes how to run an MCP tool server as a sidecar container within an [agent workload](orchestrator.md#agent-workload). Each MCP server sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the server process and exposes a gRPC interface.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

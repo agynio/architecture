@@ -10,15 +10,15 @@ The orchestrator is a **control plane** service. It does not touch messages, pro
 
 An agent workload is a single pod containing the agent process, its MCP server sidecars, and an OpenZiti sidecar. The workload identity is scoped to `agentId + threadId`.
 
+All containers share the pod's network namespace and filesystem volumes. Each MCP sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the MCP server process and exposes gRPC.
+
 ```
 Agent Workload (single pod)
 ├── Main container: agent image (our implementation or wrapped 3rd-party CLI)
-├── Sidecar: MCP server A (adapter binary + server process, localhost:50051)
-├── Sidecar: MCP server B (adapter binary + server process, localhost:50052)
+├── Sidecar: MCP server A (adapter + server process, port 50051)
+├── Sidecar: MCP server B (adapter + server process, port 50052)
 └── Sidecar: OpenZiti tunnel (agentId + threadId identity)
 ```
-
-All containers share the pod's network namespace and filesystem volumes. The agent connects to MCP servers via gRPC on `localhost`. Each MCP sidecar runs the [MCP Adapter](mcp-adapter.md) as its entrypoint, which launches the MCP server process and exposes gRPC.
 
 ## Reconciliation
 
@@ -114,7 +114,7 @@ When starting an agent workload, the orchestrator assembles the full `StartWorkl
 1. **Resolve agent config** from [Teams](teams.md) — image, model, system prompt, behavior settings, attached MCP servers, workspace configuration.
 2. **Build container specs** — main agent container + MCP server sidecars (each running the [MCP Adapter](mcp-adapter.md)) + OpenZiti sidecar + workspace volumes.
 3. **Provision identity** — request an [OpenZiti identity](authn.md) for the agent workload, scoped to `agentId + threadId`. The identity is created before the workload starts and deleted when it stops.
-4. **Inject configuration** — thread ID, agent identity, platform service endpoints, MCP server localhost ports — passed as environment variables or mounted config.
+4. **Inject configuration** — thread ID, agent identity, platform service endpoints, MCP server ports — passed as environment variables or mounted config.
 
 The orchestrator does not fetch the full agent config on every reconciliation pass. Config is fetched when starting a new workload. For running workloads, config changes are not hot-reloaded — the agent runs with the config it was started with.
 

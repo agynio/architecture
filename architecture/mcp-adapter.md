@@ -2,9 +2,9 @@
 
 ## Overview
 
-The MCP Adapter is a standalone binary that wraps any MCP server and exposes a uniform gRPC interface. It is the entrypoint of each MCP server sidecar container within an [agent workload](orchestrator.md#agent-workload).
+The MCP Adapter is a standalone binary that wraps any MCP server and exposes a uniform gRPC interface. It runs as the entrypoint of each MCP server sidecar within an [agent workload](orchestrator.md#agent-workload).
 
-The adapter handles the protocol translation between the MCP server's native transport (stdio or Streamable HTTP) and the gRPC interface that the agent consumes on `localhost`.
+The adapter translates between the MCP server's native transport (stdio or Streamable HTTP) and gRPC. All containers in the agent pod share the network namespace, so the agent reaches MCP sidecars on `localhost` — no external network is involved.
 
 ## Architecture
 
@@ -13,17 +13,15 @@ Agent Workload (single pod)
 ├── Main container: agent
 ├── Sidecar: MCP server
 │   ├── MCP Adapter binary (entrypoint)
-│   │   ├── gRPC server (localhost:PORT)
-│   │   └── MCP client (stdio or HTTP to local subprocess)
+│   │   ├── gRPC server (port N)
+│   │   └── MCP client (stdio or HTTP to subprocess)
 │   └── MCP server process (launched by adapter)
-├── Sidecar: MCP server (another)
+├── Sidecar: another MCP server
 │   └── ...
 └── Sidecar: OpenZiti tunnel
 ```
 
 The adapter is added to any MCP server image and used as the sidecar container entrypoint. The MCP server image provides the runtime and dependencies (Node.js, Python, etc.). The adapter binary is a static executable with no runtime dependencies.
-
-The agent and MCP sidecars share the pod's network namespace. The agent connects to each MCP server via `localhost` on distinct gRPC ports. No OpenZiti or external network is involved in agent-to-MCP communication.
 
 ## Transport Modes
 
@@ -55,14 +53,14 @@ The adapter owns the MCP server process lifecycle:
 
 1. **Start** — launch the MCP server subprocess with the configured command.
 2. **Initialize** — perform the MCP `initialize` handshake (capability exchange).
-3. **Ready** — begin accepting gRPC connections from the agent.
+3. **Ready** — begin accepting gRPC connections.
 4. **Health check** — periodic heartbeat to detect MCP server failures.
 5. **Restart** — if the MCP server process dies, restart it with configurable backoff.
 6. **Shutdown** — on SIGTERM, gracefully stop the MCP server process and drain gRPC connections.
 
 ## gRPC Interface
 
-The adapter exposes a gRPC service that mirrors the MCP protocol operations. The agent calls these RPCs on `localhost`.
+The adapter exposes a gRPC service that mirrors the MCP protocol operations.
 
 The gRPC proto is defined in `agynio/api`. Key operations:
 

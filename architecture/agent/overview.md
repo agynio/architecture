@@ -17,8 +17,8 @@ graph TB
         MCP1[MCP Server 1<br/>adapter sidecar]
         MCP2[MCP Server 2<br/>adapter sidecar]
         Ziti[OpenZiti Tunnel]
-        Impl -->|gRPC localhost| MCP1
-        Impl -->|gRPC localhost| MCP2
+        Impl -->|gRPC| MCP1
+        Impl -->|gRPC| MCP2
     end
 
     subgraph Platform
@@ -43,10 +43,10 @@ graph TB
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
-| **Use tools via MCP** | Call MCP server sidecars via gRPC on `localhost` (see [MCP Adapter](../mcp-adapter.md)) |
+| **Use tools via MCP** | Call MCP server sidecars via gRPC (see [MCP Adapter](../mcp-adapter.md)) |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections. MCP servers are sidecars within the same pod, reached via `localhost`.
+The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections. MCP servers are sidecars within the same pod — all containers share the network namespace and filesystem volumes.
 
 ## Communication Protocol
 
@@ -95,14 +95,13 @@ sequenceDiagram
 
 All tools are provided via **MCP protocol** (Model Context Protocol) through the [MCP Adapter](../mcp-adapter.md). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
 
-MCP servers run as **sidecar containers** within the agent workload pod. The agent and MCP sidecars share the network namespace and filesystem volumes. The agent connects to each MCP server via gRPC on `localhost` — no external network involved.
+MCP servers run as **sidecar containers** within the agent workload pod. The agent and MCP sidecars share the network namespace and filesystem volumes.
 
 | Aspect | Details |
 |--------|---------|
-| Agent-side transport | gRPC on `localhost` |
-| MCP server-side transport | [MCP Adapter](../mcp-adapter.md) bridges gRPC ↔ stdio or Streamable HTTP |
+| Transport | gRPC (agent → adapter sidecar) |
+| Protocol bridge | [MCP Adapter](../mcp-adapter.md) bridges gRPC ↔ stdio or Streamable HTTP |
 | Namespacing | `<namespace>:<toolName>` to prevent collisions |
-| Shared filesystem | Agent and MCP sidecars share pod volumes |
 | Resilience | Adapter handles heartbeat + restart with configurable backoff |
 
 MCP servers are defined as team resources (see [Teams](../teams.md)) and attached to agents via [attachments](../resource-definitions.md#attachment). The [Agents Orchestrator](../orchestrator.md) includes MCP server sidecars in the agent workload spec at startup.
@@ -115,17 +114,17 @@ Most 3rd-party agents are implemented as CLIs. The platform provides a **wrapper
 sequenceDiagram
     participant W as Wrapper
     participant CLI as Agent CLI
-    participant MCP as MCP Servers (localhost)
+    participant MCP as MCP Sidecars
     participant T as Threads
     participant N as Notifications
 
     W->>N: Subscribe to thread_participant:{agentId} room
     W->>CLI: Start process with config
-    W->>MCP: Connect to MCP servers via gRPC (localhost)
+    W->>MCP: Connect to MCP servers via gRPC
     W->>CLI: Connect MCP servers
     W->>T: GetUnackedMessages(agentId)
     W->>CLI: Feed messages
-    CLI->>MCP: Tool calls (gRPC localhost)
+    CLI->>MCP: Tool calls
     MCP-->>CLI: Tool results
     CLI-->>W: Output
     W->>T: Post response to thread
@@ -139,7 +138,7 @@ sequenceDiagram
 The wrapper:
 1. Subscribes to notifications for the agent's participant room.
 2. Starts the agent CLI process with configuration.
-3. Connects to MCP servers via gRPC on `localhost` (sidecars are already running).
+3. Connects to MCP server sidecars via gRPC.
 4. Pulls unacknowledged messages from Threads and feeds them to the CLI.
 5. Collects CLI output and posts responses to the thread.
 6. Acknowledges processed messages via `AckMessages`.
@@ -160,7 +159,6 @@ sequenceDiagram
     O->>R: StartWorkload (agent + MCP sidecars + OpenZiti)
     R->>A: Create pod
     Note over A: MCP sidecars start, agent starts
-    A->>A: Connect to MCP servers (localhost)
     A->>A: Subscribe, pull, process, ack
     A->>T: Post response
 
@@ -173,7 +171,7 @@ sequenceDiagram
 1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
 2. Orchestrator requests Runner to start an agent workload — main container, MCP sidecars, OpenZiti sidecar, shared volumes.
 3. Runner creates the pod. MCP adapter sidecars start and initialize their MCP server processes.
-4. Agent connects to MCP servers on `localhost`, subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
+4. Agent subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
 5. Agent waits for new messages (notification or poll fallback).
 6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the entire workload via Runner.
 
