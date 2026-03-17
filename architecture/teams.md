@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Teams service manages team resources — the configuration entities that define what agents, tools, workspaces, and MCP servers are available.
+The Teams service manages team resources — the configuration entities that define agents and their dependencies.
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
@@ -16,12 +16,14 @@ Defined in `agynio/api` at `openapi/team/v1/openapi.yaml`. Released to GHCR as O
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent definitions: LLM config, behavior, system prompts | ✓ |
-| **Tools** | Tool definitions with type classification | ✓ |
-| **MCP Servers** | MCP server configs: command, env vars, connection settings | ✓ |
-| **Workspace Configurations** | Workspace templates: image, env, volumes, platform | ✓ |
-| **Memory Buckets** | Memory bucket definitions with scope and config | ✓ |
-| **Attachments** | File attachments associated with team entities | Create, Read, Delete |
+| **Agents** | Agent definitions: identity, model, image, compute resources, behavioral configuration | ✓ |
+| **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
+| **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
+| **MCPs** | MCP server definitions: image, command, compute resources. Belong to an agent | ✓ |
+| **Skills** | Reusable prompt fragments: name, body. Belong to an agent | ✓ |
+| **Hooks** | Event-driven functions: event, entrypoint, image, compute resources. Belong to an agent | ✓ |
+| **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, or hook | ✓ |
+| **InitScripts** | Shell scripts for container initialization. Belong to an agent, MCP, or hook | ✓ |
 
 All list endpoints use cursor-based pagination.
 
@@ -34,3 +36,5 @@ All resources share a common `EntityMeta` base:
 | `id` | string (UUID) | Unique identifier |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
+
+Resource-specific fields and ownership relationships are documented in [Resource Definitions](resource-definitions.md).
