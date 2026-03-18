@@ -101,3 +101,25 @@ Unresolved architectural decisions requiring discussion.
 - How are tracing data permissions modeled? (Tenant-level visibility, or per-agent restriction?)
 - How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
 - What is the relationship tuple cleanup strategy when resources are deleted?
+
+---
+
+## agynd — Agent CLI Protocol
+
+**Context:** [`agynd`](architecture/agynd-cli.md) spawns agent CLIs ([`agn`](architecture/agn-cli.md), 3rd-party CLIs) as child processes and needs to exchange messages with them. The interface between `agynd` and agent CLIs is not yet defined.
+
+**Options:**
+
+1. **Simple shell commands** — `agynd` invokes the agent CLI per message or feeds messages via stdin as plain text, collects responses from stdout.
+   - *Pros:* Simplest. Any CLI works out of the box. Easy to test with `cat`, `echo`, etc.
+   - *Cons:* Limited structure. Hard to communicate metadata, errors, or multi-part responses.
+
+2. **Structured stdin/stdout protocol** — Newline-delimited JSON or similar structured format over stdin/stdout.
+   - *Pros:* Supports metadata, structured errors, streaming. Still simple to implement.
+   - *Cons:* 3rd-party CLIs need adaptation or a thin adapter script.
+
+3. **SDK / library** — `agynd` provides a library that agent implementations import, handling communication internally.
+   - *Pros:* Type-safe. Can evolve the protocol without breaking the CLI interface.
+   - *Cons:* Language-specific. Tighter coupling. 3rd-party CLIs still need a wrapper.
+
+**Decision:** TBD
