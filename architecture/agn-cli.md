@@ -76,6 +76,17 @@ graph LR
 
 See [Agent Implementation](agent/implementation.md) for detailed stage descriptions, routing decisions, and summarization algorithm.
 
+## Authentication
+
+`agn` supports two authentication methods, with the same priority order used by all CLI tools in the platform (see [CLI Authentication](authn.md#cli-authentication)):
+
+| Method | Mechanism | Use Case |
+|--------|-----------|----------|
+| **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Inside agent containers where `agynd` has enrolled an OpenZiti identity |
+| **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Local development — running `agn` on a developer machine |
+
+Authentication is only required when `agn` connects to platform services (Agent State). When running fully locally with filesystem persistence, no authentication is needed.
+
 ## Configuration
 
 `agn` reads its configuration from the environment prepared by [`agynd`](agynd-cli.md) or set up manually:

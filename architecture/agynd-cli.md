@@ -43,6 +43,17 @@ The agent CLI can be:
 - [`agn`](agn-cli.md) — our own agent loop implementation.
 - Any 3rd-party CLI (Claude Code, Codex CLI, custom implementations).
 
+## Authentication
+
+`agynd` supports two authentication methods, with the same priority order used by all CLI tools in the platform (see [CLI Authentication](authn.md#cli-authentication)):
+
+| Method | Mechanism | Use Case |
+|--------|-----------|----------|
+| **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Primary. The Orchestrator creates an OpenZiti identity and passes the enrollment JWT via Runner. `agynd` enrolls on startup |
+| **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Development, testing, or environments without OpenZiti |
+
+In production, `agynd` uses network identity. The [agent identity lifecycle](authn.md#agent-identity-lifecycle) is managed by the Orchestrator — `agynd` receives the enrollment JWT as container configuration and enrolls transparently.
+
 ## Architecture
 
 ```mermaid

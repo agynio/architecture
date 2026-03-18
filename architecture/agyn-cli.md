@@ -42,7 +42,14 @@ All users interact with the same Gateway API. [Authorization](authz.md) determin
 
 ## Authentication
 
-`agyn` authenticates against the Gateway using the platform's [authentication](authn.md) mechanisms. The specific authentication flow (OIDC, service token, etc.) depends on the caller identity type.
+`agyn` supports two authentication methods, with the same priority order used by all CLI tools in the platform (see [CLI Authentication](authn.md#cli-authentication)):
+
+| Method | Mechanism | Use Case |
+|--------|-----------|----------|
+| **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Inside agent containers where `agynd` has enrolled an OpenZiti identity |
+| **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Developer machines, CI, any environment without OpenZiti |
+
+Network identity takes precedence when available. Otherwise, `agyn` reads the stored token from `~/.agyn/credentials`.
 
 ## Relationship to Other Components
 
