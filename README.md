@@ -27,7 +27,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Secrets](architecture/secrets.md) | Secret provider/secret management and secret resolution |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
 | [Runner](architecture/runner.md) | Workload execution service |
-| [Agents Orchestrator](architecture/orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
+| [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
 | [Teams](architecture/teams.md) | Team resource management |
 | [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
 | [Gateway](architecture/gateway.md) | External API surface |

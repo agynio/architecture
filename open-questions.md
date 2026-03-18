@@ -38,7 +38,7 @@ Unresolved architectural decisions requiring discussion.
 
 ## ~~Scheduler Service~~ — Resolved
 
-**Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
+**Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/agents-orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
 
 
 ---
