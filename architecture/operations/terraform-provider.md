@@ -1,6 +1,6 @@
 # Terraform Provider
 
-The **Agyn Terraform provider** is the recommended way to configure teams, agents, MCP servers, workspaces, and their relationships as code.
+The **Agyn Terraform provider** is the recommended way to configure agents and their dependencies as code.
 
 **Repository:** [`agynio/terraform-provider-agyn`](https://github.com/agynio/terraform-provider-agyn)
 
@@ -8,47 +8,30 @@ The provider connects to the platform via the **Gateway** endpoint. Setup and au
 
 ## Resources
 
-| Resource | Description |
-|----------|-------------|
-| `agyn_agent` | Agent definition (model, behavior, prompts) |
-| `agyn_mcp_server` | MCP server definition (command, namespace, env, timeouts) |
-| `agyn_workspace_configuration` | Workspace container config (image, resources, TTL, env) |
-| `agyn_memory_bucket` | Memory bucket (scope, collection prefix) |
-| `agyn_tool` | Legacy tool definition (being replaced by MCP servers) |
-| `agyn_attachment` | Typed relationship between resources (e.g., MCP server → agent) |
+| Terraform Resource | API Resource | Description |
+|-------------------|-------------|-------------|
+| `agyn_agent` | Agent | Agent definition (identity, model, image, compute resources, configuration) |
+| `agyn_volume` | Volume | Volume definition (persistent/ephemeral, mount path, size) |
+| `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent, MCP, or hook) |
+| `agyn_mcp` | MCP | MCP server definition (image, command, compute resources) |
+| `agyn_skill` | Skill | Skill definition (name, body) |
+| `agyn_hook` | Hook | Hook definition (event, function, image, compute resources) |
+| `agyn_env` | ENV | Environment variable (name, plain value or secret reference) |
+| `agyn_init_script` | InitScript | Initialization script (shell script content) |
 
 ## Resource Structure
 
-All resources (except `agyn_attachment`) follow a common envelope:
+All resources (except `agyn_volume_attachment`) share a common envelope:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | UUID, computed |
-| `title` | string | Human-readable title, optional |
 | `description` | string | Human-readable description, optional |
-| `config` | string (JSON) | Resource-specific configuration |
 
-The `config` field is currently an opaque JSON blob (`jsonencode({...})`). The typed schema for each resource's config is documented in [Resource Definitions](../resource-definitions.md).
+Resource-specific fields are exposed as typed HCL attributes. The canonical schema for each resource is documented in [Resource Definitions](../resource-definitions.md).
 
-### Attachment Structure
+### Ownership
 
-Attachments link resources together:
+Most sub-resources (MCP, Skill, Hook, ENV, InitScript) have an ownership field (`agent_id`, `mcp_id`, or `hook_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | UUID, computed |
-| `kind` | string | Relationship type (e.g., `tool_agent`, `mcp_agent`) |
-| `source_id` | string | Source resource UUID |
-| `source_type` | string | Source entity type, computed |
-| `target_id` | string | Target resource UUID |
-| `target_type` | string | Target entity type, computed |
-
-## Known Limitation: Untyped Config
-
-The `config` field in the Terraform provider is an opaque JSON string. The provider performs no schema validation beyond checking for valid JSON. This means:
-
-- No autocompletion or type checking in HCL.
-- Invalid field names or types are accepted by Terraform but rejected at runtime by the platform.
-- Drift detection compares raw JSON strings.
-
-This is a known issue. The target state is to have the provider expose typed attributes for each resource, validated at plan time. The canonical schema for each resource is documented in [Resource Definitions](../resource-definitions.md).
+Volume is the exception: volumes are standalone resources connected to containers (agents, MCPs, or hooks) via `agyn_volume_attachment`, because volumes are reusable infrastructure that may outlive individual agents.

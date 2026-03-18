@@ -28,7 +28,9 @@ Every resource in the platform belongs to a tenant. The `tenant_id` is present o
 
 | Service | Scoped Resources |
 |---------|-----------------|
-| Teams | Agents, MCP Servers, Workspace Configurations, Models, LLM Providers, Secret Providers, Secrets, Memory Buckets, Attachments |
+| Teams | Agents, Volumes, Volume Attachments, MCPs, Skills, Hooks, ENVs, InitScripts |
+| LLM | LLM Providers, Models |
+| Secrets | Secret Providers, Secrets |
 | Threads | Threads, Messages, MessageRecipients |
 | Chat | Chats (thin layer over Threads — tenant scoping comes from Threads) |
 | Files | File metadata and object keys |

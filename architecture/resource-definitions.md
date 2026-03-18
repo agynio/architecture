@@ -2,186 +2,197 @@
 
 Canonical schema for all team-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Teams API, and UI should all align to these definitions.
 
-Resources are managed by the Teams service and stored in PostgreSQL. Each resource has a common envelope (`id`, `title`, `description`) plus a resource-specific `config` object. All resources are scoped to a [tenant](tenancy.md).
+Resources are managed by the [Teams](teams.md) service and stored in PostgreSQL. All resources are scoped to a [tenant](tenancy.md).
+
+All resources share a common envelope:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique identifier |
+| `description` | string | Human-readable description (optional) |
+| `created_at` | timestamp | Creation time |
+| `updated_at` | timestamp | Last modification time |
+
+Resource-specific fields are defined alongside the envelope — not nested inside a `config` object.
+
+---
+
+## Entity Diagram
+
+```mermaid
+erDiagram
+    Agent ||--o| Model : "references (by UUID)"
+
+    Agent ||--o{ MCP : "agent_id"
+    Agent ||--o{ Skill : "agent_id"
+    Agent ||--o{ Hook : "agent_id"
+    Agent ||--o{ ENV : "agent_id"
+    Agent ||--o{ InitScript : "agent_id"
+    Agent ||--o{ VolumeAttachment : "agent_id"
+
+    Volume ||--o{ VolumeAttachment : "volume_id"
+
+    MCP ||--o{ ENV : "mcp_id"
+    MCP ||--o{ InitScript : "mcp_id"
+    MCP ||--o{ VolumeAttachment : "mcp_id"
+
+    Hook ||--o{ ENV : "hook_id"
+    Hook ||--o{ InitScript : "hook_id"
+    Hook ||--o{ VolumeAttachment : "hook_id"
+
+    Secret ||--o{ ENV : "secret_id"
+```
 
 ---
 
 ## Agent
 
-An agent definition that determines how an agent workload behaves when processing thread messages.
+An agent definition that determines how an agent workload behaves when processing thread messages. The Agent is the central resource — it represents a single agent pod. Infrastructure concerns (image, compute resources) and behavioral concerns (LLM configuration) live on the agent directly.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | | Friendly name (max 64 chars) |
-| `role` | string | | Role label (max 64 chars) |
-| `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource |
-| `systemPrompt` | string | `"You are a helpful AI assistant."` | System prompt injected at start of each turn |
-| `debounceMs` | integer | `0` | Debounce window (ms) for message buffer. `0` = no debounce |
-| `whenBusy` | enum | `"wait"` | `"wait"` — queue new messages for next turn. `"injectAfterTools"` — inject into current turn after tool calls |
-| `processBuffer` | enum | `"allTogether"` | `"allTogether"` — process all queued messages at once. `"oneByOne"` — one message per turn |
-| `sendFinalResponseToThread` | boolean | `true` | Auto-send final assistant response to the thread |
-| `restrictOutput` | boolean | `false` | Enforce calling a tool before finishing the turn |
-| `restrictionMessage` | string | `"Do not produce a final answer directly..."` | Instruction injected when `restrictOutput` is true |
-| `restrictionMaxInjections` | integer | `0` | Max enforcement injections per turn. `0` = unlimited |
-| `summarizationKeepTokens` | integer | `0` | Number of most-recent tokens to keep verbatim during summarization |
-| `summarizationMaxTokens` | integer | `512` | Maximum token budget for generated summaries |
+| `name` | string | | Agent identity name (max 64 chars). Injected into the agent runtime |
+| `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
+| `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
+| `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Teams service — interpreted by the agent runtime |
+| `image` | string | | Container image for the agent pod (e.g., `ghcr.io/agynio/agent:latest`) |
+| `resources` | object | | Compute resources for the agent container (see [Compute Resources](#compute-resources)) |
 
-All fields are optional (the schema uses `.partial()`).
+The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Teams service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
 
 ---
 
-## MCP Server
+## Volume
 
-An MCP server definition that describes how to start and connect to an MCP tool server inside a workspace container.
+A volume definition. Volumes exist independently of agents and sidecars. A volume is mounted into a container via a [VolumeAttachment](#volume-attachment).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `namespace` | string | `""` | Namespace prefix for exposed tools. Tools are named `<namespace>_<toolName>` |
-| `command` | string | `"mcp start --stdio"` | Startup command executed inside the container |
-| `workdir` | string | | Working directory inside the container |
-| `env` | array | | Environment variables: `[{name: string, value: string \| reference}]` |
-| `requestTimeoutMs` | integer | | Per-request timeout (ms) |
-| `startupTimeoutMs` | integer | `15000` | Startup handshake timeout (ms) |
-| `heartbeatIntervalMs` | integer | | Interval for heartbeat pings (ms) |
-| `staleTimeoutMs` | integer | | Staleness timeout for cached tools (ms). `0` = never stale |
-| `restart.maxAttempts` | integer | `5` | Maximum restart attempts during resilient start |
-| `restart.backoffMs` | integer | `2000` | Base backoff (ms) between restart attempts |
-
-All fields are optional.
+| `persistent` | boolean | | `true` = named persistent volume (PVC). `false` = ephemeral (emptyDir) |
+| `mount_path` | string | | Absolute container path for the volume mount (e.g., `"/workspace"`) |
+| `size` | string | | Volume capacity (e.g., `"10Gi"`). Required when `persistent` is `true` |
 
 ---
 
-## Workspace Configuration
+## Volume Attachment
 
-A workspace container configuration that defines the execution environment for agents and MCP servers.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `image` | string | | Container image override |
-| `env` | array | | Environment variables: `[{name: string, value: string}]` |
-| `initialScript` | string | | Shell script (`/bin/sh -lc`) to run after container creation |
-| `cpu_limit` | string \| number | | CPU limit (cores as number or millicores as string, e.g., `"500m"`) |
-| `memory_limit` | string \| number | | Memory limit (bytes as number or with units: `Ki`, `Mi`, `Gi`, `Ti`, `KB`, `MB`, `GB`, `B`) |
-| `platform` | enum | | Docker platform: `"linux/amd64"`, `"linux/arm64"`, `"auto"` |
-| `enableDinD` | boolean | `false` | Enable per-workspace Docker-in-Docker sidecar |
-| `ttlSeconds` | integer | `86400` | Idle TTL (seconds) before workspace cleanup. `0` or negative = no cleanup |
-| `nix` | object | | Nix metadata (opaque — managed by UI) |
-| `volumes.enabled` | boolean | `false` | Enable persistent named volume mount |
-| `volumes.mountPath` | string | `"/workspace"` | Absolute container path for the volume mount |
-
-All fields are optional.
-
----
-
-## Memory Bucket
-
-A memory scope definition for persistent agent memory (vector/KV storage).
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `scope` | enum | `"global"` | `"global"` — shared across all threads. `"perThread"` — isolated per thread |
-| `collectionPrefix` | string | | Optional prefix for the underlying collection name |
-
----
-
-## Attachment
-
-A typed relationship between two resources. Attachments connect MCP servers, workspaces, tools, and memory buckets to agents.
+A relationship between a [Volume](#volume) and a target container — an [Agent](#agent), [MCP](#mcp), or [Hook](#hook). Volumes are reusable infrastructure that may outlive any single agent and can be remounted when a resource is replaced.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `kind` | string | Relationship type |
-| `source_id` | string (UUID) | Source resource |
-| `target_id` | string (UUID) | Target resource |
+| `id` | string (UUID) | Unique identifier |
+| `volume_id` | string (UUID) | Reference to a Volume resource |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
+| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
+| `hook_id` | string (UUID) | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `created_at` | timestamp | Creation time |
 
-Attachment has no `config` — the relationship is fully described by the kind and the two resource IDs.
-
-### Attachment Kinds
-
-| Kind | Source → Target | Description |
-|------|----------------|-------------|
-| `tool_agent` | MCP Server / Tool / Workspace → Agent | Connects a tool provider to an agent |
+Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Volume attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same volume_id + target) are rejected.
 
 ---
 
-## Environment Variable References
+## MCP
 
-Several resources accept environment variables. The `value` field supports two forms:
-
-**Plain string:**
-```json
-{ "name": "API_KEY", "value": "sk-..." }
-```
-
-**Vault reference:**
-```json
-{
-  "name": "API_KEY",
-  "value": {
-    "kind": "vault",
-    "mount": "secret",
-    "path": "platform/keys",
-    "key": "api_key"
-  }
-}
-```
-
-**Variable reference:**
-```json
-{
-  "name": "API_KEY",
-  "value": {
-    "kind": "variable",
-    "key": "api_key"
-  }
-}
-```
-
-Vault and variable references are resolved at runtime by the platform. The resolved value is never stored in config or state.
-
-
----
-
-## LLM Provider
-
-A connection to an external LLM service. See [Providers, Models, and Secrets](providers.md) for the full design.
+An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the agent pod, sharing the network namespace. See [Agent Overview — Tools](agent/overview.md#tools) for protocol details.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `endpoint` | string | | Base URL of the provider API |
-| `authMethod` | enum | `"bearer"` | Authentication method: `bearer` |
-| `token` | string | | Authentication token |
+| `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this MCP server belongs to |
+| `image` | string | | Container image for the MCP sidecar (e.g., `ghcr.io/agynio/mcp-filesystem:latest`) |
+| `command` | string | | Startup command executed inside the container |
+| `resources` | object | | Compute resources for the sidecar container (see [Compute Resources](#compute-resources)) |
+
+Environment variables, initialization scripts, and volumes for an MCP server are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this MCP by `mcp_id`.
 
 ---
 
-## Model
+## Skill
 
-An internal model definition mapped to a remote model on an LLM provider. See [Providers, Models, and Secrets](providers.md) for the full design.
+A named, reusable prompt fragment. When belonging to an agent, the agent runtime appends the skill body to the conversation context (e.g., as an additional system message). Skills allow composing agent behavior from modular pieces without editing the agent's core system prompt.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | | Internal display name |
-| `llmProvider` | string (UUID) | | Reference to an LLM Provider resource |
-| `remoteName` | string | | Model identifier on the provider's side |
+| `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this skill belongs to |
+| `name` | string | | Skill name (unique within agent, max 64 chars) |
+| `body` | string | | Skill content — prompt text, instructions, or behavioral directives |
 
 ---
 
-## Secret Provider
+## Hook
 
-A connection to an external secret management system. See [Providers, Models, and Secrets](providers.md) for the full design.
+An event-driven function that runs in response to agent lifecycle events. Hooks run as sidecar containers inside the agent pod, sharing the network namespace. The platform triggers them when the specified event occurs.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | enum | | Provider type: `vault` |
-| `config` | object | | Provider-specific connection config (see provider doc) |
+| `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this hook belongs to |
+| `event` | string | | Lifecycle event that triggers this hook. Event names are agent implementation-specific |
+| `function` | string | | Entrypoint command executed inside the container |
+| `image` | string | | Container image for the hook execution environment |
+| `resources` | object | | Compute resources for the hook container (see [Compute Resources](#compute-resources)) |
+
+Environment variables, initialization scripts, and volumes for a hook are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this hook by `hook_id`.
+
+---
+
+## ENV
+
+An environment variable injected into a container. Each ENV belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook) — identified by the corresponding foreign key.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
+| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
+| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `name` | string | | Environment variable name (e.g., `"API_KEY"`) |
+| `value` | string | | Plain-text value. Mutually exclusive with `secret_id` |
+| `secret_id` | string (UUID) | | Reference to a [Secret](#secret) resource. Mutually exclusive with `value` |
+
+Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container.
+
+---
+
+## InitScript
+
+A shell script executed during container initialization (`/bin/sh -lc`). Each InitScript belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
+| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
+| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `script` | string | | Shell script content |
+
+When multiple init scripts target the same resource, they execute in creation order.
 
 ---
 
 ## Secret
 
-An internal reference to a secret in an external provider. See [Providers, Models, and Secrets](providers.md) for the full design.
+A secret value stored encrypted at rest. Managed by the [Secrets](secrets.md) service. Referenced by [ENV](#env) resources via `secret_id`. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `secretProvider` | string (UUID) | | Reference to a Secret Provider resource |
-| `remoteName` | string | | Identifier of the secret in the external provider (e.g., `secret/platform/keys/api_key` for Vault) |
+---
+
+## LLM Provider
+
+A connection to an external LLM service. Managed by the [LLM](llm.md) service. See [Providers, Models, and Secrets](providers.md#llm-provider) for the resource definition.
+
+---
+
+## Model
+
+An internal model definition mapped to a remote model on an LLM provider. Managed by the [LLM](llm.md) service. See [Providers, Models, and Secrets](providers.md#model) for the resource definition.
+
+---
+
+## Compute Resources
+
+Kubernetes-style container resource requests and limits. Used by [Agent](#agent), [MCP](#mcp), and [Hook](#hook).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `requests_cpu` | string | CPU request (e.g., `"250m"`, `"1"`) |
+| `requests_memory` | string | Memory request (e.g., `"256Mi"`, `"1Gi"`) |
+| `limits_cpu` | string | CPU limit |
+| `limits_memory` | string | Memory limit |
+
+All fields are optional.

@@ -179,18 +179,6 @@ In the simple case, one container per agent invocation. For specific agents, bat
 
 ## Configuration
 
-Agent configuration is defined in the Teams service as agent resources:
+The agent resource definition (identity, model, image, compute resources, configuration) is documented in [Resource Definitions](../resource-definitions.md#agent). Sub-resources (MCP servers, volumes, skills, hooks, environment variables, init scripts) that compose the agent's runtime environment are documented alongside the agent in [Resource Definitions](../resource-definitions.md).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Agent display name |
-| `role` | string | Agent role label |
-| `model` | string | LLM model identifier (e.g., `gpt-5`) |
-| `systemPrompt` | string | System prompt injected at start of each turn |
-| `debounceMs` | integer | Debounce window for message buffer (ms) |
-| `whenBusy` | enum | `wait` or `injectAfterTools` |
-| `processBuffer` | enum | `allTogether` or `oneByOne` |
-| `sendFinalResponseToThread` | boolean | Auto-send final response to thread |
-| `restrictOutput` | boolean | Enforce tool call before finishing |
-
-Implementation-specific configuration (e.g., summarization parameters) is documented in [Agent Implementation](implementation.md#configuration).
+Agent implementation-specific behavioral configuration (system prompt, summarization, message buffering) is documented in [Agent Implementation](implementation.md#configuration).
