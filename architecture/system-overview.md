@@ -125,4 +125,7 @@ graph TB
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
+| `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
+| `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
+| `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |

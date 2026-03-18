@@ -204,3 +204,27 @@ Authentication establishes *who* the caller is. Fine-grained access control (*wh
 The Threads service identifies participants by opaque UUIDs. When a user sends a message via Chat, the `sender_id` is the user's `identity_id`. When an agent sends a message, the `sender_id` is the agent's `identity_id`. Threads does not distinguish between identity types — it operates on IDs only. See [Threads](threads.md).
 
 The Chat service resolves user identities to display names and associates messages with users based on the authenticated `identity_id` from request context.
+
+## CLI Authentication
+
+All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order:
+
+| Priority | Method | Mechanism | When Used |
+|----------|--------|-----------|-----------|
+| 1 | **Network identity** | [OpenZiti](#network-identity-openziti) mTLS | Automatic when the environment provides an enrolled OpenZiti identity (e.g., inside agent containers) |
+| 2 | **Auth token** | Token stored in `~/.agyn/credentials`, sent to the [Gateway](gateway.md) as a bearer token | Developer machines, CI, or any environment without OpenZiti |
+
+### Resolution Order
+
+1. If an OpenZiti identity is available in the environment, use it. All API calls go over the OpenZiti overlay with mTLS — no token needed.
+2. Otherwise, read the auth token from `~/.agyn/credentials` and attach it to Gateway requests.
+
+### Token Storage
+
+Tokens are stored in the user's home directory:
+
+```
+~/.agyn/credentials
+```
+
+The file contains the auth token used to authenticate against the Gateway. It is created by a login flow (e.g., `agyn auth login`) and read by all CLI tools.

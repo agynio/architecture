@@ -17,6 +17,9 @@ Target architecture of the platform. Describes how the system should work.
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
 | [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all team-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
+| [agyn-cli](architecture/agyn-cli.md) | Platform CLI — Gateway API access for admins, developers, and agents |
+| [agynd-cli](architecture/agynd-cli.md) | Agent wrapper daemon — bridges agent CLIs with platform services |
+| [agn-cli](architecture/agn-cli.md) | Our agent loop implementation — LLM reasoning with tool use |
 | [Chat](architecture/chat.md) | Built-in web/mobile app chat on top of Threads |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |

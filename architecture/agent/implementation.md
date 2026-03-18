@@ -1,6 +1,6 @@
 # Agent Implementation
 
-Our agent implementation. This is the primary agent — a TypeScript-based LLM loop with rolling summarization and pluggable state persistence.
+Our agent implementation ([`agn`](../agn-cli.md)). This is the primary agent — a Go-based LLM loop with rolling summarization and pluggable state persistence.
 
 For the general agent contract, lifecycle, and tools, see [Agent](overview.md).
 
@@ -39,11 +39,11 @@ graph TB
 
 ## LLM Loop
 
-The loop is built on three primitives from the `@agyn/llm` package:
+The loop is built on three primitives:
 
-- **`Reducer<State, Context>`** — a stage that transforms agent state. Each stage (Load, Summarize, CallModel, CallTools, Save) is a Reducer.
-- **`Router<State, Context>`** — inspects state after a Reducer and decides the next stage. Returns `{ state, next }` where `next` is a stage ID or `null` (end).
-- **`Loop<State, Context>`** — executes a named graph of Reducers connected by Routers.
+- **`Reducer`** — a stage that transforms agent state. Each stage (Load, Summarize, CallModel, CallTools, Save) is a Reducer.
+- **`Router`** — inspects state after a Reducer and decides the next stage. Returns the next stage ID or signals completion.
+- **`Loop`** — executes a named graph of Reducers connected by Routers.
 
 ### Flow
 
@@ -79,7 +79,7 @@ The Router after CallModel inspects the LLM response:
 
 ### LLM Provider
 
-Uses **OpenAI Responses API** via the `openai` npm package. The `LLM` class wraps the provider and handles message serialization.
+Uses **OpenAI Responses API**. The LLM client wraps the provider and handles message serialization.
 
 Message types sent to the provider:
 
@@ -114,12 +114,11 @@ Summarization is currently embedded in the agent code. How it should be packaged
 
 ## State Persistence
 
-The agent needs to persist conversation state (messages, summaries) across turns. Multiple strategies exist:
+The agent persists conversation state (messages, summaries) across turns:
 
 | Strategy | Store | Use Case |
 |----------|-------|----------|
-| In-memory | Process memory | Development, short-lived agents |
-| File-based | Workspace filesystem | Agents with workspace access |
+| Local | Filesystem | Development, offline usage, no external dependencies |
 | Remote (APSS) | [Agent State](state.md) service via gRPC | Production — durable, shared |
 
 The remote strategy uses the Agent Persistent State Service (APSS). It provides:
@@ -135,12 +134,3 @@ Implementation-specific configuration fields (in addition to the [base agent con
 |-------|------|-------------|
 | `summarizationKeepTokens` | integer | Number of most-recent tokens preserved verbatim |
 | `summarizationMaxTokens` | integer | Total token budget for context sent to the LLM |
-
-## Current Location
-
-| Component | Repository | Path |
-|-----------|-----------|------|
-| LLM package (`Loop`, `Reducer`, `Router`, `LLM`, messages) | `agynio/platform` | `packages/llm/` |
-| Agent node (stage implementations, MCP integration) | `agynio/platform` | `packages/platform-server/src/nodes/agent/` |
-
-Both will be extracted into a standalone agent container as part of the [migration](../../gaps/migration-roadmap.md#agent-extraction).
