@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agn` is our agent loop implementation. It is a standalone CLI that reads messages from stdin, runs the LLM loop (call model → route → call tools → save state), and writes responses to stdout. It is the Go replacement for the TypeScript LLM loop currently in `agynio/platform`.
+`agn` is our agent loop implementation. It is a standalone CLI that reads messages from stdin, runs the LLM loop (call model → route → call tools → save state), and writes responses to stdout.
 
 | Aspect | Details |
 |--------|---------|
@@ -52,7 +52,7 @@ graph TB
 
 ## LLM Loop
 
-The loop follows the same design as the [current TypeScript implementation](agent/implementation.md#llm-loop), reimplemented in Go:
+The loop follows the design described in [Agent Implementation](agent/implementation.md#llm-loop):
 
 ```mermaid
 graph LR
@@ -115,6 +115,6 @@ The local backend enables running `agn` fully offline without any platform depen
 |-----------|-------------|
 | [`agynd`](agynd-cli.md) | Spawns `agn`, prepares its environment, feeds messages, collects output |
 | [Agent State](agent/state.md) | Optional remote persistence backend |
-| [Agent Implementation](agent/implementation.md) | `agn` is the Go rewrite of this TypeScript implementation |
+| [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
 | MCP Server | Configured by `agynd` (aggregated proxy) or manually; `agn` calls it for tool execution |
