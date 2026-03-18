@@ -36,14 +36,9 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Scheduler Service
+## ~~Scheduler Service~~ — Resolved
 
-**Context:** Currently the Runner is purely data plane (executes workloads). A separate **Scheduler** service may be needed in the control plane to decide *what* and *when* to run.
-
-**Questions:**
-- Is the Scheduler the same as the Agents orchestrator, or a lower-level service that the orchestrator delegates to?
-- Does the Scheduler manage only agent workloads, or also workspace lifecycle and TTL?
-- What is the scheduling interface? (Request/response? Queue-based? Watch-based?)
+**Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
 
 
 ---

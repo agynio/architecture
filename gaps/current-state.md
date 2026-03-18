@@ -89,7 +89,7 @@ These components exist inside `agynio/platform` (`packages/platform-server`) and
 | Threads (messaging) | `packages/platform-server/src/agents/threads.controller.ts` | Standalone Threads service |
 | Teams (resource management) | Partially extracted (Gateway proxies to platform-server) | Standalone Teams service |
 | Channels (Slack trigger) | `packages/platform-server/src/nodes/` (trigger nodes) | Standalone Channels service |
-| Agents orchestrator | `packages/platform-server/src/agents/` | Standalone control plane service |
+| Agents orchestrator | `packages/platform-server/src/agents/` | Standalone control plane service. See [Agents Orchestrator](../architecture/orchestrator.md) |
 | Tracing | Removed (issue #760). Historical references remain | New standalone Tracing service |
 
 ### Platform UI — API Consumption
