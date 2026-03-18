@@ -123,3 +123,37 @@ Unresolved architectural decisions requiring discussion.
    - *Cons:* Language-specific. Tighter coupling. 3rd-party CLIs still need a wrapper.
 
 **Decision:** TBD
+
+---
+
+## agn Configuration Structure
+
+**Context:** [`agn`](architecture/agn-cli.md) needs a configuration structure that defines how it operates: LLM endpoint, MCP server connection, skills location, state persistence backend, summarization settings, etc. The configuration format and schema are not yet defined.
+
+**Questions:**
+- What is the configuration file format? (YAML, TOML, JSON, environment variables only?)
+- What is the directory convention for skills on the filesystem?
+- How are LLM endpoint credentials provided? (Config file, environment variable, credential file?)
+- How does `agn` discover its MCP server? (Stdio command, socket path, environment variable?)
+- What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
+
+---
+
+## agynd Configuration Strategies per Agent
+
+**Context:** [`agynd`](architecture/agynd-cli.md) prepares the runtime environment before spawning an agent CLI. Different agent CLIs expect different configuration conventions — skills in specific directories, environment variables, config files, MCP server setup, etc. `agynd` needs a strategy for each supported agent type.
+
+**Known agent CLIs requiring strategies:**
+
+| Agent CLI | Configuration Needs |
+|-----------|-------------------|
+| **[`agn`](architecture/agn-cli.md)** | Skills directory, LLM endpoint, MCP server, state persistence backend. Format TBD (see [agn Configuration Structure](#agn-configuration-structure)) |
+| **Claude Code** | `CLAUDE.md` files in workspace, environment variables for API keys, MCP server config via `claude_desktop_config.json` or CLI flags |
+| **Codex CLI** | `AGENTS.md` or instructions file, environment variables, MCP server configuration |
+
+**Questions:**
+- How does `agynd` know which strategy to apply? (Agent resource field? Image convention? Explicit strategy name in configuration?)
+- Is the strategy a hard-coded mapping per agent type, or a pluggable adapter?
+- How are agent-type-specific configuration conventions discovered and maintained as 3rd-party CLIs evolve?
+
+**Decision:** TBD

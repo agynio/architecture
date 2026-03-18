@@ -25,7 +25,7 @@
 
 ### 2. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform and prepares the runtime environment:
+Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform and prepares the runtime environment. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|
@@ -34,6 +34,8 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 | **MCP tools** | Exposes all configured [MCP](resource-definitions.md#mcp) tool servers as a single aggregated MCP server that proxies tool calls through `agynd` |
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
+
+The exact configuration strategy differs per agent CLI (e.g., where skills are placed, how MCP servers are connected, what environment variables are set). See [Open Questions — agynd Configuration Strategies per Agent](../open-questions.md#agynd-configuration-strategies-per-agent) for the full discussion.
 
 ### 3. Agent Process Management
 
@@ -121,3 +123,4 @@ sequenceDiagram
 ## Open Questions
 
 - **Agent CLI protocol.** The interface between `agynd` and agent CLIs (stdin/stdout format, shell commands, SDK, etc.) is not yet defined. See [Open Questions](../open-questions.md#agynd-agent-cli-protocol).
+- **Configuration strategies per agent.** How `agynd` prepares the environment for different agent CLIs (`agn`, Claude Code, Codex CLI). See [Open Questions](../open-questions.md#agynd-configuration-strategies-per-agent).

@@ -89,14 +89,17 @@ Authentication is only required when `agn` connects to platform services (Agent 
 
 ## Configuration
 
-`agn` reads its configuration from the environment prepared by [`agynd`](agynd-cli.md) or set up manually:
+The configuration structure for `agn` is not yet defined. `agn` needs to know:
 
-| Input | Source | Description |
-|-------|--------|-------------|
-| **Skills** | Filesystem | Skill files placed in a conventional directory structure |
-| **LLM endpoint** | Environment | Endpoint URL and credentials for model calls |
-| **MCP server** | Environment | MCP server connection for tool access |
-| **State store** | Environment | State persistence backend selection |
+- Where to find skills on the filesystem
+- LLM endpoint URL and credentials
+- MCP server connection details
+- State persistence backend (local filesystem or remote Agent State)
+- Summarization parameters
+
+When running inside the platform, [`agynd`](agynd-cli.md) prepares this configuration. When running locally, the developer provides it manually.
+
+See [Open Questions — agn Configuration Structure](../open-questions.md#agn-configuration-structure) for the full list of design decisions.
 
 ## State Persistence
 
