@@ -40,7 +40,6 @@ Unresolved architectural decisions requiring discussion.
 
 **Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/agents-orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
 
-
 ---
 
 ## OpenZiti: Agent-to-Agent Private Networking
@@ -99,25 +98,15 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## agynd — Agent CLI Protocol
+## ~~agynd — Agent CLI Protocol~~ — Resolved
 
-**Context:** [`agynd`](architecture/agynd-cli.md) spawns agent CLIs ([`agn`](architecture/agn-cli.md), 3rd-party CLIs) as child processes and needs to exchange messages with them. The interface between `agynd` and agent CLIs is not yet defined.
+**Decision:** `agynd` communicates with each agent CLI through a dedicated Go SDK module imported as a dependency. Each SDK spawns the agent CLI as a subprocess and handles protocol encoding/decoding. `agynd` has zero protocol logic.
 
-**Options:**
+- **Codex**: `codex-sdk-go` — JSON-RPC v2 over stdio via `codex app-server`. Types auto-generated from [Codex JSON Schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json).
+- **Claude Code**: `claude-sdk-go` — custom JSONL over stdio via `claude` CLI. Types reverse-engineered from [Python SDK](https://github.com/anthropics/claude-agent-sdk-python) and [TS SDK reference](https://platform.claude.com/docs/en/agent-sdk/typescript).
+- **agn**: `agn-sdk-go` — JSON-RPC v2 over stdio, exported from the agn repository. Same protocol pattern as Codex.
 
-1. **Simple shell commands** — `agynd` invokes the agent CLI per message or feeds messages via stdin as plain text, collects responses from stdout.
-   - *Pros:* Simplest. Any CLI works out of the box. Easy to test with `cat`, `echo`, etc.
-   - *Cons:* Limited structure. Hard to communicate metadata, errors, or multi-part responses.
-
-2. **Structured stdin/stdout protocol** — Newline-delimited JSON or similar structured format over stdin/stdout.
-   - *Pros:* Supports metadata, structured errors, streaming. Still simple to implement.
-   - *Cons:* 3rd-party CLIs need adaptation or a thin adapter script.
-
-3. **SDK / library** — `agynd` provides a library that agent implementations import, handling communication internally.
-   - *Pros:* Type-safe. Can evolve the protocol without breaking the CLI interface.
-   - *Cons:* Language-specific. Tighter coupling. 3rd-party CLIs still need a wrapper.
-
-**Decision:** TBD
+See [`agynd` — Agent Communication Protocol](architecture/agynd-cli.md#agent-communication-protocol).
 
 ---
 

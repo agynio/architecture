@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agn` is our agent loop implementation. It is a standalone CLI that reads messages from stdin, runs the LLM loop (call model → route → call tools → save state), and writes responses to stdout.
+`agn` is our agent loop implementation. It is a standalone CLI that reads messages from stdin, runs the LLM loop (call model → route → call tools → save state), and writes responses to stdout. It communicates over **JSON-RPC v2** on stdin/stdout.
 
 | Aspect | Details |
 |--------|---------|
@@ -10,12 +10,25 @@
 | Repository | `agynio/agn-cli` |
 | Language | Go |
 | Role | Agent loop — LLM reasoning with tool use |
+| Protocol | JSON-RPC v2 over stdin/stdout |
 
 ## Scope
 
 `agn` is a pure agent loop. It does not know about Threads, Notifications, or the platform messaging protocol. It receives messages, thinks (LLM calls + tool use), and produces responses.
 
-When running inside the platform, [`agynd`](agynd-cli.md) prepares the environment and bridges `agn` with platform services. When running locally, a developer configures the environment manually.
+When running inside the platform, [`agynd`](agynd-cli.md) prepares the environment and communicates with `agn` through the `agn-sdk-go` module. When running locally, a developer configures the environment manually and interacts with `agn` directly.
+
+## SDK
+
+The `agn` repository exports a Go SDK module (`agn-sdk-go`) that handles:
+
+- Spawning `agn` as a subprocess.
+- JSON-RPC v2 message encoding/decoding over stdin/stdout.
+- Exposing a typed Go API for sending prompts and receiving events.
+
+[`agynd`](agynd-cli.md) imports this SDK module — it does not import `agn`'s internal logic. The SDK is the only supported programmatic interface to `agn`.
+
+The protocol follows the same JSON-RPC v2 pattern as [Codex `app-server`](https://developers.openai.com/codex/app-server/): requests have `method`/`params`/`id`, responses echo `id` with `result` or `error`, notifications omit `id`. agn defines its own schema for methods and types.
 
 ## Usage
 
@@ -23,7 +36,7 @@ When running inside the platform, [`agynd`](agynd-cli.md) prepares the environme
 # Run locally with a prompt
 agn "do something"
 
-# Inside a container, spawned by agynd with prepared environment
+# Inside a container, spawned by agynd via agn-sdk-go
 agn
 ```
 
@@ -116,7 +129,7 @@ The local backend enables running `agn` fully offline without any platform depen
 
 | Component | Relationship |
 |-----------|-------------|
-| [`agynd`](agynd-cli.md) | Spawns `agn`, prepares its environment, feeds messages, collects output |
+| [`agynd`](agynd-cli.md) | Spawns `agn` via `agn-sdk-go`, prepares its environment, feeds messages, collects output |
 | [Agent State](agent/state.md) | Optional remote persistence backend |
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
