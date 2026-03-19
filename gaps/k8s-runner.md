@@ -1,19 +1,7 @@
 # k8s-runner
 
-New service. Does not exist yet.
+New service was introduced: [k8s-runner](../architecture/k8s-runner.md).
 
-## Repository
+Kubernetes-native Runner implementation (`agynio/k8s-runner`, Go). Implements the same `RunnerService` gRPC API as docker-runner, backed by the Kubernetes API (Pod, PVC, emptyDir, exec, log streaming). Embeds the OpenZiti Go SDK to bind the `runner` service. Identity provisioned by Terraform, loaded from Kubernetes Secret.
 
-`agynio/k8s-runner` — to be created.
-
-## What to implement
-
-Full [k8s-runner architecture](../architecture/k8s-runner.md):
-
-- Go service implementing the `RunnerService` gRPC API
-- Kubernetes API backend: Pod, PVC, emptyDir, exec, log streaming
-- OpenZiti Go SDK embedded — bind `runner` service, accept gRPC connections
-- Identity loaded from Kubernetes Secret (provisioned by Terraform)
-- RBAC: ServiceAccount with Role scoped to workload namespace
-- `restartPolicy: Never` on all Pods
-- Helm chart for deployment
+Repository `agynio/k8s-runner` does not exist yet.

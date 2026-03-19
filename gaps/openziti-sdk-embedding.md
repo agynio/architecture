@@ -1,27 +1,14 @@
 # OpenZiti SDK Embedding
 
-Architecture now specifies that Orchestrator, Runner, and Gateway embed the OpenZiti Go SDK instead of using an OpenZiti sidecar/tunneler.
+Orchestrator, Runner, and Gateway now use the embedded OpenZiti Go SDK instead of an OpenZiti sidecar or tunneler. This avoids routing conflicts with the Istio sidecar.
 
-## Affected services
+## What changed
 
-### agynio/agents-orchestrator
+- **Orchestrator** dials runners via `zitiContext.Dial("runner")` over the OpenZiti overlay. No Istio-based Runner connectivity.
+- **Runner** binds the `runner` OpenZiti service via `zitiContext.Listen("runner")` and accepts gRPC connections through it.
+- **Gateway** binds the `gateway` OpenZiti service via `zitiContext.ListenWithOptions("gateway", ...)`.
+- **Orchestrator → Runner** is always OpenZiti, regardless of whether the runner is internal or external. No protocol branching.
+- **Internal runner identity** is provisioned by Terraform at deployment time — certificate and key stored as Kubernetes Secret, mounted into the pod.
+- **Orchestrator identity** is provisioned the same way (Terraform, Kubernetes Secret).
 
-- Embed OpenZiti Go SDK
-- Dial `runner` service via `zitiContext.Dial("runner")` for all Runner gRPC calls
-- Load OpenZiti identity from Kubernetes Secret
-- Remove any Istio-based Runner connectivity
-
-### agynio/gateway
-
-- Confirm Gateway already uses SDK embedding for `zitiContext.ListenWithOptions("gateway", ...)`
-- If using sidecar/tunneler, migrate to embedded SDK
-
-### agynio/k8s-runner
-
-- New service — implement with SDK from the start (see [k8s-runner gap](k8s-runner.md))
-
-## Infrastructure (agynio/bootstrap)
-
-- Terraform: create OpenZiti identity for internal Runner, enroll, store as Kubernetes Secret
-- Terraform: create OpenZiti identity for Orchestrator (if not already done), store as Kubernetes Secret
-- Helm charts: mount identity Secrets into Orchestrator and Runner pods
+See [Authentication — SDK Embedding](../architecture/authn.md#sdk-embedding) and [OpenZiti Integration — Runner Provisioning](../architecture/openziti.md#runner-provisioning).
