@@ -13,9 +13,9 @@ The platform authenticates four types of identities. Each identity type has its 
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 
-All identity types are equal in the [authorization model](authz.md) — they are represented as `identity:<identity_id>` in OpenFGA. What an identity can do is determined by its relationships (tenant membership, resource access), not by its type. See [Authorization](authz.md).
+All identity types are equal in the [authorization model](authz.md) — they are represented as `identity:<identity_id>` in OpenFGA. What an identity can do is determined by its relationships (tenant access, resource access), not by its type. See [Authorization](authz.md).
 
-Each identity type has its own provisioning path and profile shape, managed by different services. See [Users](users.md) for user identity details.
+Each identity type has its own provisioning path and profile shape, managed by different services. See [Identity](identity.md) for the central identity registry and [Users](users.md) for user identity details.
 
 ## Internal Identity
 
@@ -43,7 +43,7 @@ sequenceDiagram
     participant GW as Gateway
     participant IdP as External IdP
     participant US as Users
-    participant TS as Tenants
+    participant AZ as Authorization
 
     U->>GW: Request (no session)
     GW->>U: Redirect to IdP
@@ -54,15 +54,15 @@ sequenceDiagram
     IdP->>GW: ID token + access token
     GW->>US: ResolveOrCreateUser(oidc_subject, profile from ID token)
     US-->>GW: identity_id
-    GW->>TS: ListMemberships(identity_id)
-    TS-->>GW: tenant list
+    GW->>AZ: ListObjects(identity:id, member, tenant)
+    AZ-->>GW: tenant list
     GW->>GW: Establish session with identity_id + tenant context
     GW->>U: Session established
 ```
 
-On first login, the Users service creates a new user record (provisions `identity_id`, stores OIDC subject mapping, populates initial profile from ID token claims). On subsequent logins, it returns the existing `identity_id`.
+On first login, the Users service creates a new user record (provisions `identity_id`, stores OIDC subject mapping, registers the identity in the [Identity](identity.md) service, populates initial profile from ID token claims). On subsequent logins, it returns the existing `identity_id`.
 
-After resolving the user identity, the Gateway queries the [Tenant](tenancy.md) service for the user's tenant memberships. The active tenant is selected per session.
+After resolving the user identity, the Gateway queries the [Authorization](authz.md) service for the tenants the user can access. The active tenant is selected per session.
 
 ### Configuration
 
@@ -233,7 +233,7 @@ Authentication establishes *who* the caller is. Fine-grained access control (*wh
 
 The Threads service identifies participants by opaque UUIDs. When a user sends a message via Chat, the `sender_id` is the user's `identity_id`. When an agent sends a message, the `sender_id` is the agent's `identity_id`. Threads does not distinguish between identity types — it operates on IDs only. See [Threads](threads.md).
 
-The Chat service resolves user profiles via the [Users](users.md) service to display names and photos. For non-user participants (agents), Chat resolves profiles from the service that owns the identity (e.g., Teams for agents).
+The Chat service resolves identity types via the [Identity](identity.md) service, then fetches profiles from the appropriate service — [Users](users.md) for users, [Teams](teams.md) for agents.
 
 ## CLI Authentication
 

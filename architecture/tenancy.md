@@ -4,7 +4,7 @@
 
 The platform supports multiple tenants. A **tenant** is an isolated organizational unit that owns all resources (agents, MCP servers, workspaces, models, threads, chats, etc.). Resources are scoped to a tenant — they are not visible or accessible across tenant boundaries.
 
-The **Tenant service** manages tenant lifecycle and tenant membership. It is the source of truth for which tenants exist and which identities belong to them.
+The **Tenant service** manages tenant lifecycle. It is the source of truth for which tenants exist.
 
 ## Tenant Model
 
@@ -16,53 +16,44 @@ The **Tenant service** manages tenant lifecycle and tenant membership. It is the
 
 ## Tenant Service
 
-The Tenant service is a **control plane** service. It manages organizational desired state — tenant definitions and membership — and is not on the live data processing path.
+The Tenant service is a **control plane** service. It manages tenant resources — create, read, update, delete.
 
 ### Responsibilities
 
 | Concern | Description |
 |---------|-------------|
 | **Tenant CRUD** | Create, read, update, delete tenants |
-| **Tenant membership** | Manage identity↔tenant relationships: add member, remove member, list members, assign roles |
-| **Membership queries** | List tenants for an identity (used by Gateway for tenant selection after authentication) |
-| **Authorization writes** | Write tenant-level relationship tuples to the [Authorization](authz.md) service when membership changes (e.g., `identity:<id>` is `owner` of `tenant:<tenantId>`) |
 
-### Consumers
-
-| Consumer | Usage |
-|----------|-------|
-| **Gateway** | After authentication, query tenant memberships for the identity to resolve the active tenant |
-| **UI** | Tenant switcher, tenant settings, membership management |
-| **Any identity** | Create tenants, manage membership (subject to [authorization](authz.md)) |
+The Tenant service does not manage membership or access control. Which identities can access a tenant is determined by relationship tuples in [OpenFGA](authz.md) — managed through the [Authorization](authz.md) service.
 
 ### Data Store
 
-PostgreSQL — `tenants` table and `tenant_memberships` table.
+PostgreSQL — `tenants` table.
 
-**Tenant memberships:**
+## Tenant Access
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `identity_id` | string (UUID) | The member identity |
-| `tenant_id` | string (UUID) | The tenant |
-| `role` | string | Tenant-level role (e.g., `owner`, `member`) |
-| `created_at` | timestamp | When the membership was created |
+Access to tenants is managed through the [Authorization](authz.md) service (OpenFGA). When an identity creates a tenant, the caller writes an ownership relationship tuple (e.g., `identity:<id>` is `owner` of `tenant:<tenantId>`) to the Authorization service. Granting other identities access to a tenant is also an authorization relationship write.
+
+The [Gateway](gateway.md) resolves which tenants an identity can access by querying the Authorization service (`ListObjects(identity:<id>, member, tenant)`). The Tenant service is not involved in this resolution.
+
+### Tenant Permissions
+
+Defined in the [authorization model](authz.md):
+
+| Permission | Capabilities |
+|------------|-------------|
+| **owner** | Full access. Manage tenant settings, membership, all resources. Delete tenant |
+| **member** | Chat. View tracing. View resources (read-only) |
+
+`owner` implies `member`. Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner. See [Authorization](authz.md).
 
 ## Identities and Tenants
 
-Any identity — user, agent, channel, or runner — can be a member of a tenant. The identity type does not restrict tenant operations. What an identity can do within a tenant is determined by its relationships in the [authorization model](authz.md), not by its type.
+Any identity — user, agent, channel, or runner — can have access to a tenant. The identity type does not restrict tenant operations. What an identity can do within a tenant is determined by its relationships in the [authorization model](authz.md), not by its type.
 
-The identity↔tenant relationship is many-to-many. An identity can belong to multiple tenants. For users, the active tenant is selected per session from the identity's tenant memberships.
+An identity can have access to multiple tenants. For users, the active tenant is selected per session. For non-user identities (agents, channels, runners), the tenant is typically fixed — determined at identity creation.
 
-Tenant membership is managed within the platform by the Tenant service, not in the IdP.
-
-### Tenant Creation
-
-Any authenticated identity can create a tenant. The identity that creates a tenant becomes its owner. The Tenant service writes the ownership relationship to the [Authorization](authz.md) service.
-
-### Tenant Membership
-
-The tenant owner can add other identities as members. The Tenant service writes membership relationship tuples to the [Authorization](authz.md) service when members are added or removed.
+See [Identity](identity.md) for the identity registry and [Authentication](authn.md) for how tenant context is propagated in requests.
 
 ## Resource Scoping
 
@@ -90,6 +81,6 @@ Object storage (S3) keys are prefixed with `tenant_id` to partition files by ten
 
 Every authenticated identity is associated with a tenant for each request. The tenant is resolved during authentication and propagated in request context to all downstream services.
 
-For identities with a single tenant (typically agents, channels, runners), the tenant is fixed — determined at identity creation. For identities with multiple tenants (typically users), the active tenant is selected per session from the identity's memberships (queried from the Tenant service).
+For identities with a single tenant (typically agents, channels, runners), the tenant is fixed — determined at identity creation. For identities with multiple tenants (typically users), the active tenant is selected per session. The Gateway resolves available tenants by querying the [Authorization](authz.md) service.
 
 See [Authentication](authn.md) for how identity and tenant context are propagated.

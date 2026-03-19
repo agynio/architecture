@@ -25,6 +25,7 @@ graph LR
     UI[Web / Mobile App] --> GW[Gateway]
     GW --> Chat
     Chat --> Threads
+    Chat --> Identity
     Chat --> Users
 ```
 
@@ -32,7 +33,7 @@ graph LR
 
 Chat identifies participants by the authenticated `identity_id` from request context (see [Authentication](authn.md)). The `identity_id` is used as the participant ID in Threads.
 
-Chat resolves user profiles (display name, photo) via the [Users](users.md) service. For non-user participants (agents), Chat resolves profiles from the service that owns the identity (e.g., [Teams](teams.md) for agents).
+To display participant information, Chat resolves identity types via the [Identity](identity.md) service, then fetches profiles from the appropriate service — [Users](users.md) for users, [Teams](teams.md) for agents.
 
 ## Classification
 

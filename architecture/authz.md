@@ -43,7 +43,7 @@ Authorization is determined by relationships, not by identity type. Any identity
 
 ### Tenant Permissions
 
-Identities have permissions within a tenant via the [Tenant](tenancy.md) service's membership model. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
+Identities have permissions within a tenant. Tenant access is managed entirely through OpenFGA relationship tuples — the [Tenant](tenancy.md) service manages only tenant CRUD, not access control. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
 | Permission | Capabilities |
 |------------|-------------|

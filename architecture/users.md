@@ -4,9 +4,9 @@
 
 The Users service manages user identity records and user profiles. It is the platform's source of truth for user existence and user-facing metadata (name, nickname, photo).
 
-The Users service does not manage credentials — authentication is handled by an external OIDC provider via the [Gateway](gateway.md). It does not manage tenant membership — that belongs to the [Tenant](tenancy.md) service. It does not manage non-user identities — agents, channels, and runners are owned by the services that create them ([Teams](teams.md), [Channels](channels.md), etc.).
+The Users service does not manage credentials — authentication is handled by an external OIDC provider via the [Gateway](gateway.md). It does not manage tenant access — that is determined by relationships in [OpenFGA](authz.md). It does not manage non-user identities — agents, channels, and runners are owned by the services that create them ([Teams](teams.md), [Channels](channels.md), etc.).
 
-All user records are system-wide (not scoped to a tenant). A user exists independently of any tenant and may belong to zero or more tenants.
+All user records are system-wide (not scoped to a tenant). A user exists independently of any tenant and may have access to zero or more tenants.
 
 ## Responsibilities
 
@@ -39,6 +39,7 @@ sequenceDiagram
     participant GW as Gateway
     participant IdP as External IdP
     participant US as Users
+    participant IS as Identity
 
     U->>GW: Request (no session)
     GW->>U: Redirect to IdP
@@ -48,6 +49,7 @@ sequenceDiagram
     GW->>IdP: Exchange code for tokens
     IdP->>GW: ID token + access token
     GW->>US: ResolveOrCreateUser(oidc_subject, initial profile from ID token)
+    US->>IS: RegisterIdentity(identity_id, "user")
     US-->>GW: identity_id
     GW->>GW: Establish session with identity_id
     GW->>U: Session established
@@ -57,6 +59,8 @@ On subsequent logins, `ResolveOrCreateUser` returns the existing `identity_id` w
 
 Initial profile fields (name, photo) are populated from the OIDC ID token claims at provisioning time. The user can update their profile later.
 
+The Users service registers the identity in the [Identity](identity.md) service during provisioning. This allows other services to resolve the identity type from the opaque `identity_id`.
+
 ## Consumers
 
 | Consumer | Usage |
@@ -64,22 +68,6 @@ Initial profile fields (name, photo) are populated from the OIDC ID token claims
 | **Gateway** | Resolve OIDC subject → `identity_id` on every user authentication |
 | **Chat** | Resolve user profiles for message display (sender name, photo) |
 | **UI** | Display user profile, profile editing |
-| **Tenant service** | Display member information in tenant membership lists |
-
-## Identity Model Context
-
-The platform has four identity types: user, agent, channel, runner. All identity types are equal in the [authorization model](authz.md) — they are represented as `identity:<identity_id>` in OpenFGA. What an identity can do is determined by its relationships (tenant membership, resource access), not by its type.
-
-Each identity type has its own provisioning path and profile shape, managed by different services:
-
-| Identity Type | Provisioned By | Profile Owner | Authentication |
-|---------------|---------------|---------------|----------------|
-| **User** | Users service (this service) | Users service | OIDC via Gateway |
-| **Agent** | [Teams](teams.md) | [Teams](teams.md) | OpenZiti via [Ziti Management](openziti.md) |
-| **Channel** | [Channels](channels.md) | [Channels](channels.md) | OpenZiti via [Ziti Management](openziti.md) |
-| **Runner** | Runner enrollment flow | [Ziti Management](openziti.md) | OpenZiti via [Ziti Management](openziti.md) |
-
-The `identity_type` field in request context indicates the authentication mechanism and profile source, not authorization scope. See [Authentication](authn.md).
 
 ## Data Store
 

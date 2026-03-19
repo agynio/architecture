@@ -34,6 +34,7 @@ graph TB
         Authorization[Authorization]
         ZitiMgmt[Ziti Management]
         Users[Users]
+        Identity[Identity]
     end
 
     subgraph Workloads
@@ -53,15 +54,19 @@ graph TB
 
     Gateway --> ZitiMgmt
     Gateway --> Users
-    Gateway --> Tenants
+    Gateway --> Authorization
     Gateway --> Chat
     Gateway --> Files
     Gateway --> Notifications
     Gateway --> LLM
     Gateway --> Secrets
     Chat --> Threads
+    Chat --> Identity
     Chat --> Users
     Channels --> Threads
+
+    Users --> Identity
+    Teams --> Identity
 
     Threads -->|publish events| Notifications
     AgentsOrch --> Runner
@@ -93,8 +98,9 @@ graph TB
 
 | Component | Responsibility |
 |-----------|---------------|
+| **Identity** | Central identity registry. Maps `identity_id` to `identity_type` for all identity types |
 | **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
-| **Tenants** | Tenant lifecycle and identity↔tenant membership. Any identity type can create and belong to tenants |
+| **Tenants** | Tenant lifecycle (CRUD). Tenant access is managed through Authorization (OpenFGA) |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
@@ -116,7 +122,7 @@ graph TB
 
 | Store | Current Usage |
 |-------|--------------|
-| PostgreSQL | Primary relational store (agent state, platform data, user records, tenant memberships) |
+| PostgreSQL | Primary relational store (agent state, platform data, user records, identity registry, tenants) |
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
@@ -133,6 +139,7 @@ graph TB
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
+| `agynio/identity` | Identity registry service | Go | Planned |
 | `agynio/users` | Users service | Go | Planned |
 | `agynio/tenants` | Tenants service | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
