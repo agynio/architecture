@@ -36,12 +36,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## ~~Scheduler Service~~ — Resolved
-
-**Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/agents-orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
-
----
-
 ## OpenZiti: Agent-to-Agent Private Networking
 
 **Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
@@ -95,18 +89,6 @@ Unresolved architectural decisions requiring discussion.
 - How are tracing data permissions modeled? (Tenant-level visibility, or per-agent restriction?)
 - How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
 - What is the relationship tuple cleanup strategy when resources are deleted?
-
----
-
-## ~~agynd — Agent CLI Protocol~~ — Resolved
-
-**Decision:** `agynd` communicates with each agent CLI through a dedicated Go SDK module imported as a dependency. Each SDK spawns the agent CLI as a subprocess and handles protocol encoding/decoding. `agynd` has zero protocol logic.
-
-- **Codex**: `codex-sdk-go` — JSON-RPC v2 over stdio via `codex app-server`. Types auto-generated from [Codex JSON Schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json).
-- **Claude Code**: `claude-sdk-go` — custom JSONL over stdio via `claude` CLI. Types reverse-engineered from [Python SDK](https://github.com/anthropics/claude-agent-sdk-python) and [TS SDK reference](https://platform.claude.com/docs/en/agent-sdk/typescript).
-- **agn**: `agn-sdk-go` — JSON-RPC v2 over stdio, exported from the agn repository. Same protocol pattern as Codex.
-
-See [`agynd` — Agent Communication Protocol](architecture/agynd-cli.md#agent-communication-protocol).
 
 ---
 
