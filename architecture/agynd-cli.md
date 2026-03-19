@@ -53,7 +53,7 @@ The agent CLI can be:
 agynd
 ├── imports codex-sdk-go     → spawns `codex app-server`  → JSON-RPC v2 over stdio
 ├── imports claude-sdk-go    → spawns `claude`             → custom JSONL over stdio
-└── imports agn-sdk-go       → spawns `agn`                → JSON-RPC v2 over stdio
+└── imports agn-sdk-go       → spawns `agn serve`          → JSON-RPC v2 over stdio
 ```
 
 ### Protocol per agent
@@ -62,7 +62,7 @@ agynd
 |-----------|-----------|----------|-------------------|
 | **Codex** | `codex-sdk-go` | JSON-RPC v2 | `codex app-server` |
 | **Claude Code** | `claude-sdk-go` | Custom JSONL | `claude --output-format stream-json --input-format stream-json --verbose` |
-| **agn** | `agn-sdk-go` | JSON-RPC v2 | `agn` |
+| **agn** | `agn-sdk-go` | JSON-RPC v2 | `agn serve` |
 
 ### SDK responsibilities
 

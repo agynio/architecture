@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agn` is our agent loop implementation. It is a standalone CLI that reads messages from stdin, runs the LLM loop (call model → route → call tools → save state), and writes responses to stdout. It communicates over **JSON-RPC v2** on stdin/stdout.
+`agn` is our agent loop implementation. It runs the LLM loop (call model → route → call tools → save state) and exposes two modes: a **non-interactive one-shot** mode for developers and scripts, and a **subprocess server** mode that speaks JSON-RPC v2 over stdin/stdout for programmatic integration.
 
 | Aspect | Details |
 |--------|---------|
@@ -10,13 +10,51 @@
 | Repository | `agynio/agn-cli` |
 | Language | Go |
 | Role | Agent loop — LLM reasoning with tool use |
-| Protocol | JSON-RPC v2 over stdin/stdout |
 
 ## Scope
 
 `agn` is a pure agent loop. It does not know about Threads, Notifications, or the platform messaging protocol. It receives messages, thinks (LLM calls + tool use), and produces responses.
 
-When running inside the platform, [`agynd`](agynd-cli.md) prepares the environment and communicates with `agn` through the `agn-sdk-go` module. When running locally, a developer configures the environment manually and interacts with `agn` directly.
+When running inside the platform, [`agynd`](agynd-cli.md) prepares the environment and communicates with `agn` through the `agn-sdk-go` module (which spawns `agn serve`). When running locally, a developer invokes `agn exec` directly.
+
+## Modes
+
+`agn` is a single binary with two runtime modes. Both modes execute the same core agent loop — they differ only in how input is provided and output is presented.
+
+| Command | Mode | Interface | Audience |
+|---------|------|-----------|----------|
+| `agn exec "prompt"` | Non-interactive one-shot | Plain text to stdout | Developers, scripts, CI |
+| `agn serve` | Subprocess server | JSON-RPC v2 over stdin/stdout | `agn-sdk-go` / `agynd` |
+
+### `agn exec` — non-interactive one-shot
+
+Runs a single prompt to completion and exits. Designed for direct developer use and scripting.
+
+```bash
+agn exec "refactor the auth module to use middleware"
+```
+
+- Accepts a prompt as a CLI argument.
+- Prints the agent's final text response to stdout.
+- Exits with 0 on success, non-zero on failure.
+- No JSON framing — output is plain text, suitable for piping and reading in a terminal.
+
+Analogous to `codex exec` and `claude -p`.
+
+### `agn serve` — subprocess server
+
+Runs as a long-lived subprocess, accepting requests and emitting events over JSON-RPC v2 on stdin/stdout. Designed for programmatic integration — this is the mode that `agn-sdk-go` spawns.
+
+```bash
+agn serve
+```
+
+- Reads JSON-RPC v2 requests from stdin.
+- Writes JSON-RPC v2 responses and notifications to stdout.
+- Stays alive across multiple turns until the parent process terminates the subprocess.
+- Supports the full protocol: multi-turn conversations, streaming events, interruption.
+
+Analogous to `codex app-server`.
 
 ## SDK
 
@@ -28,17 +66,7 @@ The `agn` repository exports a Go SDK module (`agn-sdk-go`) that handles:
 
 [`agynd`](agynd-cli.md) imports this SDK module — it does not import `agn`'s internal logic. The SDK is the only supported programmatic interface to `agn`.
 
-The protocol follows the same JSON-RPC v2 pattern as [Codex `app-server`](https://developers.openai.com/codex/app-server/): requests have `method`/`params`/`id`, responses echo `id` with `result` or `error`, notifications omit `id`. agn defines its own schema for methods and types.
-
-## Usage
-
-```bash
-# Run locally with a prompt
-agn "do something"
-
-# Inside a container, spawned by agynd via agn-sdk-go
-agn
-```
+The SDK spawns `agn serve` under the hood. The protocol follows the same JSON-RPC v2 pattern as [Codex `app-server`](https://developers.openai.com/codex/app-server/): requests have `method`/`params`/`id`, responses echo `id` with `result` or `error`, notifications omit `id`. agn defines its own schema for methods and types.
 
 ## Architecture
 
