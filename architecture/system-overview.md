@@ -128,4 +128,5 @@ graph TB
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
+| `agynio/k8s-runner` | Kubernetes-native Runner implementation | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |

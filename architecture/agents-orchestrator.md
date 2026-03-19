@@ -28,7 +28,7 @@ graph TB
 | **Notifications** | Subscribe to `message.created` events for fast reactivity |
 | **Teams** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
-| **Runner** | Start and stop agent workloads |
+| **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
 
 ## Reconciliation
@@ -159,3 +159,11 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 | **State** | PostgreSQL (workload ↔ identity mappings) |
 | **Scaling** | Leader-elected; scales with number of agent definitions, not traffic |
 | **Failure impact** | Temporary loss delays new agent starts and idle stops; already-running agents continue |
+
+## Runner Communication
+
+The Orchestrator communicates with runners over OpenZiti using the embedded [OpenZiti Go SDK](https://github.com/openziti/sdk-golang). It dials the `runner` OpenZiti service via `zitiContext.Dial("runner")` and issues gRPC calls over the resulting connection.
+
+This is the same protocol regardless of whether the runner is internal (in-cluster) or external (operator-managed, remote). The Orchestrator does not know or care about runner location — OpenZiti handles routing. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
+
+The Orchestrator's OpenZiti identity is provisioned by Terraform at deployment time (same as other infrastructure identities). The identity file is mounted into the pod as a Kubernetes Secret. All other Orchestrator dependencies (Threads, Teams, Secrets, Notifications, Ziti Management) are called over Istio — standard internal service-to-service communication. See [Authentication — SDK Embedding](authn.md#sdk-embedding).

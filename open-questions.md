@@ -121,3 +121,16 @@ Unresolved architectural decisions requiring discussion.
 - How are agent-type-specific configuration conventions discovered and maintained as 3rd-party CLIs evolve?
 
 **Decision:** TBD
+
+---
+
+## k8s-runner: Namespace Strategy
+
+**Context:** The [k8s-runner](architecture/k8s-runner.md) currently creates all workload Pods in a single dedicated namespace. As the platform grows, per-tenant namespaces may provide stronger isolation.
+
+**Questions:**
+- Should workload Pods be isolated into per-tenant namespaces for network policy and resource quota enforcement?
+- If per-tenant, who creates and manages tenant namespaces — the k8s-runner or an external controller?
+- What is the migration path from single namespace to per-tenant if needed later?
+
+**Decision:** Single namespace for now. Revisit when multi-tenant isolation requirements are clarified.

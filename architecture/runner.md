@@ -9,7 +9,7 @@ Multiple implementations exist for different backends:
 | Implementation | Backend | Status |
 |----------------|---------|--------|
 | `docker-runner` | Docker Engine | Existing (`agynio/platform`) |
-| `k8s-runner` | Kubernetes | Planned |
+| [`k8s-runner`](k8s-runner.md) | Kubernetes | Planned |
 
 ## gRPC API
 
@@ -85,6 +85,10 @@ A workload consists of:
 
 ## Authentication
 
-The docker-runner currently uses HMAC-based authentication with a shared secret (`DOCKER_RUNNER_SHARED_SECRET`). The target architecture uses OpenZiti network identity — the Runner enrolls using a service token and then authenticates all connections via mTLS. See [Authentication](authn.md).
+The Runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds the `runner` OpenZiti service. The Agents Orchestrator dials runners via OpenZiti — this is the same protocol for both internal and external runners, eliminating transport branching in the Orchestrator. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
 
-The Runner does not manage OpenZiti identities. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).
+**Internal runners** (deployed as part of the platform) receive their OpenZiti identity from infrastructure provisioning — Terraform creates and enrolls the identity, stores the certificate and key as a Kubernetes Secret, and the runner pod mounts it on startup. No manual admin action is required.
+
+**External runners** (operator-managed, outside the cluster) use a service token flow to obtain their OpenZiti identity. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
+
+The Runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).

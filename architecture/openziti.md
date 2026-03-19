@@ -10,6 +10,20 @@ The platform uses [OpenZiti](https://openziti.io/) as its overlay network layer,
 
 This document covers the **implementation** of OpenZiti integration: which service manages identities, how policies are structured, how the Gateway extracts identity, and how the Orchestrator handles identity lifecycle. For the conceptual design (identity types, enrollment flows, two-network-layer architecture), see [Authentication](authn.md).
 
+## SDK Embedding
+
+Services that participate in both the Istio mesh and the OpenZiti overlay embed the **OpenZiti Go SDK** ([`openziti/sdk-golang`](https://github.com/openziti/sdk-golang)) directly in the application process. This avoids deploying an OpenZiti sidecar alongside the Istio sidecar, which would create conflicts over outbound traffic routing.
+
+The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server accepts connections from an OpenZiti listener the same way it accepts from a TCP listener. A gRPC client dials through an OpenZiti context the same way it dials a TCP address.
+
+| Service | SDK Role | How |
+|---------|----------|-----|
+| **Runner** | Bind (server) | `zitiContext.Listen("runner")` → `grpcServer.Serve(listener)` |
+| **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
+| **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
+
+Each of these services loads its OpenZiti identity from a file mounted into the pod (Kubernetes Secret). The identity contains the enrolled x509 certificate and private key — the service does not perform enrollment at runtime. See [Runner Provisioning](#runner-provisioning) and [Authentication](authn.md#enrollment).
+
 ## Ziti Management Service
 
 All interactions with the OpenZiti Controller's Edge Management API are encapsulated in a dedicated **Ziti Management** service.
@@ -192,7 +206,7 @@ sequenceDiagram
 
 ### Implementation
 
-1. Gateway starts, loads its OpenZiti identity, calls `ctx.ListenWithOptions("gateway", ...)`.
+1. Gateway starts, loads its OpenZiti identity from the mounted Kubernetes Secret, calls `ctx.ListenWithOptions("gateway", ...)`.
 2. On each incoming connection: `conn, _ := listener.AcceptEdge()`.
 3. `conn.SourceIdentifier()` returns the dialing identity's name and ID. This is set by the OpenZiti router at circuit creation time — it is not self-asserted by the client and is therefore trustworthy.
 4. Gateway calls `ZitiManagement.ResolveIdentity(openZitiIdentityId)`. Ziti Management reads the mapping from PostgreSQL (written when the identity was created). Returns `(identity_id, identity_type, tenant_id)`.
@@ -228,9 +242,43 @@ All internal services read these keys from incoming gRPC metadata. Services trus
 - Istio `AuthorizationPolicy` restricts which ServiceAccounts can call which services.
 - The Gateway is the only service that sets these headers; internal services read and forward them.
 
-## External Runner Enrollment
+## Runner Provisioning
 
-External runners use the same service token flow as internal runners. The Ziti Management service handles the OpenZiti identity creation step:
+Runners connect to the OpenZiti overlay to bind the `runner` service and receive work from the Orchestrator. Internal and external runners use the same protocol (OpenZiti mTLS) but differ in how their OpenZiti identity is provisioned.
+
+### Internal Runners
+
+Internal runners are deployed as part of the platform (via bootstrap). Their OpenZiti identity is provisioned by Terraform at deployment time:
+
+```mermaid
+sequenceDiagram
+    participant TF as Terraform
+    participant ZC as OpenZiti Controller
+    participant K8s as Kubernetes
+    participant R as Runner Pod
+
+    TF->>ZC: Create identity (type: Device, roleAttributes: ["runners"])
+    ZC->>TF: Identity ID + enrollment JWT
+    TF->>ZC: Enroll (exchange JWT for x509 cert + key)
+    ZC->>TF: Certificate + private key
+    TF->>K8s: Create Secret (cert + key)
+    Note over R: Pod mounts Secret as volume
+    R->>R: Load identity from file
+    R->>R: zitiContext.Listen("runner")
+    Note over R: Accepting gRPC connections via OpenZiti
+```
+
+1. Terraform creates an OpenZiti identity on the Controller with `roleAttributes: ["runners"]`.
+2. Terraform enrolls the identity immediately, receiving the x509 certificate and private key.
+3. Terraform stores the enrolled identity (certificate + key) as a Kubernetes Secret.
+4. The runner Helm chart mounts the Secret into the pod.
+5. On startup, the runner loads the identity file and binds the `runner` OpenZiti service via the SDK.
+
+No admin interaction is required. The identity is provisioned as part of `agynio/bootstrap`, alongside the OpenZiti policies, services, and other infrastructure identities.
+
+### External Runners
+
+External runners are provisioned by an operator using a service token:
 
 1. Admin creates a Runner resource in the platform. The system generates a service token.
 2. Operator configures the external runner with the service token.
@@ -238,9 +286,12 @@ External runners use the same service token flow as internal runners. The Ziti M
 4. Platform validates the token → calls `ZitiManagement.CreateRunnerIdentity(runnerId)`.
 5. Ziti Management creates an OpenZiti identity with `roleAttributes: ["runners"]`, returns enrollment JWT.
 6. Platform returns the JWT to the Runner. Runner enrolls with the OpenZiti Controller.
-7. All subsequent communication uses mTLS. The service token is no longer needed.
+7. Runner stores the enrolled identity locally and loads it on subsequent starts.
+8. All subsequent communication uses mTLS. The service token is no longer needed.
 
-Internal and external runners are identical from the platform's perspective. External runners simply have all traffic routed through the OpenZiti overlay (no Istio mesh).
+### Uniform Protocol
+
+Both internal and external runners bind the same `runner` OpenZiti service and are indistinguishable from the Orchestrator's perspective. The Orchestrator dials runners via `zitiContext.Dial("runner")` — it does not know or care whether the runner is in-cluster or remote. This eliminates protocol branching in the Orchestrator.
 
 ## Agent Access Scope
 
@@ -255,11 +306,12 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 
 ## OpenZiti Identities Summary
 
-| Identity | Lifecycle | Managed By | Calls via OpenZiti |
-|----------|-----------|-----------|--------------------|
-| Agents Orchestrator | Persistent (enrolled once) | Infrastructure provisioning | Runner |
-| Runner | Persistent (enrolled via service token) | Ziti Management (on enrollment) | — (receives work, doesn't dial) |
-| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway |
-| Channel | Persistent (enrolled via service token) | Ziti Management (on enrollment) | Gateway |
-| Ziti Management | Persistent (enrolled once) | Infrastructure provisioning | OpenZiti Controller (via Istio, not overlay) |
-| Gateway | Persistent (enrolled once) | Infrastructure provisioning | — (binds service, doesn't dial) |
+| Identity | Lifecycle | Provisioning | Calls via OpenZiti |
+|----------|-----------|--------------|--------------------|
+| Agents Orchestrator | Persistent (enrolled once) | Infrastructure (Terraform) | Runner (dial) |
+| Internal Runner | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds `runner` service) |
+| External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds `runner` service) |
+| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway (dial) |
+| Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
+| Ziti Management | Persistent (enrolled once) | Infrastructure (Terraform) | OpenZiti Controller (via Istio, not overlay) |
+| Gateway | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds `gateway` service) |

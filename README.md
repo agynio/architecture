@@ -2,6 +2,20 @@
 
 Architecture documentation for the Agyn AI agent orchestrator platform.
 
+## How to Use This Documentation
+
+### `/architecture` — Source of Truth
+
+The desired state of the system. Declarative descriptions of all services, patterns, protocols, and contracts. No references to current implementation state, no transitional statements, no legacy caveats. When the architecture changes, this directory is updated to reflect the new target — not annotated with "currently X, will become Y."
+
+### `/gaps` — Change Log
+
+A reminder of what needs to change in service implementations after an architecture update. Not a source of truth and not a task list. Each gap is cleared once the service implementation is aligned with the architecture. When sequential architecture changes happen, services may skip intermediate states — always implement the final state described in `/architecture`, not intermediate steps.
+
+### `/open-questions` — Unresolved Decisions
+
+Topics that require further investigation and a decision from a supervisor. Implementation of system parts that are not clearly described in the architecture should be avoided. Raise an open question or wait for a decision instead of building on assumptions that may change.
+
 ## Structure
 
 ### [Architecture](architecture/) — Desired State
@@ -30,6 +44,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Secrets](architecture/secrets.md) | Secret provider/secret management and secret resolution |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
 | [Runner](architecture/runner.md) | Workload execution service |
+| [k8s-runner](architecture/k8s-runner.md) | Kubernetes-native Runner implementation |
 | [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
 | [Teams](architecture/teams.md) | Team resource management |
 | [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
@@ -47,14 +62,15 @@ How services are built, deployed, run locally, and configured.
 | [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
 | [New Service Development](architecture/operations/new-service.md) | End-to-end process: API schema → implementation → CI/CD → bootstrap → E2E tests |
 
-### [Gaps](gaps/) — Current State vs. Desired & Roadmap
+### [Gaps](gaps/) — Implementation Alignment
 
-What is already implemented, what is missing, and the migration path.
+What needs to change in services to match the current architecture.
 
 | Document | Description |
 |----------|-------------|
-| [Current State](gaps/current-state.md) | Inventory of existing services and their status |
-| [Migration Roadmap](gaps/migration-roadmap.md) | Steps to move from monolith to target architecture |
+| [k8s-runner](gaps/k8s-runner.md) | New service — full implementation needed |
+| [OpenZiti SDK Embedding](gaps/openziti-sdk-embedding.md) | Orchestrator, Runner, Gateway: embed SDK, remove sidecar/tunneler |
+| [Runner HMAC Removal](gaps/runner-hmac-removal.md) | Remove HMAC auth from docker-runner and Orchestrator |
 
 ### [Open Questions](open-questions.md)
 
