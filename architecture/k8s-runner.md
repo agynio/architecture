@@ -11,7 +11,7 @@ The k8s-runner is the Kubernetes-native implementation of the [Runner](runner.md
 | **Repository** | `agynio/k8s-runner` |
 | **API** | gRPC — same `RunnerService` as docker-runner |
 | **Backend** | Kubernetes API (in-cluster) |
-| **Authentication** | OpenZiti network identity (target), HMAC shared secret (transitional) |
+| **Authentication** | OpenZiti network identity (SDK-embedded) |
 
 The k8s-runner runs inside the same Kubernetes cluster where it creates workload Pods.
 
