@@ -9,7 +9,7 @@ Multiple implementations exist for different backends:
 | Implementation | Backend | Status |
 |----------------|---------|--------|
 | `docker-runner` | Docker Engine | Existing (`agynio/platform`) |
-| `k8s-runner` | Kubernetes | Planned |
+| [`k8s-runner`](k8s-runner.md) | Kubernetes | Planned |
 
 ## gRPC API
 

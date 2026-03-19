@@ -111,11 +111,11 @@ New data plane service for file attachments:
 
 ### k8s-runner
 
-Kubernetes-native Runner implementation:
+Kubernetes-native Runner implementation. See [k8s-runner architecture](../architecture/k8s-runner.md).
 
 - Same gRPC interface as docker-runner.
-- Creates pods instead of Docker containers.
-- Native volume, network, and scaling support.
+- Creates Pods instead of Docker containers.
+- Persistent volumes backed by PVCs, ephemeral volumes by emptyDir.
 
 ## Gateway Evolution
 
