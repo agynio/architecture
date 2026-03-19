@@ -1,29 +1,126 @@
 # Agent SDKs Research
 
-Research on programmatic SDKs for Codex and Claude Code — the two 3rd-party agent CLIs that `agynd` needs to control.
+Research on programmatic SDKs for Codex and Claude Code — the two third-party agent CLIs that `agynd` needs to control. Includes protocol analysis, SDK sizing, and the architecture decision for Go integration.
 
 ## Overview
 
-Both Codex and Claude Code provide SDKs in **TypeScript and Python**. **Neither has a Go SDK.** Both SDKs work identically under the hood: spawn their respective CLI as a child process, exchange JSONL messages over stdin/stdout. TypeScript SDKs are used as the baseline for this comparison since they are the most mature and both follow the same mechanism.
+Both Codex and Claude Code provide SDKs in **TypeScript and Python**. **Neither has an official Go SDK.** TypeScript SDKs are used as the baseline for comparison since they are the most mature.
 
-| Aspect | Codex SDK | Claude Code Agent SDK |
-|--------|-----------|----------------------|
+However, the two agents use **different wire protocols**:
+
+- **Codex** has a documented **JSON-RPC v2** protocol (`codex app-server`) with a machine-readable JSON Schema.
+- **Claude Code** uses a **custom JSONL** protocol (no formal spec; defined implicitly by SDK source code).
+
+| Aspect | Codex | Claude Code |
+|--------|-------|-------------|
 | Package (TS) | `@openai/codex-sdk` | `@anthropic-ai/claude-agent-sdk` |
 | Package (Python) | `codex-app-server-sdk` (experimental) | `claude-agent-sdk` (stable) |
-| Go SDK | None | None |
-| Mechanism | Spawns `codex` CLI, JSONL over stdin/stdout | Spawns `claude` CLI, JSONL over stdin/stdout |
+| Official Go SDK | None | None |
+| Community Go SDKs | None found | `severity1/claude-code-sdk-go` (full parity), `jrossi/claude-code-sdk-golang` |
+| Protocol | **JSON-RPC v2** over subprocess stdio | **Custom JSONL** over subprocess stdio |
+| Protocol docs | ✅ Documented at [developers.openai.com/codex/app-server](https://developers.openai.com/codex/app-server/) + JSON Schema in repo | ❌ No spec; reverse-engineer from SDK types |
 | License | Apache-2.0 | Commercial (Anthropic ToS) |
 
-## Go Integration Strategy
+## Protocol Details
 
-Since both SDKs are thin wrappers that spawn CLI processes and exchange JSONL over stdio, porting to Go is feasible:
+### Codex: JSON-RPC v2 (via `codex app-server`)
 
-1. **Spawn the CLI binary** as a child process (`os/exec`).
-2. **Write JSONL commands** to the process stdin.
-3. **Read JSONL events** from the process stdout (line-delimited JSON).
-4. **Map the TypeScript types** to Go structs for the message protocol.
+Codex exposes **two** programmatic interfaces:
 
-The protocol is not formally documented as a specification — it is defined implicitly by the SDK source code. A Go port would need to reverse-engineer the JSONL message format from the TypeScript SDK source.
+1. **`codex exec --json`** — simple one-shot JSONL stream. Events: `thread.started`, `turn.started`, `turn.completed`, `turn.failed`, `item.*`, `error`. This is what the TS SDK wraps.
+2. **`codex app-server`** — full bidirectional JSON-RPC v2 protocol. Requests have `method`/`params`/`id`, responses echo `id` with `result` or `error`, notifications omit `id`. This is what the Python SDK uses.
+
+The app-server protocol is the proper programmatic API:
+
+- **Documented**: [developers.openai.com/codex/app-server](https://developers.openai.com/codex/app-server/)
+- **JSON Schema in repo**: `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json` (12,141 lines)
+- **Schema auto-generation**: `codex app-server generate-json-schema --out ./schemas`
+- **~530 generated types** (from schema), **~50 notification types**, **~10 request methods**
+- **Transports**: stdio (default), WebSocket (experimental)
+
+Request example:
+```json
+{"method": "thread/start", "id": 10, "params": {"model": "gpt-5.1-codex"}}
+```
+
+Response:
+```json
+{"id": 10, "result": {"thread": {"id": "thr_123"}}}
+```
+
+Notification:
+```json
+{"method": "turn/completed", "params": {"turn": {"id": "turn_456"}}}
+```
+
+Key request methods: `initialize`, `thread/start`, `thread/list`, `thread/resume`, `thread/fork`, `thread/archive`, `turn/start`, `turn/interrupt`, `models`.
+
+Key notifications: `item/agentMessage/delta`, `item/completed`, `item/started`, `turn/completed`, `turn/started`, `thread/started`, `hook/started`, `hook/completed`, `error`, plus ~40 others.
+
+### Claude Code: Custom JSONL (via `claude` CLI)
+
+Claude Code uses `--output-format stream-json --input-format stream-json --verbose` flags. The protocol is **not JSON-RPC** — there are no `method`/`id` fields, no request-response correlation.
+
+**Inbound messages (stdout)** are discriminated by a `type` field:
+
+| Type | Description |
+|------|-------------|
+| `assistant` | Assistant response with content blocks (text, thinking, tool_use, tool_result) |
+| `user` | User message echo |
+| `system` | System events — subtypes: `init`, `task_started`, `task_progress`, `task_notification` |
+| `result` | Final result — subtypes: `success`, `error_during_execution`, `error_max_turns`, `error_max_budget_usd` |
+| `stream_event` | Raw API streaming events (when `includePartialMessages` enabled) |
+| `rate_limit_event` | Rate limit status |
+
+**Outbound messages (stdin)** include initialize requests, user messages, and ~11 control request types (`interrupt`, `permission`, `set_permission_mode`, `hook_callback`, `mcp_message`, `rewind_files`, `mcp_reconnect`, `mcp_toggle`, `stop_task`, etc.).
+
+**No formal spec exists.** The protocol is defined by:
+- Python SDK `types.py`: 1,203 lines, 82 type classes
+- Python SDK `message_parser.py`: 251 lines (the actual parsing logic)
+- Python SDK `subprocess_cli.py`: 631 lines (transport layer)
+- TS SDK reference: [platform.claude.com/docs/en/agent-sdk/typescript](https://platform.claude.com/docs/en/agent-sdk/typescript) (~20 message types in `SDKMessage` union)
+
+## SDK Size Analysis
+
+### Codex
+
+| Component | Lines | Files |
+|-----------|-------|-------|
+| TS SDK (total source) | 918 | 10 |
+| Python SDK (total source) | 8,283 | 10 |
+| — generated protocol types (`v2_all.py`) | 6,351 | 1 |
+| — actual logic | ~1,900 | 9 |
+| JSON Schema (v2, in repo) | 12,141 | 1 |
+
+Largest TS files: `exec.ts` (389), `thread.ts` (155), `items.ts` (127), `events.ts` (80).
+
+### Claude Code
+
+| Component | Lines | Files |
+|-----------|-------|-------|
+| Python SDK (total source) | 5,331 | 15 |
+| — types | 1,203 | 1 |
+| — transport (subprocess_cli.py) | 631 | 1 |
+| — message parser | 251 | 1 |
+| — session/control logic | ~2,100 | 3 |
+| — client + query (public API) | ~620 | 2 |
+
+### Community Go SDKs (Claude Code only)
+
+| Repo | Non-test Go lines | Files | Coverage |
+|------|-------------------|-------|----------|
+| `severity1/claude-code-sdk-go` | 6,805 | ~30 | Full Python SDK parity (permissions, hooks, MCP, sessions) |
+| `jrossi/claude-code-sdk-golang` | 1,998 | ~12 | Core functionality |
+
+### Go Implementation Effort Estimate
+
+| | Codex | Claude Code |
+|---|---|---|
+| **Types** | Auto-generate from JSON Schema (~530 types) | Hand-write from Python/TS (~82 types) |
+| **Transport** | ~500 lines Go (JSON-RPC v2 + subprocess) | ~500 lines Go (custom JSONL + subprocess) |
+| **Full SDK estimate** | ~1,500 lines Go | ~3,000–6,800 lines Go |
+| **Effort (from scratch)** | ~1 week | ~2–3 weeks |
+| **Existing assets** | JSON Schema in Codex repo | Community Go SDKs to evaluate/fork |
 
 ## SDK Capabilities Comparison
 
@@ -170,15 +267,69 @@ The protocol is not formally documented as a specification — it is defined imp
 
 4. **Configuration**: Codex delegates most configuration to CLI config files and environment variables. Claude Code exposes nearly everything as SDK options.
 
-5. **Underlying mechanism**: Both spawn their respective CLI binary and communicate over stdin/stdout using JSONL. A Go port follows the same pattern for both: spawn process, write/read JSONL lines.
+5. **Protocol**: Codex uses JSON-RPC v2 (documented, schema-driven). Claude Code uses a custom JSONL protocol (undocumented, reverse-engineered from SDK source).
 
 ## References
 
+- Codex app-server protocol docs: https://developers.openai.com/codex/app-server/
+- Codex app-server JSON Schema: https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json
+- Codex non-interactive mode docs: https://developers.openai.com/codex/noninteractive/
 - Codex SDK TypeScript source: https://github.com/openai/codex/tree/main/sdk/typescript
 - Codex SDK Python source: https://github.com/openai/codex/tree/main/sdk/python
 - Codex SDK docs: https://developers.openai.com/codex/sdk/
+- Claude Code CLI reference: https://code.claude.com/docs/en/cli-reference
+- Claude Code agent loop docs: https://platform.claude.com/docs/en/agent-sdk/agent-loop
 - Claude Code Agent SDK TypeScript on npm: https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk
 - Claude Code Agent SDK Python on PyPI: https://pypi.org/project/claude-agent-sdk/
 - Claude Code Agent SDK Python source: https://github.com/anthropics/claude-agent-sdk-python
 - Claude Code Agent SDK docs: https://platform.claude.com/docs/en/agent-sdk/overview
+- Claude Code Agent SDK TS reference (message types): https://platform.claude.com/docs/en/agent-sdk/typescript
 - Claude Code Agent SDK Python reference: https://platform.claude.com/docs/en/agent-sdk/python
+- Community Go SDK (severity1): https://github.com/severity1/claude-code-sdk-go
+- Community Go SDK (jrossi): https://github.com/jrossi/claude-code-sdk-golang
+
+## Architecture Decision: Agent SDK Strategy
+
+### Context
+
+`agynd` is a Go daemon that orchestrates multiple agent implementations (Codex, Claude Code, agn). Each agent runs as a subprocess. agynd needs Go SDKs to communicate with each agent's CLI.
+
+### Decision
+
+Three separate Go SDK modules, all consumed by agynd as dependencies:
+
+```
+agynd
+├── imports codex-sdk-go     → spawns `codex app-server`  → JSON-RPC v2 over stdio
+├── imports claude-sdk-go    → spawns `claude`             → custom JSONL over stdio
+└── imports agn-sdk-go       → spawns `agn`                → JSON-RPC v2 over stdio
+```
+
+1. **`codex-sdk-go`** — standalone Go module for Codex integration.
+   - Auto-generate types from the Codex JSON Schema (12K lines, 530 types).
+   - Implement JSON-RPC v2 transport over subprocess stdio.
+   - Use `codex app-server` (not `codex exec --json`) as the programmatic interface.
+
+2. **`claude-sdk-go`** — standalone Go module for Claude Code integration.
+   - Reverse-engineer types from Python SDK `types.py` (82 classes) and TS SDK reference.
+   - Implement custom JSONL transport over subprocess stdio.
+   - Evaluate community Go SDKs (`severity1/claude-code-sdk-go`) as starting point or reference.
+
+3. **`agn-sdk-go`** — Go SDK module exported from the agn repository.
+   - agn defines its own JSON-RPC v2 schema.
+   - The SDK spawns `agn` as a subprocess, same pattern as Codex SDK.
+   - agynd imports the SDK module, not agn's internal logic.
+
+### Rationale
+
+- **Codex and agn share JSON-RPC v2**: standard protocol with request-response correlation, formal error handling, and schema-driven type generation. A shared JSON-RPC v2 transport library can serve both SDKs.
+- **Claude Code uses a custom protocol**: no JSON-RPC, no formal spec. Requires a separate transport implementation. The protocol is reverse-engineered from SDK source.
+- **Separate modules**: each SDK is independently versioned and reusable outside agynd. agynd has zero protocol logic — it only talks through SDK interfaces.
+- **agn SDK lives in agn repo**: agn controls its own schema and SDK, ensuring they stay in sync with the CLI.
+
+### Consequences
+
+- Three Go modules to build and maintain.
+- Codex SDK can be largely auto-generated; Claude Code SDK requires more manual work.
+- Protocol changes in Codex are caught by re-generating from the schema. Protocol changes in Claude Code require monitoring SDK source for breaking changes.
+- A shared JSON-RPC v2 transport package can reduce duplication between Codex SDK and agn SDK.
