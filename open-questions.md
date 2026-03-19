@@ -36,13 +36,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## ~~Scheduler Service~~ — Resolved
-
-**Decision:** There is no separate Scheduler service. The [Agents Orchestrator](architecture/agents-orchestrator.md) is the single control plane service that decides what agent workloads should run and when. It reconciles directly with the Runner. A separate MCP reconciliation service will be added later for MCP server discovery — that is a distinct concern from agent scheduling.
-
-
----
-
 ## OpenZiti: Agent-to-Agent Private Networking
 
 **Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
@@ -99,36 +92,12 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## agynd — Agent CLI Protocol
-
-**Context:** [`agynd`](architecture/agynd-cli.md) spawns agent CLIs ([`agn`](architecture/agn-cli.md), 3rd-party CLIs) as child processes and needs to exchange messages with them. The interface between `agynd` and agent CLIs is not yet defined.
-
-**Options:**
-
-1. **Simple shell commands** — `agynd` invokes the agent CLI per message or feeds messages via stdin as plain text, collects responses from stdout.
-   - *Pros:* Simplest. Any CLI works out of the box. Easy to test with `cat`, `echo`, etc.
-   - *Cons:* Limited structure. Hard to communicate metadata, errors, or multi-part responses.
-
-2. **Structured stdin/stdout protocol** — Newline-delimited JSON or similar structured format over stdin/stdout.
-   - *Pros:* Supports metadata, structured errors, streaming. Still simple to implement.
-   - *Cons:* 3rd-party CLIs need adaptation or a thin adapter script.
-
-3. **SDK / library** — `agynd` provides a library that agent implementations import, handling communication internally.
-   - *Pros:* Type-safe. Can evolve the protocol without breaking the CLI interface.
-   - *Cons:* Language-specific. Tighter coupling. 3rd-party CLIs still need a wrapper.
-
-**Decision:** TBD
-
----
-
 ## agn Configuration Structure
 
-**Context:** [`agn`](architecture/agn-cli.md) needs a configuration structure that defines how it operates: LLM endpoint, MCP server connection, skills location, state persistence backend, summarization settings, etc. The configuration format and schema are not yet defined.
+**Context:** [`agn`](architecture/agn-cli.md) configuration lives in `~/.agyn/agn/config.yaml`. The minimal configuration (LLM endpoint, system prompt) is defined — see [agn Configuration](architecture/agn-cli.md#configuration). Remaining questions are about features not yet implemented.
 
 **Questions:**
-- What is the configuration file format? (YAML, TOML, JSON, environment variables only?)
 - What is the directory convention for skills on the filesystem?
-- How are LLM endpoint credentials provided? (Config file, environment variable, credential file?)
 - How does `agn` discover its MCP server? (Stdio command, socket path, environment variable?)
 - What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
 

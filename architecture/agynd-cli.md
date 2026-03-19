@@ -39,11 +39,54 @@ The exact configuration strategy differs per agent CLI (e.g., where skills are p
 
 ### 3. Agent Process Management
 
-`agynd` spawns the configured agent CLI as a child process, feeds it messages, and collects its output.
+`agynd` spawns the configured agent CLI as a child process and communicates with it through an SDK specific to each agent type.
 
 The agent CLI can be:
 - [`agn`](agn-cli.md) — our own agent loop implementation.
 - Any 3rd-party CLI (Claude Code, Codex CLI, custom implementations).
+
+## Agent Communication Protocol
+
+`agynd` does not implement agent protocols directly. It imports a separate **Go SDK module** for each supported agent CLI. Each SDK handles subprocess spawning, protocol encoding/decoding, and message framing.
+
+```
+agynd
+├── imports codex-sdk-go     → spawns `codex app-server`  → JSON-RPC v2 over stdio
+├── imports claude-sdk-go    → spawns `claude`             → custom JSONL over stdio
+└── imports agn-sdk-go       → spawns `agn serve`          → JSON-RPC v2 over stdio
+```
+
+### Protocol per agent
+
+| Agent CLI | SDK Module | Protocol | Subprocess Command |
+|-----------|-----------|----------|-------------------|
+| **Codex** | `codex-sdk-go` | JSON-RPC v2 | `codex app-server` |
+| **Claude Code** | `claude-sdk-go` | Custom JSONL | `claude --output-format stream-json --input-format stream-json --verbose` |
+| **agn** | `agn-sdk-go` | JSON-RPC v2 | `agn serve` |
+
+### SDK responsibilities
+
+Each SDK module is responsible for:
+
+- Spawning and managing the agent CLI subprocess.
+- Encoding outbound messages (prompts, control requests) in the agent's wire format.
+- Decoding inbound messages (responses, events, errors) from the agent's wire format.
+- Exposing a Go API that `agynd` calls — `agynd` never touches raw protocol bytes.
+
+### Protocol details
+
+**Codex** uses a documented JSON-RPC v2 protocol via `codex app-server`. The protocol has a [machine-readable JSON Schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json) (~530 types, ~50 notification types, ~10 request methods). Types for `codex-sdk-go` are auto-generated from this schema. Documentation: [developers.openai.com/codex/app-server](https://developers.openai.com/codex/app-server/).
+
+**Claude Code** uses a custom JSONL protocol with no formal specification. The protocol is defined implicitly by the [Python SDK source](https://github.com/anthropics/claude-agent-sdk-python) and [TypeScript SDK reference](https://platform.claude.com/docs/en/agent-sdk/typescript). Types for `claude-sdk-go` are reverse-engineered from these sources. Inbound messages are discriminated by a `type` field (`assistant`, `user`, `system`, `result`, `stream_event`, `rate_limit_event`). Outbound messages include initialize requests, user messages, and control requests.
+
+**agn** uses JSON-RPC v2, same protocol pattern as Codex. agn defines its own schema. The `agn-sdk-go` module is exported from the agn repository.
+
+### Why separate SDK modules
+
+- Each SDK is independently versioned and reusable outside `agynd`.
+- `agynd` has zero protocol logic — all wire format details are encapsulated in the SDK.
+- Codex and agn share JSON-RPC v2, enabling a shared transport library underneath both SDKs.
+- Protocol changes in Codex are caught by re-generating from its JSON Schema. Protocol changes in Claude Code require monitoring SDK source.
 
 ## Authentication
 
@@ -66,7 +109,7 @@ graph TB
         AggMCP[Aggregated MCP Proxy]
         Skills[Skills on filesystem]
 
-        agynd -->|spawns| AgentCLI
+        agynd -->|spawns via SDK| AgentCLI
         agynd --> AggMCP
         AggMCP -->|proxies| AgentCLI
         Skills -->|read by| AgentCLI
@@ -104,13 +147,13 @@ sequenceDiagram
     D->>D: Prepare environment (skills, LLM config)
     D->>D: Start aggregated MCP proxy
     D->>N: Subscribe to thread_participant:{agentId}
-    D->>A: Spawn agent CLI process
+    D->>A: Spawn agent CLI via SDK
 
     loop Message processing
         D->>T: GetUnackedMessages(agentId)
-        D->>A: Feed messages
+        D->>A: Feed messages via SDK
         A->>A: Process (LLM loop, tools, etc.)
-        A-->>D: Output
+        A-->>D: Events/responses via SDK
         D->>T: SendMessage (post response)
         D->>T: AckMessages
     end
@@ -122,5 +165,4 @@ sequenceDiagram
 
 ## Open Questions
 
-- **Agent CLI protocol.** The interface between `agynd` and agent CLIs (stdin/stdout format, shell commands, SDK, etc.) is not yet defined. See [Open Questions](../open-questions.md#agynd-agent-cli-protocol).
 - **Configuration strategies per agent.** How `agynd` prepares the environment for different agent CLIs (`agn`, Claude Code, Codex CLI). See [Open Questions](../open-questions.md#agynd-configuration-strategies-per-agent).
