@@ -12,15 +12,40 @@ The platform supports multiple tenants. A **tenant** is an isolated organization
 | `name` | string | Display name |
 | `created_at` | timestamp | Creation time |
 
-## Users and Tenants
+## Tenant Service
 
-Users authenticate via a system-wide OIDC provider (see [Authentication](authn.md)). After authenticating, a user can:
+The Tenant service is a **control plane** service.
 
-- **Create a tenant** — becomes the owner.
-- **Be granted access** to an existing tenant by the tenant owner.
-- **Belong to multiple tenants** — selects the active tenant in the UI.
+### Responsibilities
 
-The user-tenant relationship is many-to-many. Tenant membership is managed within the platform, not in the IdP.
+| Concern | Description |
+|---------|-------------|
+| **Tenant CRUD** | Create, read, update, delete tenants |
+| **List accessible tenants** | Return tenants an identity can access. Queries [Authorization](authz.md) for the list of tenant IDs, then enriches with tenant details from its own database |
+
+### Data Store
+
+PostgreSQL — `tenants` table.
+
+## Tenant Access
+
+Tenant access is managed through [Authorization](authz.md) (OpenFGA relationship tuples). See [Authorization — Tenant Permissions](authz.md#tenant-permissions) for the permission model.
+
+### Per-Request Validation
+
+The [Gateway](gateway.md) receives a `tenant_id` in request headers and validates access via the Authorization service (`Check`).
+
+### Tenant Listing
+
+When the UI needs to display a tenant switcher, it calls the Tenants service `ListTenants`. The Tenants service queries Authorization (`ListObjects`) for accessible tenant IDs, then returns full tenant details from its own database.
+
+## Identities and Tenants
+
+Any identity — user, agent, channel, or runner — can have access to a tenant. What an identity can do within a tenant is determined by its [authorization relationships](authz.md), not by its type.
+
+An identity can have access to multiple tenants. For users, the active tenant is selected per session by the client. For non-user identities (agents, channels, runners), the tenant is typically fixed at creation.
+
+See [Identity](identity.md) for the identity registry and [Authentication](authn.md) for how tenant context is propagated.
 
 ## Resource Scoping
 
@@ -44,6 +69,8 @@ All services that use PostgreSQL include `tenant_id` as a column on every tenant
 
 Object storage (S3) keys are prefixed with `tenant_id` to partition files by tenant.
 
-## Identity and Tenant Association
+## Tenant Resolution
 
-Every authenticated identity (user, agent, channel, runner) is associated with a tenant. For non-user identities (agents, channels, runners), the tenant is fixed — determined at identity creation. For users, the active tenant is selected per session from the user's tenant memberships. The tenant is resolved during authentication and propagated in request context to all downstream services. See [Authentication](authn.md).
+Every authenticated request carries a `tenant_id`. The [Gateway](gateway.md) receives it in request headers, validates access via [Authorization](authz.md), and propagates the validated `tenant_id` in gRPC metadata to downstream services.
+
+See [Authentication](authn.md) for how identity and tenant context are propagated.

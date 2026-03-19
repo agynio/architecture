@@ -23,6 +23,7 @@ graph LR
     subgraph Control Plane
         Teams
         AgentsOrch[Agents Orchestrator]
+        Tenants
     end
 
     subgraph Data Plane
@@ -40,6 +41,8 @@ graph LR
         Secrets
         Authorization
         ZitiMgmt[Ziti Management]
+        Users
+        Identity
     end
 
     Teams -->|desired state| AgentsOrch
@@ -52,8 +55,11 @@ graph LR
 |---------|-------|-----------|
 | **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
 | **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
+| **Tenants** | Control | Manages tenant definitions (CRUD) and lists accessible tenants for an identity (queries Authorization) |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
+| **Users** | Data | Provisions user identities on OIDC login, serves user profiles on the request hot path |
+| **Identity** | Data | Central identity type registry. Maps identity IDs to types on the request hot path |
 | **Threads** | Data | Carries conversation messages between participants |
 | **Notifications** | Data | Holds persistent connections, fans out real-time events |
 | **Gateway** | Data | Routes external API requests to internal services |
