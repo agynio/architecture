@@ -64,12 +64,16 @@ Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZi
 
 ### Enrollment
 
-Non-user identities bootstrap onto the OpenZiti network using a **service token**. The token is a one-time bootstrap credential — it is not used for ongoing API authentication.
+Non-user identities bootstrap onto the OpenZiti network through one of two paths, depending on whether the identity is provisioned as part of platform infrastructure or registered dynamically by an operator:
+
+**Infrastructure-provisioned identities** (Orchestrator, Gateway, Ziti Management, internal Runners) are created by Terraform at deployment time. Terraform creates the OpenZiti identity on the Controller, enrolls it, and stores the resulting certificate and key material as a Kubernetes Secret. The service pod mounts the secret and loads the identity on startup. No manual admin action is required — these identities are part of the platform's bootstrap.
+
+**Operator-provisioned identities** (external Runners, Channels) use a service token flow. An admin creates the resource in the platform, receives a one-time service token, and configures the external service with it. The service presents the token to the platform's enrollment endpoint, which creates an OpenZiti identity, returns an enrollment JWT, and the service enrolls with the Controller.
 
 ```mermaid
 sequenceDiagram
     participant Admin as Admin / Platform
-    participant SVC as Service (Runner, Channel)
+    participant SVC as Service (External Runner, Channel)
     participant ZC as OpenZiti Controller
 
     Admin->>SVC: Provision with service token
@@ -80,12 +84,7 @@ sequenceDiagram
     Note over SVC: From this point: mTLS via OpenZiti
 ```
 
-1. Admin creates a Runner or Channel in the platform. The system generates a service token.
-2. The operator configures the Runner/Channel with the token.
-3. On first start, the service presents the token to the platform's enrollment endpoint.
-4. The platform validates the token, creates an OpenZiti identity, and returns an enrollment JWT.
-5. The service enrolls with the OpenZiti Controller, exchanging the JWT for an x509 certificate.
-6. All subsequent communication uses mTLS. The service token is no longer needed.
+The service token flow is for external services only. Internal platform components receive their identities from infrastructure provisioning — no tokens, no manual enrollment.
 
 ### Agent Identity Lifecycle
 
@@ -101,12 +100,15 @@ The Runner is not involved in identity management — it treats the enrollment J
 
 ### OpenZiti Identities
 
-| Identity | Lifecycle | Calls via OpenZiti |
-|----------|-----------|--------------------|
-| Agents Orchestrator | Persistent (enrolled once) | Runner |
-| Runner | Persistent (enrolled via service token) | — (receives work, doesn't dial) |
-| Agent container | Ephemeral (per container) | Gateway |
-| Channel | Persistent (enrolled via service token) | Gateway |
+| Identity | Lifecycle | Provisioning |  Calls via OpenZiti |
+|----------|-----------|-------------|---------------------|
+| Agents Orchestrator | Persistent (enrolled once) | Infrastructure (Terraform) | Runner |
+| Internal Runner | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds service, receives work) |
+| External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds service, receives work) |
+| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway |
+| Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway |
+| Gateway | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds service, receives connections) |
+| Ziti Management | Persistent (enrolled once) | Infrastructure (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 
 ## Two Network Layers
 
@@ -131,7 +133,7 @@ graph TB
             Other[Other Services]
         end
 
-        subgraph Istio + OpenZiti
+        subgraph "Istio + OpenZiti SDK"
             Orch[Agents Orchestrator]
             IntRunner[Internal Runner]
         end
@@ -144,12 +146,25 @@ graph TB
     AgentExt -.->|OpenZiti| ZR
     Channel -.->|OpenZiti| ZR
     AgentInt -.->|OpenZiti| ZR
-    Orch -.->|OpenZiti| ExtRunner
-    Orch -.->|Istio| IntRunner
+    Orch -.->|"OpenZiti (SDK)"| IntRunner
+    Orch -.->|"OpenZiti (SDK)"| ExtRunner
 
     ZR -->|Istio| GW
     GW -->|Istio| Chat & Threads & Files & Notif & Other
+    Orch -->|Istio| Threads & Other
 ```
+
+### SDK Embedding
+
+Services that participate in both the Istio mesh and the OpenZiti overlay use the **OpenZiti Go SDK** embedded in the application process — not an OpenZiti sidecar or tunneler. This avoids conflicts between the Istio sidecar proxy and an OpenZiti sidecar competing for outbound traffic routing.
+
+| Service | OpenZiti SDK Usage | Istio |
+|---------|-------------------|-------|
+| **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner")` | All other outbound calls (Threads, Teams, Secrets, etc.) |
+| **Internal Runner** | Binds `runner` service via `zitiContext.Listen("runner")` | Not used for inbound Runner API traffic |
+| **Gateway** | Binds `gateway` service via `zitiContext.ListenWithOptions("gateway", ...)` | All outbound calls to internal services |
+
+The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server can accept connections from an OpenZiti listener the same way it accepts connections from a TCP listener. Similarly, a gRPC client can dial through an OpenZiti context the same way it dials a TCP address. See [`openziti/sdk-golang`](https://github.com/openziti/sdk-golang).
 
 ### Istio — Internal Service Mesh
 
@@ -171,25 +186,24 @@ OpenZiti provides identity and connectivity for actors that are outside the clus
 | mTLS | Per-identity x509 certificates from OpenZiti Controller |
 | Identity model | Platform-managed identities (agent ID, runner ID, channel ID) |
 | Policy enforcement | OpenZiti service policies (which identity can dial which service) |
-| Scope | Cross-boundary (external runners, agents) and internal (agents in cluster) |
+| Scope | Cross-boundary (external runners, agents) and internal (agents in cluster, orchestrator-to-runner) |
 
 ### Why Both
 
 **Istio** secures internal service-to-service communication. It knows nothing about external actors or application-level identity (which specific agent, which tenant).
 
-**OpenZiti** provides application-level identity for external actors. It creates the overlay network that lets external runners and agents reach internal services. It also provides a uniform identity model for agents regardless of whether they run inside or outside the cluster.
+**OpenZiti** provides application-level identity and connectivity for actors that cross the cluster boundary (external runners, agents, channels) and for connections that must use a uniform protocol regardless of location (orchestrator-to-runner).
 
 They operate on different connections:
 
-| Connection | Layer |
-|------------|-------|
-| Agent → Gateway | OpenZiti |
-| Channel → Gateway | OpenZiti |
-| Orchestrator → external Runner | OpenZiti |
-| Orchestrator → internal Runner | Istio |
-| Orchestrator → Threads | Istio |
-| Gateway → internal services | Istio |
-| Internal service → internal service | Istio |
+| Connection | Layer | Notes |
+|------------|-------|-------|
+| Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location |
+| Channel → Gateway | OpenZiti | Channels always connect via overlay |
+| Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for internal and external runners |
+| Orchestrator → Threads, Teams, etc. | Istio | Standard internal service calls |
+| Gateway → internal services | Istio | Standard internal service calls |
+| Internal service → internal service | Istio | Standard internal service calls |
 
 ## Authentication Boundary
 
