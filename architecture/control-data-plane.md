@@ -55,7 +55,7 @@ graph LR
 |---------|-------|-----------|
 | **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
 | **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
-| **Tenants** | Control | Manages tenant definitions (CRUD). Tenant access is managed through Authorization |
+| **Tenants** | Control | Manages tenant definitions (CRUD) and lists accessible tenants for an identity (queries Authorization) |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Users** | Data | Provisions user identities on OIDC login, serves user profiles on the request hot path |

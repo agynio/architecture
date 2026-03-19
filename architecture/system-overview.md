@@ -100,7 +100,7 @@ graph TB
 |-----------|---------------|
 | **Identity** | Central identity registry. Maps `identity_id` to `identity_type` for all identity types |
 | **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
-| **Tenants** | Tenant lifecycle (CRUD). Tenant access is managed through Authorization (OpenFGA) |
+| **Tenants** | Tenant lifecycle (CRUD) and listing accessible tenants for an identity (queries Authorization for tenant IDs, enriches with tenant details) |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
@@ -115,7 +115,7 @@ graph TB
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
-| **Gateway** | Exposes platform methods for external usage. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
+| **Gateway** | Exposes platform methods for external usage. Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 
 ## Data Stores

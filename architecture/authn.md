@@ -43,7 +43,6 @@ sequenceDiagram
     participant GW as Gateway
     participant IdP as External IdP
     participant US as Users
-    participant AZ as Authorization
 
     U->>GW: Request (no session)
     GW->>U: Redirect to IdP
@@ -54,15 +53,13 @@ sequenceDiagram
     IdP->>GW: ID token + access token
     GW->>US: ResolveOrCreateUser(oidc_subject, profile from ID token)
     US-->>GW: identity_id
-    GW->>AZ: ListObjects(identity:id, member, tenant)
-    AZ-->>GW: tenant list
-    GW->>GW: Establish session with identity_id + tenant context
+    GW->>GW: Establish session with identity_id
     GW->>U: Session established
 ```
 
 On first login, the Users service creates a new user record (provisions `identity_id`, stores OIDC subject mapping, registers the identity in the [Identity](identity.md) service, populates initial profile from ID token claims). On subsequent logins, it returns the existing `identity_id`.
 
-After resolving the user identity, the Gateway queries the [Authorization](authz.md) service for the tenants the user can access. The active tenant is selected per session.
+The OIDC flow establishes the user's identity. Tenant context is not resolved at login — it is validated per-request. Each API request includes a `tenant_id` header, and the Gateway validates access via the [Authorization](authz.md) service. See [Multi-Tenancy — Tenant Resolution](tenancy.md#tenant-resolution).
 
 ### Configuration
 
@@ -223,7 +220,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md) service). Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate via [Ziti Management](openziti.md)).
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md) service). Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate via [Ziti Management](openziti.md)). Tenant access validated per-request via [Authorization](authz.md).
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
 

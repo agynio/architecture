@@ -19,7 +19,7 @@ The path-based route allows the web app (platform-ui) to call new gateway-backed
 - Translate between external (OpenAPI/REST) and internal protocols.
 - Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
 - Validate requests and responses against OpenAPI specs.
-- Authenticate requests and resolve identity + tenant context. For OIDC users: resolve identity via [Users](users.md) service, resolve tenant access via [Authorization](authz.md) service. For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). See [Authentication](authn.md).
+- Authenticate requests and resolve identity + tenant context. For OIDC users: resolve identity via [Users](users.md) service. For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). Validate tenant access per-request: the client sends `tenant_id` in the request header, and the Gateway checks access via the [Authorization](authz.md) service. See [Authentication](authn.md).
 
 ## Classification
 
