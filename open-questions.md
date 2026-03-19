@@ -94,12 +94,10 @@ Unresolved architectural decisions requiring discussion.
 
 ## agn Configuration Structure
 
-**Context:** [`agn`](architecture/agn-cli.md) needs a configuration structure that defines how it operates: LLM endpoint, MCP server connection, skills location, state persistence backend, summarization settings, etc. The configuration format and schema are not yet defined.
+**Context:** [`agn`](architecture/agn-cli.md) configuration lives in `~/.agyn/agn/config.yaml`. The minimal configuration (LLM endpoint, system prompt) is defined — see [agn Configuration](architecture/agn-cli.md#configuration). Remaining questions are about features not yet implemented.
 
 **Questions:**
-- What is the configuration file format? (YAML, TOML, JSON, environment variables only?)
 - What is the directory convention for skills on the filesystem?
-- How are LLM endpoint credentials provided? (Config file, environment variable, credential file?)
 - How does `agn` discover its MCP server? (Stdio command, socket path, environment variable?)
 - What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
 

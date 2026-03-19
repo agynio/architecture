@@ -130,17 +130,56 @@ Authentication is only required when `agn` connects to platform services (Agent 
 
 ## Configuration
 
-The configuration structure for `agn` is not yet defined. `agn` needs to know:
+All `agn` configuration and credentials live under `~/.agyn/` — the shared home directory for all platform CLI tools.
 
-- Where to find skills on the filesystem
-- LLM endpoint URL and credentials
-- MCP server connection details
-- State persistence backend (local filesystem or remote Agent State)
-- Summarization parameters
+```
+~/.agyn/
+├── credentials          # Auth token (shared with agyn, agynd)
+└── agn/
+    └── config.yaml      # agn configuration
+```
 
-When running inside the platform, [`agynd`](agynd-cli.md) prepares this configuration. When running locally, the developer provides it manually.
+### Minimal configuration
 
-See [Open Questions — agn Configuration Structure](../open-questions.md#agn-configuration-structure) for the full list of design decisions.
+The initial configuration covers the two things `agn` needs to run: an LLM endpoint and a system prompt.
+
+```yaml
+# ~/.agyn/agn/config.yaml
+
+llm:
+  # LLM endpoint URL (OpenAI-compatible API)
+  endpoint: https://api.openai.com/v1
+  # Authentication method for the LLM endpoint
+  auth:
+    # API key authentication
+    api_key: sk-...
+    # Or: environment variable reference (resolved at runtime)
+    # api_key_env: OPENAI_API_KEY
+  # Model to use
+  model: gpt-4.1
+
+# System prompt — prepended to every LLM call
+system_prompt: |
+  You are a software engineering agent.
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `llm.endpoint` | string | yes | OpenAI-compatible API base URL |
+| `llm.auth.api_key` | string | one of | API key, provided directly |
+| `llm.auth.api_key_env` | string | one of | Environment variable name containing the API key |
+| `llm.model` | string | yes | Model identifier |
+| `system_prompt` | string | no | System prompt prepended to every LLM call |
+
+### Platform vs local
+
+When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
+
+When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `agn exec` reads it on startup.
+
+### Future configuration
+
+Additional configuration (MCP servers, skills directory, state persistence backend, summarization parameters) will be added to this file as those features are implemented.
 
 ## State Persistence
 
