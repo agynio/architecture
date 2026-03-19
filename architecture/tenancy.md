@@ -4,8 +4,6 @@
 
 The platform supports multiple tenants. A **tenant** is an isolated organizational unit that owns all resources (agents, MCP servers, workspaces, models, threads, chats, etc.). Resources are scoped to a tenant — they are not visible or accessible across tenant boundaries.
 
-The **Tenant service** manages tenant lifecycle. It is the source of truth for which tenants exist.
-
 ## Tenant Model
 
 | Field | Type | Description |
@@ -16,7 +14,7 @@ The **Tenant service** manages tenant lifecycle. It is the source of truth for w
 
 ## Tenant Service
 
-The Tenant service is a **control plane** service. It manages tenant resources and provides tenant listing for identities.
+The Tenant service is a **control plane** service.
 
 ### Responsibilities
 
@@ -25,42 +23,29 @@ The Tenant service is a **control plane** service. It manages tenant resources a
 | **Tenant CRUD** | Create, read, update, delete tenants |
 | **List accessible tenants** | Return tenants an identity can access. Queries [Authorization](authz.md) for the list of tenant IDs, then enriches with tenant details from its own database |
 
-The Tenant service does not store membership or access control. Which identities can access a tenant is determined by relationship tuples in [OpenFGA](authz.md) — managed through the [Authorization](authz.md) service. The Tenant service queries Authorization when it needs to resolve accessible tenants for an identity.
-
 ### Data Store
 
 PostgreSQL — `tenants` table.
 
 ## Tenant Access
 
-Access to tenants is managed through the [Authorization](authz.md) service (OpenFGA). When an identity creates a tenant, the caller writes an ownership relationship tuple (e.g., `identity:<id>` is `owner` of `tenant:<tenantId>`) to the Authorization service. Granting other identities access to a tenant is also an authorization relationship write.
+Tenant access is managed through [Authorization](authz.md) (OpenFGA relationship tuples). See [Authorization — Tenant Permissions](authz.md#tenant-permissions) for the permission model.
 
 ### Per-Request Validation
 
-The [Gateway](gateway.md) receives a `tenant_id` in request headers. It validates that the identity has access to this tenant by calling the Authorization service: `Check(identity:<id>, member, tenant:<tenantId>)`. This is a single boolean check — the Gateway does not list all accessible tenants.
+The [Gateway](gateway.md) receives a `tenant_id` in request headers and validates access via the Authorization service (`Check`).
 
 ### Tenant Listing
 
-When the UI needs to display a tenant switcher, it calls the Tenants service `ListTenants`. The Tenants service queries Authorization (`ListObjects(identity:<id>, member, tenant)`) to get the tenant IDs the identity can access, then returns the full tenant details (name, etc.) from its own database.
-
-### Tenant Permissions
-
-Defined in the [authorization model](authz.md):
-
-| Permission | Capabilities |
-|------------|-------------|
-| **owner** | Full access. Manage tenant settings, membership, all resources. Delete tenant |
-| **member** | Chat. View tracing. View resources (read-only) |
-
-`owner` implies `member`. Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner. See [Authorization](authz.md).
+When the UI needs to display a tenant switcher, it calls the Tenants service `ListTenants`. The Tenants service queries Authorization (`ListObjects`) for accessible tenant IDs, then returns full tenant details from its own database.
 
 ## Identities and Tenants
 
-Any identity — user, agent, channel, or runner — can have access to a tenant. The identity type does not restrict tenant operations. What an identity can do within a tenant is determined by its relationships in the [authorization model](authz.md), not by its type.
+Any identity — user, agent, channel, or runner — can have access to a tenant. What an identity can do within a tenant is determined by its [authorization relationships](authz.md), not by its type.
 
-An identity can have access to multiple tenants. For users, the active tenant is selected per session. For non-user identities (agents, channels, runners), the tenant is typically fixed — determined at identity creation.
+An identity can have access to multiple tenants. For users, the active tenant is selected per session by the client. For non-user identities (agents, channels, runners), the tenant is typically fixed at creation.
 
-See [Identity](identity.md) for the identity registry and [Authentication](authn.md) for how tenant context is propagated in requests.
+See [Identity](identity.md) for the identity registry and [Authentication](authn.md) for how tenant context is propagated.
 
 ## Resource Scoping
 
@@ -86,8 +71,6 @@ Object storage (S3) keys are prefixed with `tenant_id` to partition files by ten
 
 ## Tenant Resolution
 
-Every authenticated identity is associated with a tenant for each request. The [Gateway](gateway.md) receives the `tenant_id` in request headers and validates access via the [Authorization](authz.md) service. The validated `tenant_id` is then propagated in request context to all downstream services.
-
-For identities with a single tenant (typically agents, channels, runners), the tenant is fixed — determined at identity creation. For identities with multiple tenants (typically users), the active tenant is selected per session by the client.
+Every authenticated request carries a `tenant_id`. The [Gateway](gateway.md) receives it in request headers, validates access via [Authorization](authz.md), and propagates the validated `tenant_id` in gRPC metadata to downstream services.
 
 See [Authentication](authn.md) for how identity and tenant context are propagated.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal identity representation: an identity ID, identity type, and tenant ID.
+The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id`, `identity_type`, and `tenant_id`.
 
 ## Identity Types
 
@@ -13,9 +13,7 @@ The platform authenticates four types of identities. Each identity type has its 
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 
-All identity types are equal in the [authorization model](authz.md) — they are represented as `identity:<identity_id>` in OpenFGA. What an identity can do is determined by its relationships (tenant access, resource access), not by its type. See [Authorization](authz.md).
-
-Each identity type has its own provisioning path and profile shape, managed by different services. See [Identity](identity.md) for the central identity registry and [Users](users.md) for user identity details.
+All identity types are represented uniformly as `identity:<identity_id>` in the [authorization model](authz.md). See [Identity](identity.md) for the central identity registry and [Users](users.md) for user-specific details.
 
 ## Internal Identity
 
@@ -25,15 +23,15 @@ After authentication, every request carries a resolved identity in its context:
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
 | `identity_type` | enum | `user`, `agent`, `channel`, `runner` |
-| `tenant_id` | string (UUID) | Tenant this identity belongs to (for this request) |
+| `tenant_id` | string (UUID) | Active tenant for this request |
 
-All downstream services receive tenant and identity context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
+Downstream services receive identity and tenant context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
 
-The `identity_type` indicates the authentication mechanism and profile source, not authorization scope. Services should not make authorization decisions based on identity type — they use the [Authorization](authz.md) service for permission checks.
+The `identity_type` indicates the authentication mechanism and profile source (e.g., OIDC users have profiles in [Users](users.md), agents in [Teams](teams.md)). Authorization is determined by [relationships](authz.md), not by type.
 
 ## User Authentication (OIDC)
 
-Users authenticate via a system-wide OIDC-compliant identity provider. The platform does not manage user credentials directly. The [Users](users.md) service manages user identity records and profiles.
+Users authenticate via a system-wide OIDC-compliant identity provider. The [Users](users.md) service manages user identity records and profiles.
 
 ### Flow
 
@@ -57,13 +55,13 @@ sequenceDiagram
     GW->>U: Session established
 ```
 
-On first login, the Users service creates a new user record (provisions `identity_id`, stores OIDC subject mapping, registers the identity in the [Identity](identity.md) service, populates initial profile from ID token claims). On subsequent logins, it returns the existing `identity_id`.
+On first login, the Users service provisions a new user record (OIDC subject mapping, initial profile from ID token claims, identity registration in the [Identity](identity.md) service). On subsequent logins, it returns the existing `identity_id`.
 
-The OIDC flow establishes the user's identity. Tenant context is not resolved at login — it is validated per-request. Each API request includes a `tenant_id` header, and the Gateway validates access via the [Authorization](authz.md) service. See [Multi-Tenancy — Tenant Resolution](tenancy.md#tenant-resolution).
+Tenant context is validated per-request — each API request includes a `tenant_id` header, and the Gateway validates access via [Authorization](authz.md). See [Tenant Resolution](tenancy.md#tenant-resolution).
 
 ### Configuration
 
-The OIDC provider is configured system-wide (not per-tenant):
+The OIDC provider is configured system-wide:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -73,7 +71,7 @@ The OIDC provider is configured system-wide (not per-tenant):
 
 ## Network Identity (OpenZiti)
 
-Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay — the identity is in the certificate, not in application-level tokens.
+Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay.
 
 ### Enrollment
 
@@ -109,7 +107,7 @@ Agent containers are short-lived. Their OpenZiti identities are created and dest
 4. All API calls from the agent use mTLS. The Gateway extracts identity from the connection.
 5. When the Orchestrator stops the workload, it deletes the OpenZiti identity via Ziti Management. The certificate becomes invalid.
 
-The Runner is not involved in identity management — it treats the enrollment JWT as opaque configuration. See [OpenZiti Integration](openziti.md) for the full lifecycle diagram and implementation details.
+The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Integration](openziti.md) for the full lifecycle diagram.
 
 ### OpenZiti Identities
 
@@ -181,7 +179,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 
 ### Istio — Internal Service Mesh
 
-Istio provides mTLS between all pods within the Kubernetes cluster. Identity is based on Kubernetes ServiceAccounts. AuthorizationPolicies control which service can call which.
+Istio provides mTLS between all pods within the Kubernetes cluster. Identity is based on Kubernetes ServiceAccounts.
 
 | Concern | Mechanism |
 |---------|-----------|
@@ -192,7 +190,7 @@ Istio provides mTLS between all pods within the Kubernetes cluster. Identity is 
 
 ### OpenZiti — Cross-Boundary Overlay
 
-OpenZiti provides identity and connectivity for actors that are outside the cluster or need application-level identity (not just pod identity).
+OpenZiti provides identity and connectivity for actors outside the cluster or needing application-level identity.
 
 | Concern | Mechanism |
 |---------|-----------|
@@ -203,7 +201,7 @@ OpenZiti provides identity and connectivity for actors that are outside the clus
 
 ### Why Both
 
-**Istio** secures internal service-to-service communication. It knows nothing about external actors or application-level identity (which specific agent, which tenant).
+**Istio** secures internal service-to-service communication. It knows nothing about application-level identity (which specific agent, which tenant).
 
 **OpenZiti** provides application-level identity and connectivity for actors that cross the cluster boundary (external runners, agents, channels) and for connections that must use a uniform protocol regardless of location (orchestrator-to-runner).
 
@@ -220,17 +218,13 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md) service). Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate via [Ziti Management](openziti.md)). Tenant access validated per-request via [Authorization](authz.md).
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Tenant access validated per-request via [Authorization](authz.md).
 
-**Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
-
-Authentication establishes *who* the caller is. Fine-grained access control (*what* the caller can do with *which* resources) is handled by the [Authorization](authz.md) service.
+**Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 
 ## Participants and Identities
 
-The Threads service identifies participants by opaque UUIDs. When a user sends a message via Chat, the `sender_id` is the user's `identity_id`. When an agent sends a message, the `sender_id` is the agent's `identity_id`. Threads does not distinguish between identity types — it operates on IDs only. See [Threads](threads.md).
-
-The Chat service resolves identity types via the [Identity](identity.md) service, then fetches profiles from the appropriate service — [Users](users.md) for users, [Teams](teams.md) for agents.
+[Threads](threads.md) identifies participants by opaque `identity_id` UUIDs — it operates on IDs only. [Chat](chat.md) resolves identity types via the [Identity](identity.md) service, then fetches profiles from [Users](users.md) (for users) or [Teams](teams.md) (for agents).
 
 ## CLI Authentication
 
@@ -243,7 +237,7 @@ All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](
 
 ### Resolution Order
 
-1. If an OpenZiti identity is available in the environment, use it. All API calls go over the OpenZiti overlay with mTLS — no token needed.
+1. If an OpenZiti identity is available in the environment, use it. All API calls go over the OpenZiti overlay with mTLS.
 2. Otherwise, read the auth token from `~/.agyn/credentials` and attach it to Gateway requests.
 
 ### Token Storage

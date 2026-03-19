@@ -39,11 +39,11 @@ The authorization model defines types, relations, and how permissions are comput
 
 All platform identities (users, agents, channels, runners) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
 
-Authorization is determined by relationships, not by identity type. Any identity — user, agent, channel, or runner — can hold any relationship that is modeled in OpenFGA. See [Users](users.md) for user identity details and [Multi-Tenancy](tenancy.md) for tenant membership.
+Any identity can hold any relationship that is modeled in OpenFGA. See [Identity](identity.md) for the identity registry.
 
 ### Tenant Permissions
 
-Identities have permissions within a tenant. Tenant access is managed entirely through OpenFGA relationship tuples — the [Tenant](tenancy.md) service manages only tenant CRUD, not access control. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
+Identities have permissions within a tenant via OpenFGA relationship tuples. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
 | Permission | Capabilities |
 |------------|-------------|
@@ -52,7 +52,7 @@ Identities have permissions within a tenant. Tenant access is managed entirely t
 
 `owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `tenant` type without changing the model structure.
 
-Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner. In practice, most non-user identities will have narrower access determined by resource-level relationships (e.g., an agent accesses only threads it participates in), but this is a consequence of how relationships are assigned, not a restriction of the authorization model.
+Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner.
 
 ## How Services Use Authorization
 
