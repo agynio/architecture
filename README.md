@@ -48,15 +48,6 @@ How services are built, deployed, run locally, and configured.
 | [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
 | [New Service Development](architecture/operations/new-service.md) | End-to-end process: API schema → implementation → CI/CD → bootstrap → E2E tests |
 
-### [Gaps](gaps/) — Current State vs. Desired & Roadmap
-
-What is already implemented, what is missing, and the migration path.
-
-| Document | Description |
-|----------|-------------|
-| [Current State](gaps/current-state.md) | Inventory of existing services and their status |
-| [Migration Roadmap](gaps/migration-roadmap.md) | Steps to move from monolith to target architecture |
-
 ### [Open Questions](open-questions.md)
 
 Unresolved architectural decisions requiring discussion.
