@@ -13,6 +13,10 @@ The platform authenticates four types of identities. Each identity type has its 
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 
+All identity types are equal in the [authorization model](authz.md) — they are represented as `identity:<identity_id>` in OpenFGA. What an identity can do is determined by its relationships (tenant membership, resource access), not by its type. See [Authorization](authz.md).
+
+Each identity type has its own provisioning path and profile shape, managed by different services. See [Users](users.md) for user identity details.
+
 ## Internal Identity
 
 After authentication, every request carries a resolved identity in its context:
@@ -21,13 +25,15 @@ After authentication, every request carries a resolved identity in its context:
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
 | `identity_type` | enum | `user`, `agent`, `channel`, `runner` |
-| `tenant_id` | string (UUID) | Tenant this identity belongs to |
+| `tenant_id` | string (UUID) | Tenant this identity belongs to (for this request) |
 
 All downstream services receive tenant and identity context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
 
+The `identity_type` indicates the authentication mechanism and profile source, not authorization scope. Services should not make authorization decisions based on identity type — they use the [Authorization](authz.md) service for permission checks.
+
 ## User Authentication (OIDC)
 
-Users authenticate via a system-wide OIDC-compliant identity provider. The platform does not manage user credentials directly. After authenticating, users can create tenants or be granted access to existing tenants. See [Multi-Tenancy](tenancy.md).
+Users authenticate via a system-wide OIDC-compliant identity provider. The platform does not manage user credentials directly. The [Users](users.md) service manages user identity records and profiles.
 
 ### Flow
 
@@ -36,6 +42,8 @@ sequenceDiagram
     participant U as User (Browser)
     participant GW as Gateway
     participant IdP as External IdP
+    participant US as Users
+    participant TS as Tenants
 
     U->>GW: Request (no session)
     GW->>U: Redirect to IdP
@@ -44,9 +52,17 @@ sequenceDiagram
     U->>GW: Authorization code
     GW->>IdP: Exchange code for tokens
     IdP->>GW: ID token + access token
-    GW->>GW: Validate ID token, resolve user identity
+    GW->>US: ResolveOrCreateUser(oidc_subject, profile from ID token)
+    US-->>GW: identity_id
+    GW->>TS: ListMemberships(identity_id)
+    TS-->>GW: tenant list
+    GW->>GW: Establish session with identity_id + tenant context
     GW->>U: Session established
 ```
+
+On first login, the Users service creates a new user record (provisions `identity_id`, stores OIDC subject mapping, populates initial profile from ID token claims). On subsequent logins, it returns the existing `identity_id`.
+
+After resolving the user identity, the Gateway queries the [Tenant](tenancy.md) service for the user's tenant memberships. The active tenant is selected per session.
 
 ### Configuration
 
@@ -207,7 +223,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC. Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate).
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md) service). Agents, Channels, Runners via OpenZiti mTLS (identity extracted from client certificate via [Ziti Management](openziti.md)).
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity is propagated in gRPC metadata after Gateway authentication.
 
@@ -217,7 +233,7 @@ Authentication establishes *who* the caller is. Fine-grained access control (*wh
 
 The Threads service identifies participants by opaque UUIDs. When a user sends a message via Chat, the `sender_id` is the user's `identity_id`. When an agent sends a message, the `sender_id` is the agent's `identity_id`. Threads does not distinguish between identity types — it operates on IDs only. See [Threads](threads.md).
 
-The Chat service resolves user identities to display names and associates messages with users based on the authenticated `identity_id` from request context.
+The Chat service resolves user profiles via the [Users](users.md) service to display names and photos. For non-user participants (agents), Chat resolves profiles from the service that owns the identity (e.g., Teams for agents).
 
 ## CLI Authentication
 

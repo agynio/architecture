@@ -15,6 +15,7 @@ graph TB
     subgraph Control Plane
         Teams[Teams]
         AgentsOrch[Agents<br/>Orchestrator]
+        Tenants[Tenants]
     end
 
     subgraph Data Plane
@@ -32,6 +33,7 @@ graph TB
         Tracing[Tracing]
         Authorization[Authorization]
         ZitiMgmt[Ziti Management]
+        Users[Users]
     end
 
     subgraph Workloads
@@ -50,12 +52,15 @@ graph TB
     ThirdParty <--> Channels
 
     Gateway --> ZitiMgmt
+    Gateway --> Users
+    Gateway --> Tenants
     Gateway --> Chat
     Gateway --> Files
     Gateway --> Notifications
     Gateway --> LLM
     Gateway --> Secrets
     Chat --> Threads
+    Chat --> Users
     Channels --> Threads
 
     Threads -->|publish events| Notifications
@@ -78,6 +83,7 @@ graph TB
     Files --> Authorization
     Threads --> Authorization
     Teams --> Authorization
+    Tenants --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
     Teams --> AgentsOrch
@@ -87,6 +93,8 @@ graph TB
 
 | Component | Responsibility |
 |-----------|---------------|
+| **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
+| **Tenants** | Tenant lifecycle and identity↔tenant membership. Any identity type can create and belong to tenants |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
@@ -108,7 +116,7 @@ graph TB
 
 | Store | Current Usage |
 |-------|--------------|
-| PostgreSQL | Primary relational store (agent state, platform data) |
+| PostgreSQL | Primary relational store (agent state, platform data, user records, tenant memberships) |
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
@@ -125,6 +133,8 @@ graph TB
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
+| `agynio/users` | Users service | Go | Planned |
+| `agynio/tenants` | Tenants service | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |

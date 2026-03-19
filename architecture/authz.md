@@ -39,9 +39,11 @@ The authorization model defines types, relations, and how permissions are comput
 
 All platform identities (users, agents, channels, runners) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
 
-### Tenant Permissions (Users)
+Authorization is determined by relationships, not by identity type. Any identity — user, agent, channel, or runner — can hold any relationship that is modeled in OpenFGA. See [Users](users.md) for user identity details and [Multi-Tenancy](tenancy.md) for tenant membership.
 
-Users have permissions within a tenant. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
+### Tenant Permissions
+
+Identities have permissions within a tenant via the [Tenant](tenancy.md) service's membership model. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
 | Permission | Capabilities |
 |------------|-------------|
@@ -50,11 +52,7 @@ Users have permissions within a tenant. The permission model is designed for gra
 
 `owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `tenant` type without changing the model structure.
 
-### Non-User Identities
-
-Agents, channels, and runners do not have tenant-level roles. Their access is determined by resource-level relationships in the authorization graph. OpenZiti service policies restrict which services they can reach (first layer). The Authorization service enforces resource-level access (second layer).
-
-For example, an agent can only access threads it participates in, files attached to those threads, and its own agent state. These constraints are expressed as relationships in OpenFGA, not as static role assignments.
+Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner. In practice, most non-user identities will have narrower access determined by resource-level relationships (e.g., an agent accesses only threads it participates in), but this is a consequence of how relationships are assigned, not a restriction of the authorization model.
 
 ## How Services Use Authorization
 
