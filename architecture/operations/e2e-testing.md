@@ -20,7 +20,7 @@ graph LR
         TC[Dev Container<br/>source synced<br/>go test / pnpm test]
     end
 
-    Dev[Developer] -->|devspace run test:e2e| TC
+    Dev[Developer] -->|devspace run test-e2e| TC
     TC -->|K8s DNS| SVC1
     TC -->|K8s DNS| SVC2
     TC -->|K8s DNS| SVC3
@@ -38,12 +38,12 @@ Two commands. Two separate concerns:
 devspace dev
 
 # E2E tests (separate test pod — services run from pinned images)
-devspace run test:e2e
+devspace run test-e2e
 ```
 
 `devspace dev` is the existing service development loop. It patches the service pod with a dev container, syncs source, and runs the service with hot-reload. It is not required for E2E tests.
 
-`devspace run test:e2e` is self-contained. It deploys a test pod, syncs source, runs tests, and cleans up. The cluster runs all services from their released images — the test verifies the real deployed behavior.
+`devspace run test-e2e` is self-contained. It deploys a test pod, syncs source, runs tests, and cleans up. The cluster runs all services from their released images — the test verifies the real deployed behavior.
 
 ## Repository Structure
 
@@ -51,7 +51,7 @@ Each service repository follows this structure for E2E tests:
 
 ```
 agynio/<service>/
-├── devspace.yaml           # DevSpace config with test:e2e command
+├── devspace.yaml           # DevSpace config with test-e2e command
 ├── test/
 │   └── e2e/
 │       ├── main_test.go    # TestMain: setup/teardown
@@ -67,8 +67,8 @@ No `Dockerfile.e2e`. No Helm test hooks. No test images to build or push. DevSpa
 The `devspace.yaml` defines:
 1. A `deployments.e2e-runner` section that deploys a standalone test pod using `component-chart`.
 2. A `dev.e2e-runner` section that syncs source into the test pod.
-3. A `pipelines.test:e2e` pipeline that orchestrates: deploy → sync → run tests → cleanup.
-4. A `commands.test:e2e` command as the user-facing entrypoint.
+3. A `pipelines.test-e2e` pipeline that orchestrates: deploy → sync → run tests → cleanup.
+4. A `commands.test-e2e` command as the user-facing entrypoint.
 
 ### Go Service Example
 
@@ -107,7 +107,7 @@ dev:
           - .devspace/
 
 pipelines:
-  test:e2e:
+  test-e2e:
     run: |-
       create_deployments e2e-runner
       start_dev e2e-runner &
@@ -130,24 +130,24 @@ Usage:
 
 ```bash
 # Run E2E tests (self-contained — deploys test pod, runs tests, cleans up)
-devspace run-pipeline test:e2e
+devspace run-pipeline test-e2e
 
 # Run specific test
-devspace run-pipeline test:e2e  # then pass args via env or override
+devspace run-pipeline test-e2e  # then pass args via env or override
 ```
 
 For convenience, wrap in a command:
 
 ```yaml
 commands:
-  test:e2e: |-
-    devspace run-pipeline test:e2e $@
+  test-e2e: |-
+    devspace run-pipeline test-e2e $@
 ```
 
 Then:
 
 ```bash
-devspace run test:e2e
+devspace run test-e2e
 ```
 
 ### TypeScript Service Example
@@ -187,7 +187,7 @@ dev:
           - node_modules/
 
 pipelines:
-  test:e2e:
+  test-e2e:
     run: |-
       create_deployments e2e-runner
       start_dev e2e-runner &
@@ -195,7 +195,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=docker-runner-e2e" \
         -n ${SERVICE_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && pnpm install --frozen-lockfile && pnpm test:e2e'
+        -- bash -c 'cd /opt/app/data && pnpm install --frozen-lockfile && pnpm test-e2e'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner
@@ -402,10 +402,10 @@ Go's built-in `-run` flag and build tags provide test selection without any addi
 
 ```bash
 # Run only agent-related tests
-devspace run test:e2e -run TestAgent
+devspace run test-e2e -run TestAgent
 
 # Run only CRUD tests
-devspace run test:e2e -run CRUD
+devspace run test-e2e -run CRUD
 ```
 
 ### By build tags
@@ -438,7 +438,7 @@ package e2e
 |-------|-------|--------|------|
 | Unit | Single function / method | `go test ./internal/...` | Every PR |
 | Integration | Service + real DB (Docker) | `go test` with Docker containers | Every PR |
-| E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test:e2e` (separate pod) | Every PR and push to `main` |
+| E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test-e2e` (separate pod) | Every PR and push to `main` |
 
 All three layers run on every PR. E2E tests also run on push to `main`. Exceptions for expensive tests (e.g., long-running regression suites) will be explicitly marked.
 
@@ -451,11 +451,11 @@ All three layers run on every PR. E2E tests also run on push to `main`. Exceptio
 | Service pods affected? | No — run pinned release images, untouched |
 | How test pod is created | DevSpace `deployments` with `component-chart` |
 | How source reaches test pod | DevSpace sync (`dev` section) |
-| How tests are triggered | `devspace run test:e2e` |
+| How tests are triggered | `devspace run test-e2e` |
 | How tests reach services | Kubernetes DNS (`<service>:<port>`) |
 | Dev container image | Per-service choice (Go, Node, Playwright, etc.) |
 | Test framework (Go) | `go test` + `testify` + generated gRPC clients |
-| Test framework (TS) | `vitest` or `pnpm test:e2e` |
+| Test framework (TS) | `vitest` or `pnpm test-e2e` |
 | Test framework (Terraform) | `terraform-plugin-testing` (Go) |
 | Test selection | `-run` regex + Go build tags (`smoke`, `regression`) |
 | Test images to build/push | None — DevSpace syncs source, dev container has toolchain |
