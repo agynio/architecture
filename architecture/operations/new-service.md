@@ -141,7 +141,7 @@ devspace dev -w
 ### Run tests
 
 ```bash
-devspace run test:e2e
+devspace run test-e2e
 ```
 
 See [E2E Testing](https://github.com/agynio/architecture/blob/main/architecture/operations/e2e-testing.md).
@@ -174,11 +174,11 @@ Each service provides a `devspace.yaml` with three commands:
 |---------|---------|
 | `devspace dev` | Deploy once: patch the service pod with a dev container, sync source, start the service, exit when healthy. Used by CI and scripts. |
 | `devspace dev -w` | Watch mode: same as `devspace dev` but keeps running, streams logs, and re-syncs on file changes. Used during local development. |
-| `devspace run test:e2e` | Run E2E tests in a separate test pod inside the cluster. Self-contained: deploys test pod → syncs source → runs tests → cleans up. |
+| `devspace run test-e2e` | Run E2E tests in a separate test pod inside the cluster. Self-contained: deploys test pod → syncs source → runs tests → cleans up. |
 
 `devspace dev` and `devspace dev -w` patch the existing service deployment with a dev container image, replacing the released image with source-based hot-reload. The `-w` flag is implemented via a pipeline flag (see gateway's `devspace.yaml` for the pattern).
 
-`devspace run test:e2e` does not touch the service pod. It deploys a separate test pod, syncs test code into it, and executes the tests. See [E2E Testing](e2e-testing.md).
+`devspace run test-e2e` does not touch the service pod. It deploys a separate test pod, syncs test code into it, and executes the tests. See [E2E Testing](e2e-testing.md).
 
 ---
 
@@ -228,8 +228,8 @@ Each service includes end-to-end tests that verify behavior against a running en
 
 ### DevSpace Setup
 
-Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart), a `dev.e2e-runner` (sync), and a `pipelines.test:e2e` (deploy → sync → exec → cleanup). The user-facing command is `devspace run test:e2e`. Follow the pattern in [E2E Testing](e2e-testing.md).
+Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart), a `dev.e2e-runner` (sync), and a `pipelines.test-e2e` (deploy → sync → exec → cleanup). The user-facing command is `devspace run test-e2e`. Follow the pattern in [E2E Testing](e2e-testing.md).
 
 ### E2E Tests in CI
 
-The CI workflow provisions the environment using bootstrap and runs `devspace run test:e2e` inside the cluster. This runs on every pull request and on push to `main`. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+The CI workflow provisions the environment using bootstrap and runs `devspace run test-e2e` inside the cluster. This runs on every pull request and on push to `main`. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
