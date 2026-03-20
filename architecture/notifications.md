@@ -13,7 +13,7 @@ graph LR
     subgraph Producers
         Threads
         Runner
-        Teams
+        Agents
         Other[Other Services]
     end
 
@@ -28,7 +28,7 @@ graph LR
         ExtSub[External Clients<br/>Socket.IO]
     end
 
-    Threads & Runner & Teams & Other -->|Publish| Server
+    Threads & Runner & Agents & Other -->|Publish| Server
     Server --> Redis
     Redis --> Hub
     Hub --> IntSub
@@ -82,7 +82,7 @@ Rooms are scoped by resource type and ID:
 |---------|---------|---------|
 | `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, channels, users) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
-| `agent:{id}` | `agent:f47ac10b-...` | Teams → agent resource updates |
+| `agent:{id}` | `agent:f47ac10b-...` | Agents → agent resource updates |
 
 Consumers subscribe to rooms matching their identity or the resources they observe. A channel subscribes to `thread_participant:{channelId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
 

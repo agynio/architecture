@@ -1,8 +1,8 @@
 # Resource Definitions
 
-Canonical schema for all team-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Teams API, and UI should all align to these definitions.
+Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Teams](teams.md) service and stored in PostgreSQL. All resources are scoped to a [tenant](tenancy.md).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL. All resources are scoped to a [tenant](tenancy.md).
 
 All resources share a common envelope:
 
@@ -54,11 +54,11 @@ An agent definition that determines how an agent workload behaves when processin
 | `name` | string | | Agent identity name (max 64 chars). Injected into the agent runtime |
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
-| `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Teams service — interpreted by the agent runtime |
+| `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
 | `image` | string | | Container image for the agent pod (e.g., `ghcr.io/agynio/agent:latest`) |
 | `resources` | object | | Compute resources for the agent container (see [Compute Resources](#compute-resources)) |
 
-The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Teams service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
+The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Agents service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
 
 ---
 

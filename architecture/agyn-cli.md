@@ -9,7 +9,7 @@
 | Binary name | `agyn` |
 | Repository | `agynio/agyn-cli` |
 | Language | Go |
-| Protocol | REST via [Gateway](gateway.md) (OpenAPI) |
+| Protocol | gRPC and Connect (HTTP/JSON) via [Gateway](gateway.md) |
 
 ## Scope
 
@@ -19,7 +19,7 @@
 
 ```bash
 # Resource management
-agyn teams list
+agyn agents list
 agyn agents create --name "my-agent" --model <model-id>
 agyn agents list
 
@@ -34,7 +34,7 @@ agyn <resource> <verb> [flags]
 
 | User | Context | Example |
 |------|---------|---------|
-| **Administrators** | Manage platform resources from a terminal | `agyn agents create`, `agyn teams list` |
+| **Administrators** | Manage platform resources from a terminal | `agyn agents create`, `agyn agents list` |
 | **Developers** | Interact with the platform during development | `agyn messages send`, `agyn threads list` |
 | **Agents** | Invoke platform operations from within an agent runtime (e.g., update memory, add agents) | `agyn agents create`, `agyn messages send` |
 
@@ -55,7 +55,7 @@ Network identity takes precedence when available. Otherwise, `agyn` reads the st
 
 ```mermaid
 graph LR
-    agyn[agyn CLI] -->|REST| Gateway
+    agyn[agyn CLI] -->|gRPC / Connect| Gateway
     Gateway --> Services[Platform Services]
 ```
 

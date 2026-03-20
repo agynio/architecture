@@ -31,7 +31,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Authentication](architecture/authn.md) | Identity types, OIDC, agent network auth, service tokens |
 | [Authorization](architecture/authz.md) | Fine-grained access control via OpenFGA. Authorization service, model, deployment |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
-| [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all team-managed resources |
+| [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all agent-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
 | [agyn-cli](architecture/agyn-cli.md) | Platform CLI — Gateway API access for admins, developers, and agents |
 | [agynd-cli](architecture/agynd-cli.md) | Agent wrapper daemon — bridges agent CLIs with platform services |
@@ -48,10 +48,10 @@ Target architecture of the platform. Describes how the system should work.
 | [Runner](architecture/runner.md) | Workload execution service |
 | [k8s-runner](architecture/k8s-runner.md) | Kubernetes-native Runner implementation |
 | [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
-| [Teams](architecture/teams.md) | Team resource management |
+| [Agents Service](architecture/agents-service.md) | Agent resource management |
 | [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
-| [Gateway](architecture/gateway.md) | External API surface |
-| [API Contracts](architecture/api-contracts.md) | gRPC and OpenAPI schema conventions |
+| [Gateway](architecture/gateway.md) | External API surface — ConnectRPC (gRPC + HTTP/JSON) |
+| [API Contracts](architecture/api-contracts.md) | Proto schema conventions for internal and external APIs |
 
 ### [Operations](architecture/operations/) — CI/CD, Local Development, Configuration
 

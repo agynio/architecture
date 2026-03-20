@@ -13,7 +13,7 @@ graph TB
     end
 
     subgraph Control Plane
-        Teams[Teams]
+        Agents[Agents]
         AgentsOrch[Agents<br/>Orchestrator]
         Tenants[Tenants]
     end
@@ -60,13 +60,17 @@ graph TB
     Gateway --> Notifications
     Gateway --> LLM
     Gateway --> Secrets
+    Gateway --> Threads
+    Gateway --> AgentState
+    Gateway --> TokenCounting
+    Gateway --> Tracing
     Chat --> Threads
     Chat --> Identity
     Chat --> Users
     Channels --> Threads
 
     Users --> Identity
-    Teams --> Identity
+    Agents --> Identity
 
     Threads -->|publish events| Notifications
     AgentsOrch --> Runner
@@ -76,22 +80,16 @@ graph TB
     Runner --> Agent1 & Agent2
     Agent1 --> MCP1
     Agent2 --> MCP2
-    Agent1 & Agent2 --> Threads
-    Agent1 & Agent2 --> Notifications
-    Agent1 & Agent2 --> AgentState
-    Agent1 & Agent2 --> Files
-    Agent1 & Agent2 --> TokenCounting
-    Agent1 & Agent2 --> LLM
-    Agent1 & Agent2 -.-> Tracing
+    Agent1 & Agent2 -->|OpenZiti| Gateway
 
     Chat --> Authorization
     Files --> Authorization
     Threads --> Authorization
-    Teams --> Authorization
+    Agents --> Authorization
     Tenants --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
-    Teams --> AgentsOrch
+    Agents --> AgentsOrch
 ```
 
 ## Component Summary
@@ -113,9 +111,9 @@ graph TB
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
-| **Teams** | Management of team resources: agents, workspaces, MCP servers, etc. |
+| **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
-| **Gateway** | Exposes platform methods for external usage. Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
+| **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 
 ## Data Stores
@@ -132,7 +130,7 @@ graph TB
 
 | Repository | Contents | Language | Status |
 |------------|----------|----------|--------|
-| `agynio/api` | API schemas: protobuf (internal gRPC) and OpenAPI (external) | Proto, YAML | Active |
+| `agynio/api` | API schemas: protobuf (internal gRPC + external gateway ConnectRPC) | Proto | Active |
 | `agynio/platform` | Monolith: platform-server, docker-runner, LLM package, platform-ui | TypeScript | Active (being decomposed) |
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
@@ -142,8 +140,10 @@ graph TB
 | `agynio/identity` | Identity registry service | Go | Planned |
 | `agynio/users` | Users service | Go | Planned |
 | `agynio/tenants` | Tenants service | Go | Planned |
+| `agynio/agents` | Agents service (agent resource management) | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
 | `agynio/k8s-runner` | Kubernetes-native Runner implementation | Go | Planned |
+| `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |

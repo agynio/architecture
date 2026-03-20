@@ -53,7 +53,7 @@ Every resource in the platform belongs to a tenant. The `tenant_id` is present o
 
 | Service | Scoped Resources |
 |---------|-----------------|
-| Teams | Agents, Volumes, Volume Attachments, MCPs, Skills, Hooks, ENVs, InitScripts |
+| Agents | Agents, Volumes, Volume Attachments, MCPs, Skills, Hooks, ENVs, InitScripts |
 | LLM | LLM Providers, Models |
 | Secrets | Secret Providers, Secrets |
 | Threads | Threads, Messages, MessageRecipients |

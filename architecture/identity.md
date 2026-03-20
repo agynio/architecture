@@ -31,7 +31,7 @@ Every service that creates an identity registers it here:
 | Identity Type | Registering Service | When |
 |---------------|-------------------|------|
 | **User** | [Users](users.md) | On first OIDC login (user provisioning) |
-| **Agent** | [Teams](teams.md) | On agent resource creation |
+| **Agent** | [Agents](agents-service.md) | On agent resource creation |
 | **Channel** | [Channels](channels.md) | On channel creation |
 | **Runner** | Runner enrollment flow | On runner enrollment |
 
@@ -41,7 +41,7 @@ The registering service generates the `identity_id` (UUID) and calls `RegisterId
 
 | Consumer | Usage |
 |----------|-------|
-| **Chat** | Resolve `sender_id` → type, then route to Users or Teams for profile |
+| **Chat** | Resolve `sender_id` → type, then route to Users or Agents for profile |
 | **UI** | Resolve identity types for display in membership lists, thread participants |
 
 ## Data Store

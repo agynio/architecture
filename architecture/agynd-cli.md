@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to [Threads](threads.md) and [Notifications](notifications.md), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
+`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to the [Gateway](gateway.md) (via [OpenZiti](openziti.md)), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
 
 | Aspect | Details |
 |--------|---------|
@@ -17,8 +17,8 @@
 
 `agynd` implements the [agent contract](agent/overview.md):
 
-- Subscribes to `thread_participant:{agentId}` room via [Notifications](notifications.md) (gRPC streaming).
-- Pulls unacknowledged messages via `GetUnackedMessages` from [Threads](threads.md).
+- Subscribes to `thread_participant:{agentId}` room via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming).
+- Pulls unacknowledged messages via `GetUnackedMessages` (Gateway → [Threads](threads.md)).
 - Posts agent responses back to the thread via `SendMessage`.
 - Acknowledges processed messages via `AckMessages`.
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable message delivery.
@@ -120,15 +120,11 @@ graph TB
         MCP2[MCP Server 2]
     end
 
-    subgraph Platform
-        Threads
-        Notifications
-        Files
+    subgraph Platform (via Gateway)
+        Gateway
     end
 
-    agynd -->|GetUnackedMessages, SendMessage, AckMessages| Threads
-    agynd -->|Subscribe| Notifications
-    agynd -->|Resolve file URLs| Files
+    agynd -->|all platform calls| Gateway
     AggMCP -->|proxies tool calls| MCP1 & MCP2
 ```
 
@@ -138,28 +134,28 @@ graph TB
 sequenceDiagram
     participant R as Runner
     participant D as agynd
-    participant N as Notifications
-    participant T as Threads
+    participant GW as Gateway
     participant A as Agent CLI
 
     R->>D: Start container
-    D->>D: Fetch agent configuration
+    D->>D: Fetch agent configuration (via Gateway)
     D->>D: Prepare environment (skills, LLM config)
     D->>D: Start aggregated MCP proxy
-    D->>N: Subscribe to thread_participant:{agentId}
+    D->>GW: Subscribe to thread_participant:{agentId}
     D->>A: Spawn agent CLI via SDK
 
     loop Message processing
-        D->>T: GetUnackedMessages(agentId)
+        D->>GW: GetUnackedMessages(agentId)
+        GW-->>D: Messages
         D->>A: Feed messages via SDK
         A->>A: Process (LLM loop, tools, etc.)
         A-->>D: Events/responses via SDK
-        D->>T: SendMessage (post response)
-        D->>T: AckMessages
+        D->>GW: SendMessage (post response)
+        D->>GW: AckMessages
     end
 
     Note over D: Wait for notification or poll
-    N-->>D: message.created
+    GW-->>D: message.created
     Note over D: Resume message processing
 ```
 

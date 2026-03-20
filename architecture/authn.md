@@ -27,7 +27,7 @@ After authentication, every request carries a resolved identity in its context:
 
 Downstream services receive identity and tenant context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
 
-The `identity_type` indicates the authentication mechanism and profile source (e.g., OIDC users have profiles in [Users](users.md), agents in [Teams](teams.md)). Authorization is determined by [relationships](authz.md), not by type.
+The `identity_type` indicates the authentication mechanism and profile source (e.g., OIDC users have profiles in [Users](users.md), agents in [Agents](agents-service.md)). Authorization is determined by [relationships](authz.md), not by type.
 
 ## User Authentication (OIDC)
 
@@ -171,7 +171,7 @@ Services that participate in both the Istio mesh and the OpenZiti overlay use th
 
 | Service | OpenZiti SDK Usage | Istio |
 |---------|-------------------|-------|
-| **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner")` | All other outbound calls (Threads, Teams, Secrets, etc.) |
+| **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner")` | All other outbound calls (Threads, Agents, Secrets, etc.) |
 | **Internal Runner** | Binds `runner` service via `zitiContext.Listen("runner")` | Not used for inbound Runner API traffic |
 | **Gateway** | Binds `gateway` service via `zitiContext.ListenWithOptions("gateway", ...)` | All outbound calls to internal services |
 
@@ -212,7 +212,7 @@ They operate on different connections:
 | Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location |
 | Channel → Gateway | OpenZiti | Channels always connect via overlay |
 | Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for internal and external runners |
-| Orchestrator → Threads, Teams, etc. | Istio | Standard internal service calls |
+| Orchestrator → Threads, Agents, etc. | Istio | Standard internal service calls |
 | Gateway → internal services | Istio | Standard internal service calls |
 | Internal service → internal service | Istio | Standard internal service calls |
 
@@ -224,7 +224,7 @@ They operate on different connections:
 
 ## Participants and Identities
 
-[Threads](threads.md) identifies participants by opaque `identity_id` UUIDs — it operates on IDs only. [Chat](chat.md) resolves identity types via the [Identity](identity.md) service, then fetches profiles from [Users](users.md) (for users) or [Teams](teams.md) (for agents).
+[Threads](threads.md) identifies participants by opaque `identity_id` UUIDs — it operates on IDs only. [Chat](chat.md) resolves identity types via the [Identity](identity.md) service, then fetches profiles from [Users](users.md) (for users) or [Agents](agents-service.md) (for agents).
 
 ## CLI Authentication
 

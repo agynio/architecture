@@ -16,7 +16,7 @@ graph TB
 
     Threads -->|unacked messages query| Reconciler
     Notifications -->|message.created events| Reconciler
-    Teams -->|agent definitions + sub-resources| Reconciler
+    Agents -->|agent definitions + sub-resources| Reconciler
     Secrets -->|secret resolution for ENVs| Reconciler
     Reconciler -->|start/stop workloads| Runner
     Reconciler -->|create/delete identities| ZitiMgmt[Ziti Management]
@@ -26,7 +26,7 @@ graph TB
 |-----------|-------|
 | **Threads** | Query for unacknowledged messages by agent participants |
 | **Notifications** | Subscribe to `message.created` events for fast reactivity |
-| **Teams** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
+| **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
 | **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
@@ -90,7 +90,7 @@ When the orchestrator decides an agent workload needs to start:
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant T as Teams
+    participant T as Agents
     participant S as Secrets
     participant ZM as Ziti Management
     participant R as Runner
@@ -110,17 +110,17 @@ sequenceDiagram
 
 The orchestrator assembles the full workload specification from multiple sources:
 
-1. **Agent definition** (from Teams): image, compute resources, configuration.
-2. **MCP servers** (from Teams): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace.
-3. **Volumes** (from Teams): persistent and ephemeral volumes, mount paths.
-4. **Volume attachments** (from Teams): which volumes mount into which containers (agent, MCPs, hooks).
-5. **Environment variables** (from Teams + Secrets): plain-text values from Teams, secret-backed values resolved via Secrets service at start time.
-6. **Init scripts** (from Teams): shell scripts for container initialization.
-7. **Hooks** (from Teams): event-driven sidecar containers.
-8. **Skills** (from Teams): prompt fragments — passed as part of agent configuration, not as separate containers.
+1. **Agent definition** (from Agents): image, compute resources, configuration.
+2. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace.
+3. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
+4. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
+5. **Environment variables** (from Agents + Secrets): plain-text values from Agents, secret-backed values resolved via Secrets service at start time.
+6. **Init scripts** (from Agents): shell scripts for container initialization.
+7. **Hooks** (from Agents): event-driven sidecar containers.
+8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
 9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent container for network identity bootstrap.
 
-The orchestrator is the only service that performs this assembly. The Runner receives an opaque workload spec — it does not know about agents, teams, or secrets.
+The orchestrator is the only service that performs this assembly. The Runner receives an opaque workload spec — it does not know about agents, agent resources, or secrets.
 
 ## Agent Stop Flow
 
@@ -166,4 +166,4 @@ The Orchestrator communicates with runners over OpenZiti using the embedded [Ope
 
 This is the same protocol regardless of whether the runner is internal (in-cluster) or external (operator-managed, remote). The Orchestrator does not know or care about runner location — OpenZiti handles routing. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 
-The Orchestrator's OpenZiti identity is provisioned by Terraform at deployment time (same as other infrastructure identities). The identity file is mounted into the pod as a Kubernetes Secret. All other Orchestrator dependencies (Threads, Teams, Secrets, Notifications, Ziti Management) are called over Istio — standard internal service-to-service communication. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
+The Orchestrator's OpenZiti identity is provisioned by Terraform at deployment time (same as other infrastructure identities). The identity file is mounted into the pod as a Kubernetes Secret. All other Orchestrator dependencies (Threads, Agents, Secrets, Notifications, Ziti Management) are called over Istio — standard internal service-to-service communication. See [Authentication — SDK Embedding](authn.md#sdk-embedding).

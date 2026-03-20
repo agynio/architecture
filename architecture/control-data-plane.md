@@ -21,7 +21,7 @@
 ```mermaid
 graph LR
     subgraph Control Plane
-        Teams
+        Agents
         AgentsOrch[Agents Orchestrator]
         Tenants
     end
@@ -45,7 +45,7 @@ graph LR
         Identity
     end
 
-    Teams -->|desired state| AgentsOrch
+    Agents -->|desired state| AgentsOrch
     AgentsOrch -->|schedule workloads| Runner
     AgentsOrch -->|manage identities| ZitiMgmt
     AgentsOrch -->|read pending messages| Threads
@@ -53,7 +53,7 @@ graph LR
 
 | Service | Plane | Rationale |
 |---------|-------|-----------|
-| **Teams** | Control | Manages desired state of team resources (agent definitions, MCP server configs, workspace configs) |
+| **Agents** | Control | Manages desired state of agent resources (agent definitions, MCP server configs, workspace configs) |
 | **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
 | **Tenants** | Control | Manages tenant definitions (CRUD) and lists accessible tenants for an identity (queries Authorization) |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |

@@ -9,7 +9,7 @@ DevSpace deploys a dedicated test pod using [`component-chart`](https://devspace
 ```mermaid
 graph LR
     subgraph "Bootstrap Cluster (all services from pinned images)"
-        SVC1[Teams :50051]
+        SVC1[Agents :50051]
         SVC2[Threads :50051]
         SVC3[Gateway :8080]
         SVC4[Chat :50051]
@@ -73,7 +73,7 @@ The `devspace.yaml` defines:
 ### Go Service Example
 
 ```yaml
-# devspace.yaml (Go service, e.g. teams)
+# devspace.yaml (Go service, e.g. agents)
 version: v2beta1
 
 vars:
@@ -91,13 +91,13 @@ deployments:
         containers:
           - image: ${E2E_IMAGE}
         labels:
-          app.kubernetes.io/name: teams-e2e
+          app.kubernetes.io/name: agents-e2e
 
 dev:
   e2e-runner:
     namespace: ${SERVICE_NAMESPACE}
     labelSelector:
-      app.kubernetes.io/name: teams-e2e
+      app.kubernetes.io/name: agents-e2e
     command: ["sleep", "infinity"]
     workingDir: /opt/app/data
     sync:
@@ -113,7 +113,7 @@ pipelines:
       start_dev e2e-runner &
       sleep 5
       exec_container \
-        --label-selector "app.kubernetes.io/name=teams-e2e" \
+        --label-selector "app.kubernetes.io/name=agents-e2e" \
         -n ${SERVICE_NAMESPACE} \
         -- bash -c 'cd /opt/app/data && go test -v -count=1 ./test/e2e/'
       EXIT_CODE=$?
@@ -220,7 +220,7 @@ The image is set via the `E2E_IMAGE` variable in `devspace.yaml`. Each service c
 
 Go services use the standard `go test` runner with the project's existing test libraries (`testify`, gRPC client stubs generated from `buf.build/agynio/api`).
 
-The key difference from the existing integration tests (like `agynio/teams/test/e2e/`): in-cluster E2E tests **do not** start the service process or a local database. They connect to the already-deployed service via Kubernetes DNS as pure clients.
+The key difference from the existing integration tests (like `agynio/agents/test/e2e/`): in-cluster E2E tests **do not** start the service process or a local database. They connect to the already-deployed service via Kubernetes DNS as pure clients.
 
 ```go
 // test/e2e/main_test.go
@@ -234,9 +234,9 @@ import (
 // Service addresses — resolved via Kubernetes DNS inside the cluster.
 // Overridable via env vars for flexibility.
 var (
-    teamsAddr   = envOrDefault("TEAMS_ADDR", "teams:50051")
+    agentsAddr  = envOrDefault("AGENTS_ADDR", "agents:50051")
     threadsAddr = envOrDefault("THREADS_ADDR", "threads:50051")
-    gatewayURL  = envOrDefault("GATEWAY_URL", "http://gateway-gateway:8080")
+    gatewayAddr = envOrDefault("GATEWAY_ADDR", "gateway-gateway:8080")
 )
 
 func envOrDefault(key, fallback string) string {
@@ -260,7 +260,7 @@ import (
     "testing"
     "time"
 
-    teamsv1 "github.com/agynio/api/gen/agynio/api/teams/v1"
+    agentsv1 "github.com/agynio/api/gen/agynio/api/agents/v1"
     "github.com/stretchr/testify/require"
     "google.golang.org/grpc"
     "google.golang.org/grpc/credentials/insecure"
@@ -270,26 +270,26 @@ func TestAgentCRUD(t *testing.T) {
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
-    conn, err := grpc.NewClient(teamsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+    conn, err := grpc.NewClient(agentsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
     require.NoError(t, err)
     defer conn.Close()
 
-    client := teamsv1.NewTeamsServiceClient(conn)
+    client := agentsv1.NewAgentsServiceClient(conn)
 
     // Create
-    createResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+    createResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
         // ...
     })
     require.NoError(t, err)
     agentID := createResp.GetAgent().GetId()
 
     // Read
-    getResp, err := client.GetAgent(ctx, &teamsv1.GetAgentRequest{Id: agentID})
+    getResp, err := client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID})
     require.NoError(t, err)
     require.Equal(t, agentID, getResp.GetAgent().GetId())
 
     // Delete
-    _, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+    _, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
     require.NoError(t, err)
 }
 ```
@@ -321,29 +321,29 @@ func TestAccAgentResource(t *testing.T) {
 }
 ```
 
-The provider connects to `gateway-gateway:8080` inside the cluster. The dev override for the provider binary is configured in the startup script so `terraform` uses the locally-built binary.
+The provider connects to the Gateway at `gateway-gateway:8080` inside the cluster via gRPC. The dev override for the provider binary is configured in the startup script so `terraform` uses the locally-built binary.
 
 ## Cross-Service E2E Tests
 
 A service's E2E tests may call other services to set up preconditions or verify side effects. For example, the Chat E2E tests might:
 
-1. Call Teams gRPC to create an agent.
+1. Call Agents gRPC to create an agent.
 2. Call Threads gRPC to create a thread.
 3. Call the Chat gRPC API under test.
 4. Call Notifications gRPC to verify event delivery.
 
-This is expected and encouraged. The test pod is inside the cluster and can reach any service. The test **lives in the service repo that owns the behavior under test** — Chat owns the chat E2E tests, even though they touch Threads and Teams as setup.
+This is expected and encouraged. The test pod is inside the cluster and can reach any service. The test **lives in the service repo that owns the behavior under test** — Chat owns the chat E2E tests, even though they touch Threads and Agents as setup.
 
 ```go
 // test/e2e/chat_with_agent_test.go (in agynio/chat)
 func TestChatWithAgent(t *testing.T) {
     ctx := context.Background()
 
-    // Setup: create agent via Teams service
-    teamsConn, _ := grpc.NewClient(teamsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-    defer teamsConn.Close()
-    teamsClient := teamsv1.NewTeamsServiceClient(teamsConn)
-    agent, _ := teamsClient.CreateAgent(ctx, &teamsv1.CreateAgentRequest{/* ... */})
+    // Setup: create agent via Agents service
+    agentsConn, _ := grpc.NewClient(agentsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+    defer agentsConn.Close()
+    agentsClient := agentsv1.NewAgentsServiceClient(agentsConn)
+    agent, _ := agentsClient.CreateAgent(ctx, &agentsv1.CreateAgentRequest{/* ... */})
 
     // Setup: create thread via Threads service
     threadsConn, _ := grpc.NewClient(threadsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -370,26 +370,26 @@ func TestChatWithAgent(t *testing.T) {
 }
 ```
 
-## Gateway / REST E2E Tests
+## Gateway E2E Tests
 
-Gateway tests call HTTP endpoints from inside the cluster:
+Gateway tests call the Gateway's ConnectRPC endpoint from inside the cluster using generated gRPC clients:
 
 ```go
-// test/e2e/team_api_test.go (in agynio/gateway)
-func TestTeamAPIAgentCRUD(t *testing.T) {
-    ctx := context.Background()
+// test/e2e/gateway_agents_test.go (in agynio/gateway)
+func TestGatewayAgentCRUD(t *testing.T) {
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
 
-    client := &http.Client{Timeout: 10 * time.Second}
-
-    // Create agent via REST
-    body := `{"title":"test-agent","config":"{\"name\":\"test\"}"}`
-    req, _ := http.NewRequestWithContext(ctx, "POST", gatewayURL+"/team/v1/agents", strings.NewReader(body))
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("Authorization", "Bearer "+testToken)
-
-    resp, err := client.Do(req)
+    conn, err := grpc.NewClient(gatewayAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
     require.NoError(t, err)
-    require.Equal(t, http.StatusCreated, resp.StatusCode)
+    defer conn.Close()
+
+    client := gatewayv1.NewAgentsGatewayClient(conn)
+
+    // Create agent via Gateway gRPC
+    createResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{/* ... */})
+    require.NoError(t, err)
+    require.NotEmpty(t, createResp.GetAgent().GetId())
     // ...
 }
 ```
