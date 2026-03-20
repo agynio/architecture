@@ -195,7 +195,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=docker-runner-e2e" \
         -n ${SERVICE_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && pnpm install --frozen-lockfile && pnpm test-e2e'
+        -- bash -c 'cd /opt/app/data && pnpm install --frozen-lockfile && pnpm test:e2e'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner
@@ -455,7 +455,7 @@ All three layers run on every PR. E2E tests also run on push to `main`. Exceptio
 | How tests reach services | Kubernetes DNS (`<service>:<port>`) |
 | Dev container image | Per-service choice (Go, Node, Playwright, etc.) |
 | Test framework (Go) | `go test` + `testify` + generated gRPC clients |
-| Test framework (TS) | `vitest` or `pnpm test-e2e` |
+| Test framework (TS) | `vitest` or `pnpm test:e2e` |
 | Test framework (Terraform) | `terraform-plugin-testing` (Go) |
 | Test selection | `-run` regex + Go build tags (`smoke`, `regression`) |
 | Test images to build/push | None — DevSpace syncs source, dev container has toolchain |
