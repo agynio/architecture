@@ -60,6 +60,10 @@ graph TB
     Gateway --> Notifications
     Gateway --> LLM
     Gateway --> Secrets
+    Gateway --> Threads
+    Gateway --> AgentState
+    Gateway --> TokenCounting
+    Gateway --> Tracing
     Chat --> Threads
     Chat --> Identity
     Chat --> Users
@@ -76,13 +80,7 @@ graph TB
     Runner --> Agent1 & Agent2
     Agent1 --> MCP1
     Agent2 --> MCP2
-    Agent1 & Agent2 --> Threads
-    Agent1 & Agent2 --> Notifications
-    Agent1 & Agent2 --> AgentState
-    Agent1 & Agent2 --> Files
-    Agent1 & Agent2 --> TokenCounting
-    Agent1 & Agent2 --> LLM
-    Agent1 & Agent2 -.-> Tracing
+    Agent1 & Agent2 -->|OpenZiti| Gateway
 
     Chat --> Authorization
     Files --> Authorization

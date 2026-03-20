@@ -19,7 +19,7 @@ graph TB
         LLMLoop --> MCP
     end
 
-    subgraph External
+    subgraph External (via Gateway)
         LLMProvider[LLM Provider<br/>OpenAI Responses API]
         AgentState[Agent State Service<br/>gRPC]
         TracingDep[Tracing<br/>optional]
@@ -119,7 +119,7 @@ The agent persists conversation state (messages, summaries) across turns:
 | Strategy | Store | Use Case |
 |----------|-------|----------|
 | Local | Filesystem | Development, offline usage, no external dependencies |
-| Remote (APSS) | [Agent State](state.md) service via gRPC | Production — durable, shared |
+| Remote (APSS) | [Agent State](state.md) service via [Gateway](../gateway.md) | Production — durable, shared |
 
 The remote strategy uses the Agent Persistent State Service (APSS). It provides:
 - Append/list/replace/delete conversation messages.

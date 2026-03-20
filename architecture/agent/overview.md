@@ -43,7 +43,7 @@ graph TB
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it makes outbound connections to platform services. It does not expose any server or accept inbound connections.
+The agent is a **pure client** — it connects to the [Gateway](../gateway.md) via [OpenZiti](../openziti.md) and accesses all platform services through it. It does not expose any server or accept inbound connections.
 
 ## Communication Protocol
 
@@ -54,31 +54,35 @@ The agent uses a **pull strategy combined with notifications** to receive messag
 ```mermaid
 sequenceDiagram
     participant N as Notifications
+    participant GW as Gateway
     participant A as Agent
     participant T as Threads
 
     Note over A: Startup
-    A->>N: Subscribe to thread_participant:{agentId} room
-    A->>T: GetUnackedMessages(agentId)
+    A->>GW: Subscribe to thread_participant:{agentId} room
+    GW->>N: Subscribe (server-streaming)
+    A->>GW: GetUnackedMessages(agentId)
+    GW->>T: GetUnackedMessages(agentId)
+    T-->>GW: Messages
+    GW-->>A: Messages
     A->>A: Process messages
-    A->>T: AckMessages
+    A->>GW: AckMessages
+    GW->>T: AckMessages
 
     Note over A: Mid-run: new message arrives
-    N-->>A: message.created
-    A->>T: GetUnackedMessages(agentId)
+    N-->>GW: message.created
+    GW-->>A: message.created
+    A->>GW: GetUnackedMessages(agentId)
+    GW->>T: GetUnackedMessages(agentId)
+    T-->>GW: Messages
+    GW-->>A: Messages
     A->>A: Process new messages
-    A->>T: AckMessages
-
-    Note over A: Idle: no messages
-    A->>A: Wait for notification or poll interval
-    N-->>A: message.created
-    A->>T: GetUnackedMessages(agentId)
-    A->>A: Process messages
-    A->>T: AckMessages
+    A->>GW: AckMessages
+    GW->>T: AckMessages
 ```
 
-1. On startup, the agent subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages from Threads via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
-2. During processing, new messages may arrive. The Notifications service delivers a `message.created` event, waking the agent to check for new messages at the appropriate point in its processing loop.
+1. On startup, the agent connects to the [Gateway](../gateway.md) (via OpenZiti), subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+2. During processing, new messages may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new messages at the appropriate point in its processing loop.
 3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
 4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.
 5. The polling loop is a **fallback**. The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
@@ -86,7 +90,7 @@ sequenceDiagram
 ### Design Principles
 
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to Notifications (gRPC subscribe stream), Threads (gRPC calls), and Files (gRPC calls). No server, no open port, no service discovery per agent.
+- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via OpenZiti). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
 
 ## Tools
 
@@ -107,26 +111,27 @@ Most 3rd-party agents are implemented as CLIs. The platform provides a **wrapper
 
 ```mermaid
 sequenceDiagram
+    participant GW as Gateway
     participant W as Wrapper
     participant CLI as Agent CLI
     participant MCP as MCP Servers
-    participant T as Threads
-    participant N as Notifications
 
-    W->>N: Subscribe to thread_participant:{agentId} room
+    W->>GW: Subscribe to thread_participant:{agentId} room
     W->>CLI: Start process with config
     W->>MCP: Start MCP servers
     W->>CLI: Connect MCP servers
-    W->>T: GetUnackedMessages(agentId)
+    W->>GW: GetUnackedMessages(agentId)
+    GW-->>W: Messages
     W->>CLI: Feed messages
     CLI->>MCP: Tool calls
     MCP-->>CLI: Tool results
     CLI-->>W: Output
-    W->>T: Post response to thread
-    W->>T: AckMessages
+    W->>GW: Post response to thread
+    W->>GW: AckMessages
     Note over W: Wait for notification or poll
-    N-->>W: message.created
-    W->>T: GetUnackedMessages(agentId)
+    GW-->>W: message.created
+    W->>GW: GetUnackedMessages(agentId)
+    GW-->>W: Messages
     W->>CLI: Feed new messages
 ```
 
@@ -134,8 +139,8 @@ The wrapper:
 1. Subscribes to notifications for the agent's participant room.
 2. Starts the agent CLI process with configuration.
 3. Connects MCP tool servers to the agent.
-4. Pulls unacknowledged messages from Threads and feeds them to the CLI.
-5. Collects CLI output and posts responses to the thread.
+4. Pulls unacknowledged messages (via Gateway → Threads) and feeds them to the CLI.
+5. Collects CLI output and posts responses to the thread (via Gateway → Threads).
 6. Acknowledges processed messages via `AckMessages`.
 7. Waits for notifications or poll fallback for new messages.
 
@@ -151,8 +156,8 @@ sequenceDiagram
     T->>O: Unacknowledged messages (reconciliation loop)
     O->>R: StartWorkload
     R->>A: Create container
-    A->>A: Subscribe, pull, process, ack
-    A->>T: Post response
+    A->>A: Connect to Gateway, subscribe, pull, process, ack
+    A->>A: Post response (via Gateway)
 
     Note over A,O: Agent idle, waiting for messages
     O->>O: Activity check (reconciliation loop)
@@ -163,7 +168,7 @@ sequenceDiagram
 1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
 2. Orchestrator requests Runner to start an agent workload with thread ID and agent config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
+4. Agent connects to the Gateway (via OpenZiti), subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
 5. Agent waits for new messages (notification or poll fallback).
 6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the workload via Runner.
 
