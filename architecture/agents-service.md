@@ -1,16 +1,16 @@
-# Teams
+# Agents Service
 
 ## Overview
 
-The Teams service manages team resources — the configuration entities that define agents and their dependencies.
+The Agents service manages agent resources — the configuration entities that define agents and their dependencies.
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
 All resources are scoped to a [tenant](tenancy.md). Every API call requires an authenticated identity with a resolved tenant. See [Authentication](authn.md).
 
-## External API
+## API
 
-Defined in `agynio/api` at `openapi/team/v1/openapi.yaml`. Released to GHCR as OpenAPI specs.
+Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed externally through the [Gateway](gateway.md) via ConnectRPC.
 
 ## Resources
 

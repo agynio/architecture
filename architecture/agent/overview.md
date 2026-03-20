@@ -99,7 +99,7 @@ All tools are provided via **MCP protocol** (Model Context Protocol). The goal i
 | Namespacing | `<namespace>:<toolName>` to prevent collisions |
 | Resilience | Heartbeat + restart with configurable backoff |
 
-MCP servers are defined as team resources (see [Teams](../teams.md)) and mounted into the agent container as sidecars by the Runner.
+MCP servers are defined as agent resources (see [Agents](../agents-service.md)) and mounted into the agent container as sidecars by the Runner.
 
 ## Wrapper Model
 

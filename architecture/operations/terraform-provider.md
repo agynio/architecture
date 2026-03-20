@@ -4,7 +4,7 @@ The **Agyn Terraform provider** is the recommended way to configure agents and t
 
 **Repository:** [`agynio/terraform-provider-agyn`](https://github.com/agynio/terraform-provider-agyn)
 
-The provider connects to the platform via the **Gateway** endpoint. Setup and authentication are documented in the provider repository.
+The provider connects to the [Gateway](../gateway.md) using a generated gRPC client from the gateway proto definitions. ConnectRPC's gRPC protocol support means the provider communicates with the same Gateway endpoint used by all other clients — no separate API surface.
 
 ## Resources
 
