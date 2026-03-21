@@ -9,7 +9,7 @@ The k8s-runner is the Kubernetes-native implementation of the [Runner](runner.md
 | **Plane** | Data |
 | **Language** | Go |
 | **Repository** | `agynio/k8s-runner` |
-| **API** | gRPC — same `RunnerService` as docker-runner |
+| **API** | gRPC (`RunnerService`) |
 | **Backend** | Kubernetes API (in-cluster) |
 | **Authentication** | OpenZiti network identity (SDK-embedded) |
 
@@ -107,7 +107,7 @@ The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY
 | `PutArchive` | Exec `tar` inside the target container to extract the uploaded archive |
 | `RemoveVolume` | Delete the PVC |
 
-`PutArchive` opens an exec session to the target container, pipes the tar archive into `tar -x`, and reports success or failure. This matches the docker-runner approach (Docker's `PUT /containers/{id}/archive` also extracts a tar inside the container).
+`PutArchive` opens an exec session to the target container, pipes the tar archive into `tar -x`, and reports success or failure.
 
 ## Namespace
 
