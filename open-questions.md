@@ -134,19 +134,3 @@ Unresolved architectural decisions requiring discussion.
 - What is the migration path from single namespace to per-organization if needed later?
 
 **Decision:** Single namespace for now. Revisit when organizational isolation requirements are clarified.
-
----
-
-## Long-Lived Tokens for Programmable Access
-
-**Context:** Currently, all user authentication goes through OIDC — the SPA performs the PKCE flow and sends IdP-issued access tokens to the Gateway. CLI tools (`agyn`, `agynd`, `agn`) also store a token in `~/.agyn/credentials`. For programmable access (CI pipelines, API integrations, developer tooling), short-lived IdP tokens are insufficient — users need long-lived tokens issued by the platform itself.
-
-**Questions:**
-- What is the token format? (JWT signed by the platform? Opaque token with server-side lookup?)
-- Who issues the tokens? (A dedicated endpoint on the Gateway? The Users service?)
-- What is the token lifecycle? (Expiration, revocation, rotation)
-- How does the Gateway distinguish between IdP tokens and platform-issued tokens to apply the correct validation?
-- What scopes or permissions do long-lived tokens carry? (Same as the user's OIDC identity? Restricted subset?)
-- How are tokens created and managed? (UI? CLI `agyn auth create-token`? API?)
-
-**Decision:** TBD
