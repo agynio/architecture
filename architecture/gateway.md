@@ -18,7 +18,7 @@ The path-based route allows the web app (platform-ui) to call gateway APIs witho
 - Route external API requests to internal services.
 - Serve both gRPC and HTTP/JSON protocols from the same handler using [ConnectRPC](#connectrpc).
 - Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
-- Authenticate requests and resolve identity context. For OIDC users: resolve identity via [Users](users.md) service. For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). The Gateway does not validate organization membership — that responsibility belongs to the [authorization model](authz.md), checked by the service performing the operation. See [Authentication](authn.md) and [Organizations — Request Flow](organizations.md#request-flow).
+- Authenticate requests and resolve identity context. For OIDC users: validate the `access_token` JWT signature against the IdP's JWKS endpoint, extract the `sub` claim, and resolve identity via [Users](users.md) service (`ResolveUser` / `CreateUser`). For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). Every request is authenticated independently via the bearer token. Organization membership is validated by the [authorization model](authz.md), checked by the service performing the operation. See [Authentication](authn.md) and [Organizations — Request Flow](organizations.md#request-flow).
 
 ## ConnectRPC
 

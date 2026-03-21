@@ -30,43 +30,52 @@ The `identity_type` indicates the authentication mechanism and profile source (e
 
 ## User Authentication (OIDC)
 
-Users authenticate via a system-wide OIDC-compliant identity provider. The [Users](users.md) service manages user identity records and profiles.
+Users authenticate via a system-wide OIDC-compliant identity provider. The web app (chat-app) is a single-page application (SPA) that implements the OIDC Authorization Code flow with PKCE. The [Users](users.md) service manages user identity records and profiles.
 
 ### Flow
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Browser)
-    participant GW as Gateway
+    participant App as chat-app (SPA)
     participant IdP as External IdP
+    participant GW as Gateway
     participant US as Users
+    participant IS as Identity
 
-    U->>GW: Request (no session)
-    GW->>U: Redirect to IdP
-    U->>IdP: Authenticate
-    IdP->>U: Authorization code
-    U->>GW: Authorization code
-    GW->>IdP: Exchange code for tokens
-    IdP->>GW: ID token + access token
-    GW->>US: ResolveOrCreateUser(oidc_subject, profile from ID token)
-    US-->>GW: identity_id
-    GW->>GW: Establish session with identity_id
-    GW->>U: Session established
+    App->>IdP: Redirect to IdP (PKCE: code_challenge)
+    IdP->>App: Authorization code
+    App->>IdP: Exchange code for tokens (code_verifier)
+    IdP->>App: access_token (+ id_token)
+    App->>GW: API request (Bearer access_token)
+    GW->>GW: Validate JWT signature (IdP JWKS), extract sub
+    GW->>US: ResolveUser(oidc_subject)
+    US-->>GW: identity_id (or not found)
+    alt User not found (first login)
+        GW->>IdP: GET /userinfo (Bearer access_token)
+        IdP-->>GW: User claims (name, email, picture)
+        GW->>US: CreateUser(oidc_subject, profile from claims)
+        US->>IS: RegisterIdentity(identity_id, "user")
+        US-->>GW: identity_id
+    end
+    GW->>GW: Propagate identity_id in gRPC metadata
 ```
 
-On first login, the Users service provisions a new user record (OIDC subject mapping, initial profile from ID token claims, identity registration in the [Identity](identity.md) service). On subsequent logins, it returns the existing `identity_id`.
+The SPA performs the full OIDC flow in the browser. The Gateway receives the resulting `access_token` as a Bearer token on each API request.
+
+**On every request:** The Gateway validates the `access_token` JWT signature against the IdP's JWKS endpoint and extracts the `sub` claim. It then calls `Users.ResolveUser(sub)` to map the OIDC subject to a platform `identity_id`.
+
+**On first login (user not found):** The Gateway calls the IdP's standard [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) with the `access_token` to retrieve profile claims (name, email, picture). It then calls `Users.CreateUser(sub, profile)` to provision a new user record. The Users service registers the identity in the [Identity](identity.md) service. The UserInfo endpoint is called **once per user lifetime** — only during provisioning.
 
 Organization context is not validated at the Gateway level. Services that need organization context accept `organization_id` as a request parameter, and the [authorization model](authz.md) enforces access. See [Organizations — Request Flow](organizations.md#request-flow).
 
 ### Configuration
 
-The OIDC provider is configured system-wide:
+The OIDC provider is configured system-wide. Because the SPA is a public client using PKCE, there is no client secret.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `issuer` | string | OIDC issuer URL (used for discovery) |
+| `issuer` | string | OIDC issuer URL. Used for [OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html) (`{issuer}/.well-known/openid-configuration`) to resolve the `jwks_uri` for token signature verification |
 | `client_id` | string | OAuth2 client ID |
-| `client_secret` | string | OAuth2 client secret |
 
 ## Network Identity (OpenZiti)
 
@@ -217,7 +226,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 
@@ -227,7 +236,7 @@ They operate on different connections:
 
 ## CLI Authentication
 
-All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order:
+All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order. The auth token stored in `~/.agyn/credentials` is any token the Gateway accepts (see [Open Questions — Long-Lived Tokens](../open-questions.md#long-lived-tokens-for-programmable-access)).
 
 | Priority | Method | Mechanism | When Used |
 |----------|--------|-----------|-----------|
