@@ -25,7 +25,7 @@ Target architecture of the platform. Describes how the system should work.
 | Document | Description |
 |----------|-------------|
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
-| [Multi-Tenancy](architecture/tenancy.md) | Tenant model, Tenant service, resource scoping, data isolation |
+| [Organizations](architecture/organizations.md) | Organization model, Organizations service, resource scoping (org-scoped vs independent), ReBAC access control |
 | [Identity](architecture/identity.md) | Central identity type registry |
 | [Users](architecture/users.md) | User identity records, profiles, OIDC provisioning |
 | [Authentication](architecture/authn.md) | Identity types, OIDC, agent network auth, service tokens |
@@ -73,6 +73,7 @@ What needs to change in services to match the current architecture.
 | [k8s-runner](gaps/k8s-runner.md) | New service — full implementation needed |
 | [OpenZiti SDK Embedding](gaps/openziti-sdk-embedding.md) | Orchestrator, Runner, Gateway: embed SDK, remove sidecar/tunneler |
 | [Runner HMAC Removal](gaps/runner-hmac-removal.md) | Remove HMAC auth from docker-runner and Orchestrator |
+| [Organizations Migration](gaps/organizations-migration.md) | Tenants → Organizations: rename service, update resource scoping, remove tenant headers |
 
 ### [Open Questions](open-questions.md)
 

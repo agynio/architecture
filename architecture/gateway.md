@@ -18,7 +18,7 @@ The path-based route allows the web app (platform-ui) to call gateway APIs witho
 - Route external API requests to internal services.
 - Serve both gRPC and HTTP/JSON protocols from the same handler using [ConnectRPC](#connectrpc).
 - Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
-- Authenticate requests and resolve identity + tenant context. For OIDC users: resolve identity via [Users](users.md) service. For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). Validate tenant access per-request: the client sends `tenant_id` in the request header, and the Gateway checks access via the [Authorization](authz.md) service. See [Authentication](authn.md).
+- Authenticate requests and resolve identity context. For OIDC users: resolve identity via [Users](users.md) service. For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). The Gateway does not validate organization membership — that responsibility belongs to the [authorization model](authz.md), checked by the service performing the operation. See [Authentication](authn.md) and [Organizations — Request Flow](organizations.md#request-flow).
 
 ## ConnectRPC
 
@@ -85,7 +85,7 @@ func (g *Gateway) GetMessages(
     ctx context.Context,
     req *connect.Request[threadsv1.GetMessagesRequest],
 ) (*connect.Response[threadsv1.GetMessagesResponse], error) {
-    // Authentication, authorization, tenant validation
+    // Authentication, authorization
     // Call internal Threads service via standard gRPC client
     resp, err := g.threadsClient.GetMessages(ctx, req.Msg)
     if err != nil {

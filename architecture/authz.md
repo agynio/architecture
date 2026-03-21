@@ -41,18 +41,18 @@ All platform identities (users, agents, channels, runners) are represented as a 
 
 Any identity can hold any relationship that is modeled in OpenFGA. See [Identity](identity.md) for the identity registry.
 
-### Tenant Permissions
+### Organization Permissions
 
-Identities have permissions within a tenant via OpenFGA relationship tuples. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
+Identities have permissions within an organization via OpenFGA relationship tuples. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
 | Permission | Capabilities |
 |------------|-------------|
-| **owner** | Full access. Manage tenant settings, membership, all resources. Delete tenant |
+| **owner** | Full access. Manage organization settings, membership, all resources. Delete organization |
 | **member** | Chat. View tracing. View resources (read-only) |
 
-`owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `tenant` type without changing the model structure.
+`owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `organization` type without changing the model structure.
 
-Any identity type can hold tenant permissions. For example, an agent that creates a tenant becomes its owner.
+Any identity type can hold organization permissions. For example, an agent that creates an organization becomes its owner.
 
 ## How Services Use Authorization
 
@@ -64,7 +64,7 @@ Before performing an operation, a service calls `Check` on the Authorization ser
 Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
 ```
 
-If denied, the service returns a permission error. The identity and tenant are available in gRPC metadata (see [Authentication](authn.md)).
+If denied, the service returns a permission error. The identity is available in gRPC metadata (see [Authentication](authn.md)). Organization context, when needed, is passed as a request parameter.
 
 ### Relationship Writes
 

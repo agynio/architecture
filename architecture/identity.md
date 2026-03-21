@@ -46,7 +46,7 @@ The registering service generates the `identity_id` (UUID) and calls `RegisterId
 
 ## Data Store
 
-PostgreSQL. A single `identities` table. System-wide (not scoped to a tenant).
+PostgreSQL. A single `identities` table. System-wide — not scoped to an organization. See [Organizations](organizations.md).
 
 ## Classification
 

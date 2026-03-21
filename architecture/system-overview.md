@@ -1,6 +1,6 @@
 # System Overview
 
-Agyn is a Kubernetes-native AI agent orchestrator. It manages the lifecycle of AI agents that communicate with humans and each other through threaded conversations, with tools provided via MCP (Model Context Protocol). The platform is [multi-tenant](tenancy.md) — all resources are scoped to a tenant. See [Authentication](authn.md) for identity types.
+Agyn is a Kubernetes-native AI agent orchestrator. It manages the lifecycle of AI agents that communicate with humans and each other through threaded conversations, with tools provided via MCP (Model Context Protocol). The platform uses [organizations](organizations.md) to group configuration resources, with [ReBAC](authz.md) for fine-grained access control on all resources. See [Authentication](authn.md) for identity types.
 
 ## Component Diagram
 
@@ -15,7 +15,7 @@ graph TB
     subgraph Control Plane
         Agents[Agents]
         AgentsOrch[Agents<br/>Orchestrator]
-        Tenants[Tenants]
+        Organizations[Organizations]
     end
 
     subgraph Data Plane
@@ -81,7 +81,7 @@ graph TB
     Files --> Authorization
     Threads --> Authorization
     Agents --> Authorization
-    Tenants --> Authorization
+    Organizations --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
     Agents --> AgentsOrch
@@ -93,7 +93,7 @@ graph TB
 |-----------|---------------|
 | **Identity** | Central identity registry. Maps `identity_id` to `identity_type` for all identity types |
 | **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
-| **Tenants** | Tenant lifecycle (CRUD) and listing accessible tenants for an identity (queries Authorization for tenant IDs, enriches with tenant details) |
+| **Organizations** | Organization lifecycle (CRUD) and listing accessible organizations for an identity (queries Authorization for organization IDs, enriches with organization details) |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
@@ -108,14 +108,14 @@ graph TB
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
-| **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
+| **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 
 ## Data Stores
 
 | Store | Current Usage |
 |-------|--------------|
-| PostgreSQL | Primary relational store (agent state, platform data, user records, identity registry, tenants) |
+| PostgreSQL | Primary relational store (agent state, platform data, user records, identity registry, organizations) |
 | Redis | Pub/sub for notifications, caching |
 | Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
@@ -133,7 +133,7 @@ graph TB
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
 | `agynio/identity` | Identity registry service | Go | Planned |
 | `agynio/users` | Users service | Go | Planned |
-| `agynio/tenants` | Tenants service | Go | Planned |
+| `agynio/organizations` | Organizations service | Go | Planned |
 | `agynio/agents` | Agents service (agent resource management) | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |

@@ -23,7 +23,7 @@ graph LR
     subgraph Control Plane
         Agents
         AgentsOrch[Agents Orchestrator]
-        Tenants
+        Organizations
     end
 
     subgraph Data Plane
@@ -55,7 +55,7 @@ graph LR
 |---------|-------|-----------|
 | **Agents** | Control | Manages desired state of agent resources (agent definitions, MCP server configs, workspace configs) |
 | **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
-| **Tenants** | Control | Manages tenant definitions (CRUD) and lists accessible tenants for an identity (queries Authorization) |
+| **Organizations** | Control | Manages organization definitions (CRUD) and lists accessible organizations for an identity (queries Authorization) |
 | **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
 | **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Users** | Data | Provisions user identities on OIDC login, serves user profiles on the request hot path |

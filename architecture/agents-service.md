@@ -6,7 +6,7 @@ The Agents service manages agent resources — the configuration entities that d
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
-All resources are scoped to a [tenant](tenancy.md). Every API call requires an authenticated identity with a resolved tenant. See [Authentication](authn.md).
+Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 ## API
 
