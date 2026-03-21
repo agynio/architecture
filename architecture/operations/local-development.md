@@ -49,15 +49,15 @@ After the health check completes, the pipeline calls `stop_dev` so the session c
 | `stop_dev` | Deregisters active dev sessions and tears down sync/forwarding. | Allows DevSpace to exit while leaving the patched pod in place. |
 | `WaitDev()` | Blocks only while dev sessions are registered. | Exits immediately after `stop_dev` in default mode; remains running in watch mode. |
 
-### Example: Platform Server
+### Example: Gateway
 
 ```bash
-cd platform/packages/platform-server
+cd gateway
 devspace dev
 ```
 
 This:
-- Pauses Argo CD auto-sync for the platform-server Application.
+- Pauses Argo CD auto-sync for the gateway Application.
 - Syncs local source into the running container.
 - Starts the dev server with hot-reload.
 - Restores auto-sync on session exit.

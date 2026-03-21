@@ -18,7 +18,7 @@ Unresolved architectural decisions requiring discussion.
 
 ## Threads Service Data Store
 
-**Context:** Threads is being extracted from the monolith into a standalone service.
+**Context:** Threads is being extracted into a standalone service.
 
 **Questions:**
 - Dedicated PostgreSQL schema or separate database?
