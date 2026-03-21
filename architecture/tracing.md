@@ -82,6 +82,8 @@ Each span is stored as a row in PostgreSQL. The schema follows the [OTel Span](h
 
 **Resource** and **InstrumentationScope** metadata from the OTLP envelope are stored alongside the span (flattened or as JSONB columns — implementation detail).
 
+Query API responses use the standard OTel envelope hierarchy (`ResourceSpans` -> `ScopeSpans` -> `Span`) to return Resource and InstrumentationScope context alongside each span. This avoids custom wrapper types and follows the same pattern as Jaeger v3 QueryService.
+
 Primary key: `(trace_id, span_id)`.
 
 ### Indexes
@@ -131,7 +133,7 @@ Returns a paginated list of spans matching the provided filters.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spans` | repeated `Span` | Matching spans |
+| `resource_spans` | repeated `ResourceSpans` | Matching spans in the standard OTel envelope hierarchy (ResourceSpans -> ScopeSpans -> Span). Spans sharing a Resource and InstrumentationScope are grouped. Page size applies to total Span count. |
 | `next_page_token` | string | Cursor for next page (empty = no more results) |
 
 ### GetSpan
@@ -149,7 +151,7 @@ Returns a single span.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `span` | `Span` | The span |
+| `resource_spans` | repeated `ResourceSpans` | The span in its OTel envelope (one ResourceSpans -> one ScopeSpans -> one Span) |
 
 ### GetTrace
 
@@ -165,7 +167,7 @@ Returns all spans belonging to a trace.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spans` | repeated `Span` | All spans in the trace |
+| `resource_spans` | repeated `ResourceSpans` | All spans in the trace, grouped by Resource and InstrumentationScope |
 
 ## Notifications
 
