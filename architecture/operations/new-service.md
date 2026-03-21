@@ -130,6 +130,8 @@ See [bootstrap](https://github.com/agynio/bootstrap) for details.
 
 ### Run from sources
 
+Deploys the service from local source code. This patches the service pod — it does not affect other services or the test pod.
+
 ```bash
 # Deploy once (exit when healthy)
 devspace dev
@@ -139,6 +141,8 @@ devspace dev -w
 ```
 
 ### Run tests
+
+Runs E2E tests in a separate test pod. This command only manages the test pod — it does not deploy or modify the service. Tests run against whatever is currently deployed: pinned release images by default, or source code if `devspace dev` was called first.
 
 ```bash
 devspace run test-e2e
@@ -232,4 +236,21 @@ Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart
 
 ### E2E Tests in CI
 
-The CI workflow provisions the environment using bootstrap and runs `devspace run test-e2e` inside the cluster. This runs on every pull request and on push to `main`. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+CI provisions the environment using bootstrap and runs E2E tests inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+
+The CI workflow has two modes:
+
+**Pull requests** — deploy from source, then test:
+
+```bash
+devspace dev           # patch service pod with PR source code
+devspace run test-e2e  # run tests against the modified cluster
+```
+
+**Push to `main`** — test pinned release images directly:
+
+```bash
+devspace run test-e2e  # services are already running released versions
+```
+
+These are separate sequential steps. The `test-e2e` command never deploys or modifies the service pod — it only manages the test pod. See [E2E Testing](e2e-testing.md) for the full rationale.

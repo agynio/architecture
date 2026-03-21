@@ -65,5 +65,5 @@ This:
 ### Principle
 
 - **Bootstrap** owns cluster topology and service versions.
-- **DevSpace** owns the developer inner loop (code → sync → test).
+- **DevSpace** owns the developer inner loop (code → sync → reload).
 - No per-service docker-compose or standalone local environments.
