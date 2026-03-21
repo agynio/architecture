@@ -71,7 +71,7 @@ What needs to change in services to match the current architecture.
 
 | Document | Description |
 |----------|-------------|
-| [Runner HMAC Removal](gaps/runner-hmac-removal.md) | Remove HMAC auth from docker-runner and Orchestrator |
+| [Runner HMAC Removal](gaps/runner-hmac-removal.md) | Remove HMAC auth from Runner and Orchestrator |
 | [Organizations Migration](gaps/organizations-migration.md) | Tenants → Organizations: rename service, update resource scoping, remove tenant headers |
 
 ### [Open Questions](open-questions.md)

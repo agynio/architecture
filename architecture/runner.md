@@ -4,12 +4,7 @@
 
 The Runner executes workloads (agent containers, workspace containers, sidecars). It is a **data plane** service — it does not decide what to run, it executes what it is told.
 
-Multiple implementations exist for different backends:
-
-| Implementation | Backend | Status |
-|----------------|---------|--------|
-| `docker-runner` | Docker Engine | Existing (`agynio/docker-runner`) |
-| [`k8s-runner`](k8s-runner.md) | Kubernetes | Planned |
+The current implementation is the [`k8s-runner`](k8s-runner.md), which translates workload operations into Kubernetes API calls.
 
 ## gRPC API
 

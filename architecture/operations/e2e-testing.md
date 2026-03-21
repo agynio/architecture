@@ -344,13 +344,13 @@ deployments:
         containers:
           - image: ${E2E_IMAGE}
         labels:
-          app.kubernetes.io/name: docker-runner-e2e
+          app.kubernetes.io/name: my-service-e2e
 
 dev:
   e2e-runner:
     namespace: ${SERVICE_NAMESPACE}
     labelSelector:
-      app.kubernetes.io/name: docker-runner-e2e
+      app.kubernetes.io/name: my-service-e2e
     command: ["sleep", "infinity"]
     workingDir: /opt/app/data
     sync:
@@ -367,7 +367,7 @@ pipelines:
       start_dev e2e-runner &
       sleep 5
       exec_container \
-        --label-selector "app.kubernetes.io/name=docker-runner-e2e" \
+        --label-selector "app.kubernetes.io/name=my-service-e2e" \
         -n ${SERVICE_NAMESPACE} \
         -- bash -c 'cd /opt/app/data && pnpm install --frozen-lockfile && pnpm test:e2e'
       EXIT_CODE=$?
