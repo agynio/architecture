@@ -16,7 +16,7 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 
 ## Organizations Service
 
-The Organizations service is a **control plane** service. It replaces the former Tenants service.
+The Organizations service is a **control plane** service.
 
 ### Responsibilities
 
