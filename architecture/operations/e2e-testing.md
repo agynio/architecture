@@ -29,6 +29,28 @@ graph LR
 
 The test process runs inside the cluster but in its own pod. It resolves services through Kubernetes DNS the same way production services do. The service pods are never patched, restarted, or modified.
 
+## Design Rationale
+
+The `test-e2e` command must never deploy, patch, or modify any service pod. It only manages the test pod.
+
+This separation exists for one reason: the same `devspace run test-e2e` command must work in two modes:
+
+1. **Against pinned release images** — the cluster is untouched, all services run their released versions. The test verifies the real deployed behavior. This is the default on `main` and release branches.
+2. **Against source-deployed code** — a developer or CI pipeline has already called `devspace dev` to patch a service pod with local source. The test then verifies the modified service. This is the PR workflow.
+
+If `test-e2e` were to also deploy from source, it would be impossible to test pinned release images without modifying the command. Keeping the two concerns in separate commands allows CI to compose them:
+
+```bash
+# PR workflow: deploy from source, then test
+devspace dev
+devspace run test-e2e
+
+# Main/release workflow: test pinned images directly
+devspace run test-e2e
+```
+
+The `test-e2e` pipeline must contain **only** these steps: deploy test pod → sync test source → run tests → cleanup. Any step that touches the service deployment (ArgoCD sync disable, deployment patching, service dev session) belongs exclusively in the `dev` pipeline.
+
 ## Developer Workflow
 
 Two commands. Two separate concerns:
@@ -72,13 +94,88 @@ The `devspace.yaml` defines:
 
 ### Go Service Example
 
-```yaml
-# devspace.yaml (Go service, e.g. agents)
+The example below shows a complete `devspace.yaml` for a Go service (based on `agynio/threads`). Both the `dev` and `test-e2e` pipelines are fully defined. Note that they are independent — `test-e2e` does not call any function or step from `dev`.
+
+````yaml
+# devspace.yaml (Go service — reference: agynio/threads)
 version: v2beta1
 
 vars:
   SERVICE_NAMESPACE: platform
   E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
+
+functions:
+  disable_argocd_sync: |-
+    if kubectl get application threads -n argocd >/dev/null 2>&1; then
+      echo "Disabling ArgoCD auto-sync for threads..."
+      kubectl patch application threads -n argocd \
+        --type merge \
+        -p '{"spec":{"syncPolicy":{"automated":null}}}'
+      echo "ArgoCD auto-sync disabled."
+    else
+      echo "WARNING: ArgoCD Application 'threads' not found in argocd namespace."
+    fi
+  restore_argocd_sync: &restore_argocd_sync |-
+    if kubectl get application threads -n argocd >/dev/null 2>&1; then
+      echo "Re-enabling ArgoCD auto-sync for threads..."
+      kubectl patch application threads -n argocd \
+        --type merge \
+        -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+      echo "ArgoCD auto-sync restored."
+    else
+      echo "WARNING: ArgoCD Application 'threads' not found in argocd namespace."
+    fi
+  patch_deployment: |-
+    echo "Patching threads deployment for DevSpace..."
+    kubectl patch deployment threads-threads -n ${SERVICE_NAMESPACE} --type strategic --patch "$(cat <<'PATCH'
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsUser: 1000
+            fsGroup: 1000
+          initContainers: []
+          volumes:
+            - name: data
+              emptyDir: {}
+          containers:
+            - name: threads
+              image: ghcr.io/agynio/devcontainer-go:1
+              workingDir: /opt/app/data
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  elapsed=0
+                  while [ ! -f /opt/app/data/go.mod ]; do
+                    sleep 1; elapsed=$((elapsed + 1))
+                    [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
+                  done
+                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1
+                  exec go run ./cmd/threads
+              volumeMounts:
+                - name: data
+                  mountPath: /opt/app/data
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                readOnlyRootFilesystem: false
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+    PATCH
+    )"
 
 deployments:
   e2e-runner:
@@ -91,13 +188,113 @@ deployments:
         containers:
           - image: ${E2E_IMAGE}
         labels:
-          app.kubernetes.io/name: agents-e2e
+          app.kubernetes.io/name: threads-e2e
+
+commands:
+  test-e2e: |-
+    devspace run-pipeline test-e2e $@
+
+pipelines:
+  # ── Service development ──────────────────────────────────────────────
+  # Patches the service pod with a dev container, syncs source, runs
+  # the service with hot-reload. Used by developers and by CI to deploy
+  # a PR branch before running tests.
+  dev:
+    flags:
+      - name: watch
+        short: w
+        description: "Keep DevSpace running and stream logs"
+    run: |-
+      disable_argocd_sync
+      patch_deployment
+      if [ "$(get_flag "watch")" == "true" ]; then
+        start_dev --disable-pod-replace threads
+      else
+        start_dev --disable-pod-replace threads
+        echo "Waiting for threads to be healthy on :50051..."
+        healthy=false
+        for i in $(seq 1 60); do
+          if exec_container \
+            --label-selector=app.kubernetes.io/name=threads \
+            -n ${SERVICE_NAMESPACE} \
+            -- bash -c 'nc -z localhost 50051 >/dev/null 2>&1 || \
+                        (echo > /dev/tcp/localhost/50051) >/dev/null 2>&1'; then
+            healthy=true
+            break
+          fi
+          sleep 2
+        done
+        if [ "$healthy" != "true" ]; then
+          echo "ERROR: threads did not become healthy within 120s" >&2
+          exit 1
+        fi
+        echo "Dev environment ready. Stopping dev session."
+        stop_dev threads
+      fi
+
+  # ── E2E tests ────────────────────────────────────────────────────────
+  # Deploys a standalone test pod, syncs test source, runs tests, cleans
+  # up. Does NOT touch the service pod — services run whatever is
+  # currently deployed (pinned release image or source via `devspace dev`).
+  test-e2e:
+    run: |-
+      create_deployments e2e-runner
+      start_dev e2e-runner &
+      sleep 5
+      exec_container \
+        --label-selector "app.kubernetes.io/name=threads-e2e" \
+        -n ${SERVICE_NAMESPACE} \
+        -- bash -c 'cd /opt/app/data && go test -v -count=1 -tags e2e ./test/e2e/'
+      EXIT_CODE=$?
+      stop_dev e2e-runner
+      purge_deployments e2e-runner
+      exit $EXIT_CODE
+
+hooks:
+  - name: restore-argocd-auto-sync
+    events:
+      - after:dev:threads
+    command: bash
+    args:
+      - -c
+      - *restore_argocd_sync
 
 dev:
+  threads:
+    namespace: ${SERVICE_NAMESPACE}
+    labelSelector:
+      app.kubernetes.io/name: threads
+      app.kubernetes.io/instance: threads
+    containers:
+      threads:
+        container: threads
+        sync:
+          - path: ./:/opt/app/data
+            excludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            uploadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+            downloadExcludePaths:
+              - .git/
+              - .devspace/
+              - /.gen/
+              - /tmp/
+        logs:
+          enabled: true
+          lastLines: 200
+    ports:
+      - port: "50051"
+
   e2e-runner:
     namespace: ${SERVICE_NAMESPACE}
     labelSelector:
-      app.kubernetes.io/name: agents-e2e
+      app.kubernetes.io/name: threads-e2e
     command: ["sleep", "infinity"]
     workingDir: /opt/app/data
     sync:
@@ -105,48 +302,25 @@ dev:
         excludePaths:
           - .git/
           - .devspace/
+          - /.gen/
+          - /tmp/
+````
 
-pipelines:
-  test-e2e:
-    run: |-
-      create_deployments e2e-runner
-      start_dev e2e-runner &
-      sleep 5
-      exec_container \
-        --label-selector "app.kubernetes.io/name=agents-e2e" \
-        -n ${SERVICE_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && go test -v -count=1 ./test/e2e/'
-      EXIT_CODE=$?
-      stop_dev e2e-runner
-      purge_deployments e2e-runner
-      exit $EXIT_CODE
+Key points about this configuration:
 
-  # Existing service dev pipeline (unchanged)
-  dev: |-
-    # ... (standard DevSpace dev pipeline: pause ArgoCD, patch deployment, start_dev)
-```
+- The `dev` pipeline handles ArgoCD sync pause, deployment patching, source sync, health check, and session teardown. The ArgoCD hook restores auto-sync after the dev session ends.
+- The `test-e2e` pipeline handles only the test pod lifecycle: deploy → sync → exec → cleanup. It has no knowledge of ArgoCD or the service deployment.
+- The `dev` pipeline supports two modes: default (exits after health check, used by CI) and watch (stays attached, used by developers).
+- The `dev` and `test-e2e` pipelines share no functions, no state, and no ordering dependency within DevSpace. CI composes them externally when needed.
 
 Usage:
 
 ```bash
-# Run E2E tests (self-contained — deploys test pod, runs tests, cleans up)
-devspace run-pipeline test-e2e
+# Run E2E tests against pinned images (no source deployment)
+devspace run test-e2e
 
-# Run specific test
-devspace run-pipeline test-e2e  # then pass args via env or override
-```
-
-For convenience, wrap in a command:
-
-```yaml
-commands:
-  test-e2e: |-
-    devspace run-pipeline test-e2e $@
-```
-
-Then:
-
-```bash
+# Run E2E tests against source (two separate commands)
+devspace dev
 devspace run test-e2e
 ```
 
@@ -441,6 +615,41 @@ package e2e
 | E2E (in-cluster) | Service + all dependencies in real cluster | `devspace run test-e2e` (separate pod) | Every PR and push to `main` |
 
 All three layers run on every PR. E2E tests also run on push to `main`. Exceptions for expensive tests (e.g., long-running regression suites) will be explicitly marked.
+
+## CI Integration
+
+CI uses the same DevSpace commands as developers. The two workflows differ only in whether `devspace dev` is called first.
+
+### Pull request workflow
+
+A PR needs to test the branch's code. CI calls two commands sequentially:
+
+```bash
+# Step 1: Deploy the service from PR source code
+devspace dev
+
+# Step 2: Run E2E tests against the now-modified cluster
+devspace run test-e2e
+```
+
+`devspace dev` (default mode) patches the service pod, syncs source, waits for the health check, then exits. The patched pod keeps running. `devspace run test-e2e` then deploys the test pod and runs tests against the cluster — which now has the PR's code running in the service pod.
+
+These are **separate CI steps**, not a single combined command. The `test-e2e` pipeline must not contain any service deployment logic.
+
+### Push to `main` / release workflow
+
+On `main`, there is no source to deploy — the goal is to verify the pinned release images:
+
+```bash
+# Only run tests — services already run their released versions
+devspace run test-e2e
+```
+
+No `devspace dev` is called. The cluster is unmodified. Tests verify the real deployed behavior.
+
+### Why two steps, not one
+
+If `test-e2e` also deployed from source, it would be impossible to run the `main` workflow — every test run would forcibly replace the released image with source code. The separation ensures `test-e2e` is a pure test runner that works against whatever is currently deployed.
 
 ## Summary
 
