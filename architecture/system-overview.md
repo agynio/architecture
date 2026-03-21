@@ -105,7 +105,7 @@ graph TB
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
 | **Agent State** | Long-term agent context persistence (APSS) |
-| **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
+| **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans |
 | **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
@@ -129,6 +129,7 @@ graph TB
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
+| `agynio/tracing` | Tracing service — span ingestion and query | Go | Planned |
 | `agynio/openfga-model` | OpenFGA authorization model and Terraform module | DSL, HCL | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
 | `agynio/identity` | Identity registry service | Go | Planned |

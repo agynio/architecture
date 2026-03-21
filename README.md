@@ -49,7 +49,7 @@ Target architecture of the platform. Describes how the system should work.
 | [k8s-runner](architecture/k8s-runner.md) | Kubernetes-native Runner implementation |
 | [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
 | [Agents Service](architecture/agents-service.md) | Agent resource management |
-| [Tracing](architecture/tracing.md) | Tracing ingestion and query service |
+| [Tracing](architecture/tracing.md) | Span ingestion and query — standard OTLP with upsert for in-progress spans |
 | [Gateway](architecture/gateway.md) | External API surface — ConnectRPC (gRPC + HTTP/JSON) |
 | [API Contracts](architecture/api-contracts.md) | Proto schema conventions for internal and external APIs |
 
