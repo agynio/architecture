@@ -71,7 +71,6 @@ What needs to change in services to match the current architecture.
 
 | Document | Description |
 |----------|-------------|
-| [OpenZiti SDK Embedding](gaps/openziti-sdk-embedding.md) | Orchestrator, Runner, Gateway: embed SDK, remove sidecar/tunneler |
 | [Runner HMAC Removal](gaps/runner-hmac-removal.md) | Remove HMAC auth from docker-runner and Orchestrator |
 | [Organizations Migration](gaps/organizations-migration.md) | Tenants → Organizations: rename service, update resource scoping, remove tenant headers |
 
