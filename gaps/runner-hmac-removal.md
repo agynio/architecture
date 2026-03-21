@@ -2,4 +2,4 @@
 
 HMAC shared secret (`DOCKER_RUNNER_SHARED_SECRET`) was removed from the Runner architecture. OpenZiti mTLS is the sole authentication mechanism for Orchestrator ↔ Runner communication.
 
-Affects `agynio/platform` (docker-runner) and `agynio/agents-orchestrator`.
+Affects `agynio/docker-runner` and `agynio/agents-orchestrator`.

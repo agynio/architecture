@@ -44,12 +44,7 @@ graph TB
         MCP2[MCP Server]
     end
 
-    subgraph Monolith
-        PS[platform-server]
-    end
-
-    WebApp & MobileApp -- "/apiv2/" --> Gateway
-    WebApp & MobileApp -- "/api" --> PS
+    WebApp & MobileApp -- "/api/" --> Gateway
     ThirdParty <--> Channels
 
     Gateway --> ZitiMgmt
@@ -113,7 +108,7 @@ graph TB
 | **Tracing** | Ingestion and query of tracing data. Extended OpenTelemetry protocol for real-time in-progress events |
 | **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
 | **Runner** | Executes workloads. Implementations: docker-runner, k8s-runner |
-| **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/apiv2/` (path-based, prefix stripped) |
+| **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Validates tenant access per-request via Authorization. Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 
 ## Data Stores
@@ -131,7 +126,6 @@ graph TB
 | Repository | Contents | Language | Status |
 |------------|----------|----------|--------|
 | `agynio/api` | API schemas: protobuf (internal gRPC + external gateway ConnectRPC) | Proto | Active |
-| `agynio/platform` | Monolith: platform-server, docker-runner, LLM package, platform-ui | TypeScript | Active (being decomposed) |
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
