@@ -27,6 +27,7 @@ Services **do not** commit generated schema code in their own repositories. They
 | Agent State | `agynio/api/agent_state/v1/agent_state.proto` |
 | Threads | `agynio/api/threads/v1/threads.proto` |
 | Chat | `agynio/api/chat/v1/chat.proto` |
+| Tracing | `agynio/api/tracing/v1/tracing.proto` |
 
 ### Conventions
 
