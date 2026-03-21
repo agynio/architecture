@@ -74,9 +74,8 @@ The OIDC provider is configured system-wide. Because the SPA is a public client 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `issuer` | string | OIDC issuer URL (used for discovery) |
+| `issuer` | string | OIDC issuer URL. Used for [OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html) (`{issuer}/.well-known/openid-configuration`) to resolve the `jwks_uri` for token signature verification |
 | `client_id` | string | OAuth2 client ID |
-| `jwks_uri` | string | JWKS endpoint for token signature verification (derived from OIDC discovery if not set explicitly) |
 
 ## Network Identity (OpenZiti)
 
