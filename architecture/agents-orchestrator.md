@@ -100,7 +100,7 @@ sequenceDiagram
     O->>S: Resolve secret values for secret-backed ENVs
     S-->>O: Resolved secret values
     O->>O: Assemble workload spec
-    O->>ZM: CreateAgentIdentity(agentId, tenantId)
+    O->>ZM: CreateAgentIdentity(agentId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
     O->>R: StartWorkload(spec, enrollmentJWT)
     R-->>O: workloadId

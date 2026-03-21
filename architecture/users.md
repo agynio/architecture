@@ -4,7 +4,7 @@
 
 The Users service manages user identity records and user profiles. It is the source of truth for user existence and user-facing metadata (name, nickname, photo).
 
-User records are system-wide (not scoped to a tenant).
+User records are system-wide — not scoped to an organization. User-to-organization membership is managed through [Authorization](authz.md) (OpenFGA relationship tuples). See [Organizations](organizations.md).
 
 ## Responsibilities
 

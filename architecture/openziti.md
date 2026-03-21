@@ -35,7 +35,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure identity provisioned at deployment |
-| **Data store** | PostgreSQL — stores identity mappings (OpenZiti identity ID ↔ platform identity ID, tenant ID, identity type) |
+| **Data store** | PostgreSQL — stores identity mappings (OpenZiti identity ID ↔ platform identity ID, identity type) |
 
 ### Why a Separate Service
 
@@ -51,7 +51,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `CreateAgentIdentity` | Orchestrator | Create an OpenZiti identity for an agent, return enrollment JWT |
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
-| `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type, tenant_id) |
+| `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
 
 ### OpenZiti Controller Operations
 
@@ -87,7 +87,7 @@ sequenceDiagram
     participant A as Agent Container
 
     Note over O: Reconciliation: thread needs agent
-    O->>ZM: CreateAgentIdentity(agentId, tenantId)
+    O->>ZM: CreateAgentIdentity(agentId)
     ZM->>ZC: POST /identities (name, type, roleAttributes, externalId, enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZM: Store mapping in PostgreSQL
@@ -115,7 +115,7 @@ When Ziti Management creates an agent identity, it sends:
   "name": "agent-<agentId>-<shortUuid>",
   "type": "Device",
   "isAdmin": false,
-  "roleAttributes": ["agents", "tenant-<tenantId>", "agent-<agentId>"],
+  "roleAttributes": ["agents", "agent-<agentId>"],
   "externalId": "<platformIdentityId>",
   "enrollment": { "ott": true }
 }
@@ -125,7 +125,7 @@ When Ziti Management creates an agent identity, it sends:
 |-------|---------|
 | `name` | Human-readable, unique per identity. Includes agent ID for debugging |
 | `type` | `Device` — represents a non-human endpoint |
-| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `tenant-<tenantId>` and `agent-<agentId>` for future per-tenant/per-agent policies |
+| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `agent-<agentId>` for future per-agent policies |
 | `externalId` | Platform identity UUID — the link between OpenZiti identity and platform identity |
 | `enrollment.ott` | One-time-token enrollment. Controller generates a JWT valid for 24 hours |
 
@@ -147,12 +147,12 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent container | `["agents", "tenant-<tenantId>", "agent-<agentId>"]` |
-| Channel | `["channels", "tenant-<tenantId>"]` |
+| Agent container | `["agents", "agent-<agentId>"]` |
+| Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 
-The `tenant-<tenantId>` and `agent-<agentId>` attributes are assigned at creation time for future use in per-tenant and per-agent policies. They have no effect until matching service policies are created.
+The `agent-<agentId>` attribute is assigned at creation time for future use in per-agent policies. It has no effect until matching service policies are created.
 
 ### Static Policies
 
@@ -200,7 +200,7 @@ sequenceDiagram
     GW->>GW: conn.SourceIdentifier() → OpenZiti identity ID
     GW->>ZM: ResolveIdentity(openZitiIdentityId)
     ZM->>ZM: Read mapping from PostgreSQL
-    ZM->>GW: (identity_id, identity_type, tenant_id)
+    ZM->>GW: (identity_id, identity_type)
     GW->>GW: Inject into gRPC metadata
 ```
 
@@ -209,22 +209,22 @@ sequenceDiagram
 1. Gateway starts, loads its OpenZiti identity from the mounted Kubernetes Secret, calls `ctx.ListenWithOptions("gateway", ...)`.
 2. On each incoming connection: `conn, _ := listener.AcceptEdge()`.
 3. `conn.SourceIdentifier()` returns the dialing identity's name and ID. This is set by the OpenZiti router at circuit creation time — it is not self-asserted by the client and is therefore trustworthy.
-4. Gateway calls `ZitiManagement.ResolveIdentity(openZitiIdentityId)`. Ziti Management reads the mapping from PostgreSQL (written when the identity was created). Returns `(identity_id, identity_type, tenant_id)`.
+4. Gateway calls `ZitiManagement.ResolveIdentity(openZitiIdentityId)`. Ziti Management reads the mapping from PostgreSQL (written when the identity was created). Returns `(identity_id, identity_type)`.
 5. Gateway injects these values into gRPC metadata for downstream services — same format as OIDC-authenticated user requests.
 
 ### Caching
 
 Ziti Management can cache resolved identities in-memory with a short TTL. Identity mappings are immutable for the lifetime of an OpenZiti identity — the cache only needs invalidation when an identity is deleted.
 
-## Tenant Metadata
+## Identity Resolution
 
-OpenZiti identities do **not** carry tenant metadata for resolution purposes. The canonical resolution path is:
+The canonical resolution path for OpenZiti identities is:
 
 ```
-OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type, tenant_id)
+OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type)
 ```
 
-The `tenant-<tenantId>` role attribute on identities exists for OpenZiti's own ABAC policy matching (future per-tenant policies), not for platform identity resolution.
+Organization context is not part of the OpenZiti identity. Services that need organization context accept `organization_id` as a request parameter. See [Organizations — Request Flow](organizations.md#request-flow).
 
 ## Internal Identity Propagation
 
@@ -234,7 +234,6 @@ After Gateway authenticates a request (OIDC for users, OpenZiti for agents/chann
 |-------------|------|-------------|
 | `x-identity-id` | string (UUID) | Platform identity ID |
 | `x-identity-type` | string | `user`, `agent`, `channel`, `runner` |
-| `x-tenant-id` | string (UUID) | Tenant ID |
 
 All internal services read these keys from incoming gRPC metadata. Services trust these values because:
 

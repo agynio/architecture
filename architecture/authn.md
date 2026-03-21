@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id`, `identity_type`, and `tenant_id`.
+The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
 
 ## Identity Types
 
@@ -23,9 +23,8 @@ After authentication, every request carries a resolved identity in its context:
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
 | `identity_type` | enum | `user`, `agent`, `channel`, `runner` |
-| `tenant_id` | string (UUID) | Active tenant for this request |
 
-Downstream services receive identity and tenant context via gRPC metadata. Services use `tenant_id` for data scoping and `identity_id` for attribution (e.g., message sender).
+Downstream services receive identity context via gRPC metadata. Services use `identity_id` for attribution (e.g., message sender). Organization context is passed as a request parameter where needed — see [Organizations — Request Flow](organizations.md#request-flow).
 
 The `identity_type` indicates the authentication mechanism and profile source (e.g., OIDC users have profiles in [Users](users.md), agents in [Agents](agents-service.md)). Authorization is determined by [relationships](authz.md), not by type.
 
@@ -57,7 +56,7 @@ sequenceDiagram
 
 On first login, the Users service provisions a new user record (OIDC subject mapping, initial profile from ID token claims, identity registration in the [Identity](identity.md) service). On subsequent logins, it returns the existing `identity_id`.
 
-Tenant context is validated per-request — each API request includes a `tenant_id` header, and the Gateway validates access via [Authorization](authz.md). See [Tenant Resolution](tenancy.md#tenant-resolution).
+Organization context is not validated at the Gateway level. Services that need organization context accept `organization_id` as a request parameter, and the [authorization model](authz.md) enforces access. See [Organizations — Request Flow](organizations.md#request-flow).
 
 ### Configuration
 
@@ -201,7 +200,7 @@ OpenZiti provides identity and connectivity for actors outside the cluster or ne
 
 ### Why Both
 
-**Istio** secures internal service-to-service communication. It knows nothing about application-level identity (which specific agent, which tenant).
+**Istio** secures internal service-to-service communication. It knows nothing about application-level identity (which specific agent, which organization).
 
 **OpenZiti** provides application-level identity and connectivity for actors that cross the cluster boundary (external runners, agents, channels) and for connections that must use a uniform protocol regardless of location (orchestrator-to-runner).
 
@@ -218,7 +217,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Tenant access validated per-request via [Authorization](authz.md).
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC (identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 

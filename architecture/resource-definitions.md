@@ -2,7 +2,7 @@
 
 Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL. All resources are scoped to a [tenant](tenancy.md).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL. Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 All resources share a common envelope:
 

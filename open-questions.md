@@ -54,7 +54,7 @@ Unresolved architectural decisions requiring discussion.
 **Questions:**
 - What is the CLI enrollment UX? (OIDC browser flow → enrollment JWT → local identity file?)
 - What protocol does the user use to connect to the agent? (Raw TCP? HTTP? gRPC?)
-- How is the direct connection authorized relative to the user's tenant permissions?
+- How is the direct connection authorized relative to the user's organization permissions?
 
 ---
 
@@ -82,11 +82,11 @@ Unresolved architectural decisions requiring discussion.
 
 ## Authorization Model Completeness
 
-**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, tenant roles, and agent state. The full model needs to cover all resource types and access patterns.
+**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, organization roles, and agent state. The full model needs to cover all resource types and access patterns.
 
 **Questions:**
-- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, channels, secrets)?
-- How are tracing data permissions modeled? (Tenant-level visibility, or per-agent restriction?)
+- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, channels, secrets)? How do org-scoped vs independent resources differ in their relation definitions?
+- How are tracing data permissions modeled? (Organization-level visibility, or per-agent restriction?)
 - How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
 - What is the relationship tuple cleanup strategy when resources are deleted?
 
@@ -126,11 +126,11 @@ Unresolved architectural decisions requiring discussion.
 
 ## k8s-runner: Namespace Strategy
 
-**Context:** The [k8s-runner](architecture/k8s-runner.md) currently creates all workload Pods in a single dedicated namespace. As the platform grows, per-tenant namespaces may provide stronger isolation.
+**Context:** The [k8s-runner](architecture/k8s-runner.md) currently creates all workload Pods in a single dedicated namespace. As the platform grows, per-organization namespaces may provide stronger isolation.
 
 **Questions:**
-- Should workload Pods be isolated into per-tenant namespaces for network policy and resource quota enforcement?
-- If per-tenant, who creates and manages tenant namespaces — the k8s-runner or an external controller?
-- What is the migration path from single namespace to per-tenant if needed later?
+- Should workload Pods be isolated into per-organization namespaces for network policy and resource quota enforcement?
+- If per-organization, who creates and manages organization namespaces — the k8s-runner or an external controller?
+- What is the migration path from single namespace to per-organization if needed later?
 
-**Decision:** Single namespace for now. Revisit when multi-tenant isolation requirements are clarified.
+**Decision:** Single namespace for now. Revisit when organizational isolation requirements are clarified.
