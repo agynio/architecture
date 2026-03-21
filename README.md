@@ -30,6 +30,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Users](architecture/users.md) | User identity records, profiles, OIDC provisioning |
 | [Authentication](architecture/authn.md) | Identity types, OIDC, agent network auth, service tokens |
 | [Authorization](architecture/authz.md) | Fine-grained access control via OpenFGA. Authorization service, model, deployment |
+| [API Tokens](architecture/api-tokens.md) | Long-lived opaque tokens for programmatic access (CI, integrations, developer tooling) |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
 | [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all agent-managed resources |
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |

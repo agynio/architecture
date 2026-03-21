@@ -8,7 +8,7 @@ The platform authenticates four types of identities. Each identity type has its 
 
 | Type | Description | Authentication Method |
 |------|-------------|----------------------|
-| **User** | Human operator using web/mobile app | OIDC |
+| **User** | Human operator using web/mobile app | OIDC or [API token](api-tokens.md) |
 | **Agent** | Agent container calling platform APIs | OpenZiti (network identity) |
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
@@ -226,7 +226,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
+**External traffic**: Authenticated at the **Gateway**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 
@@ -236,7 +236,7 @@ They operate on different connections:
 
 ## CLI Authentication
 
-All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order. The auth token stored in `~/.agyn/credentials` is any token the Gateway accepts (see [Open Questions — Long-Lived Tokens](../open-questions.md#long-lived-tokens-for-programmable-access)).
+All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order. The auth token stored in `~/.agyn/credentials` is any token the Gateway accepts — an OIDC access token from a login flow or a long-lived [API token](api-tokens.md) created via `agyn auth create-token`.
 
 | Priority | Method | Mechanism | When Used |
 |----------|--------|-----------|-----------|

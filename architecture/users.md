@@ -15,6 +15,7 @@ User records are system-wide — not scoped to an organization. User-to-organiza
 | **User profile** | Store and serve user profile data (name, nickname, photo URL) |
 | **User lookup** | Resolve a user by `identity_id` or by OIDC subject |
 | **Batch profile resolution** | Return profiles for a list of identity IDs |
+| **API token management** | Create, list, revoke, and resolve [API tokens](api-tokens.md) for programmatic access |
 
 ## User Model
 
@@ -36,6 +37,10 @@ User records are system-wide — not scoped to an organization. User-to-organiza
 | **CreateUser** | Provision a new user record from OIDC subject and profile claims. Registers the identity in the [Identity](identity.md) service. Returns `identity_id` |
 | **GetUser** | Return a user profile by `identity_id` |
 | **BatchGetUsers** | Return profiles for a list of identity IDs |
+| **CreateAPIToken** | Create an [API token](api-tokens.md) for the calling user. Returns the plaintext token once |
+| **ListAPITokens** | List API tokens for the calling user. Returns metadata only (never the token value) |
+| **RevokeAPIToken** | Delete an API token by ID. Caller must own the token |
+| **ResolveAPIToken** | Look up an API token by hash. Returns `identity_id` if valid. Called by the Gateway |
 
 ## Resolution and Provisioning Flow
 
@@ -75,13 +80,13 @@ Initial profile fields (name, email, picture) are populated from the IdP UserInf
 
 | Consumer | Usage |
 |----------|-------|
-| **Gateway** | Resolve OIDC subject → `identity_id` on every request (`ResolveUser`). Provision new users on first login (`CreateUser`) |
+| **Gateway** | Resolve OIDC subject → `identity_id` on every request (`ResolveUser`). Provision new users on first login (`CreateUser`). Resolve [API tokens](api-tokens.md) → `identity_id` (`ResolveAPIToken`) |
 | **Chat** | Resolve user profiles for message display (sender name, photo) |
 | **UI** | Display user profile, profile editing |
 
 ## Data Store
 
-PostgreSQL. System-wide `users` table.
+PostgreSQL. System-wide `users` and `user_api_tokens` tables. See [API Tokens](api-tokens.md) for the token model.
 
 ## Classification
 
