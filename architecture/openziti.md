@@ -22,7 +22,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 
-Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process — no Kubernetes Secret, no persistent storage. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
+Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
 ## Ziti Management Service
 
@@ -157,7 +157,7 @@ This is the same reconciliation pattern used for agent workloads — no new mech
 
 ## Service Identity Self-Enrollment
 
-Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Runner, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management. No Terraform provisioning, no Kubernetes Secrets, no persistent identity files.
+Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Runner, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
 
 ### Design
 
