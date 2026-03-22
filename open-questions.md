@@ -134,3 +134,19 @@ Unresolved architectural decisions requiring discussion.
 - What is the migration path from single namespace to per-organization if needed later?
 
 **Decision:** Single namespace for now. Revisit when organizational isolation requirements are clarified.
+
+---
+
+## OpenZiti: Service Identity Self-Enrollment Authorization
+
+**Context:** Infrastructure services (Orchestrator, Runner, Gateway) self-enroll their OpenZiti identities by calling `ZitiManagement.RequestServiceIdentity()` over Istio. Internal services are authenticated by Istio mTLS (ServiceAccount identity). However, external runners also communicate with platform services — and they must not be able to request arbitrary service identities or agent identities for agents they do not manage. See [OpenZiti Integration — Service Identity Self-Enrollment](architecture/openziti.md#service-identity-self-enrollment).
+
+**Problem:** The current design does not specify how Ziti Management authorizes identity requests. Without explicit controls:
+- An external runner could call `RequestServiceIdentity` with `roleAttributes: ["orchestrators"]` or `["gateway-hosts"]` and obtain an identity with elevated access.
+- An external runner could call `CreateAgentIdentity` for agents it does not manage.
+
+**Questions:**
+- How does Ziti Management authorize `RequestServiceIdentity` calls? Should it restrict which role attributes each caller is allowed to request (e.g., only runners can request `["runners"]`)?
+- How does Ziti Management authorize `CreateAgentIdentity` calls from the Orchestrator vs. reject them from other callers?
+- Is Istio `AuthorizationPolicy` (ServiceAccount-level) sufficient for internal callers, or does Ziti Management need application-level authorization logic?
+- For external runners (which connect via OpenZiti, not Istio), what is the trust boundary? Should external runners be able to call Ziti Management at all, or should all identity management be mediated by an internal service?
