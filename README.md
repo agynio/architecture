@@ -8,10 +8,6 @@ Architecture documentation for the Agyn AI agent orchestrator platform.
 
 The desired state of the system. Declarative descriptions of all services, patterns, protocols, and contracts. No references to current implementation state, no transitional statements, no legacy caveats. When the architecture changes, this directory is updated to reflect the new target — not annotated with "currently X, will become Y."
 
-### `/gaps` — Change Log
-
-A reminder of what needs to change in service implementations after an architecture update. Not a source of truth and not a task list. Each gap is cleared once the service implementation is aligned with the architecture. When sequential architecture changes happen, services may skip intermediate states — always implement the final state described in `/architecture`, not intermediate steps.
-
 ### `/open-questions` — Unresolved Decisions
 
 Topics that require further investigation and a decision from a supervisor. Implementation of system parts that are not clearly described in the architecture should be avoided. Raise an open question or wait for a decision instead of building on assumptions that may change.
@@ -64,13 +60,6 @@ How services are built, deployed, run locally, and configured.
 | [Local Development](architecture/operations/local-development.md) | Bootstrap cluster and DevSpace inner loop |
 | [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
 | [New Service Development](architecture/operations/new-service.md) | End-to-end process: API schema → implementation → CI/CD → bootstrap → E2E tests |
-
-### [Gaps](gaps/) — Implementation Alignment
-
-What needs to change in services to match the current architecture.
-
-| Document | Description |
-|----------|-------------|
 
 ### [Open Questions](open-questions.md)
 
