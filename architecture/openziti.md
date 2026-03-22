@@ -194,13 +194,6 @@ sequenceDiagram
     Note over ZM: Lease expires → GC deletes identity
 ```
 
-### Why Not Terraform
-
-The original plan was to provision these identities via Terraform. This was rejected for two reasons:
-
-1. **The OpenZiti Terraform provider does not support identity enrollment.** It can create identities but cannot enroll them and extract the certificate and key material. A separate out-of-band step would be required.
-2. **Persistent identities in Terraform state are undesirable.** Private key material in state files creates a security surface. Ephemeral, self-enrolled identities avoid this entirely — there is nothing to store, rotate, or leak.
-
 ### Service-Specific Behavior
 
 | Service | Role Attributes | After enrollment |
