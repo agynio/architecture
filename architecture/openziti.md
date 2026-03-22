@@ -22,7 +22,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 
-Each of these services loads its OpenZiti identity from a file mounted into the pod (Kubernetes Secret). The identity contains the enrolled x509 certificate and private key — the service does not perform enrollment at runtime. See [Runner Provisioning](#runner-provisioning) and [Authentication](authn.md#enrollment).
+Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
 ## Ziti Management Service
 
@@ -30,19 +30,20 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 
 | Aspect | Detail |
 |--------|--------|
-| **Plane** | Data — executes operations it is told to perform, no reconciliation |
-| **Consumers** | Agents Orchestrator (identity lifecycle), Gateway (identity resolution) |
+| **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Runner / Gateway (service identity self-enrollment) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
-| **Authentication** | Certificate-based auth using a long-lived infrastructure identity provisioned at deployment |
-| **Data store** | PostgreSQL — stores identity mappings (OpenZiti identity ID ↔ platform identity ID, identity type) |
+| **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
+| **Data store** | PostgreSQL — stores identity mappings (OpenZiti identity ID ↔ platform identity ID, identity type) and lease timestamps for service identities |
 
 ### Why a Separate Service
 
 - The Orchestrator reconciles agent desired state. It calls Ziti Management as a side effect, same as it calls Runner. Isolating OpenZiti logic keeps the Orchestrator focused on lifecycle decisions.
 - The Gateway needs identity resolution on the request hot path. It calls Ziti Management, which reads from PostgreSQL — no dependency on the OpenZiti Controller for every request.
 - If OpenZiti's API changes, only one service changes.
-- Future capabilities (user enrollment for CLI, agent-to-agent port sharing) will also route through this service, keeping all OpenZiti Controller interactions in one place.
+- Infrastructure services (Orchestrator, Runner, Gateway) self-enroll through Ziti Management at startup, keeping all OpenZiti Controller interactions in one place.
+- Future capabilities (user enrollment for CLI, agent-to-agent port sharing) will also route through this service.
 
 ### API Surface
 
@@ -52,29 +53,44 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
+| `RequestServiceIdentity` | Orchestrator, Runner, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
+| `ExtendIdentityLease` | Orchestrator, Runner, Gateway | Extend the lease on a service identity |
 
 ### OpenZiti Controller Operations
 
 | Operation | API Endpoint | When |
 |-----------|-------------|------|
-| Create identity | `POST /edge/management/v1/identities` | Agent start, runner/channel enrollment |
-| Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup |
-| List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation |
+| Create identity | `POST /edge/management/v1/identities` | Agent start, service self-enrollment, runner/channel enrollment |
+| Enroll identity | Controller enrollment endpoint | Service identity self-enrollment (Ziti Management enrolls on behalf of the caller) |
+| Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC |
+| List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
 | Create service | `POST /edge/management/v1/services` | Future: agent-to-agent networking |
 | Create service policy | `POST /edge/management/v1/service-policies` | Future: dynamic access grants |
 | Delete service / policy | `DELETE /edge/management/v1/{type}/{id}` | Future: revoke dynamic access |
 
+### Identity Lease GC
+
+Ziti Management runs a background loop that garbage-collects expired service identities:
+
+1. Each pass: query PostgreSQL for service identities whose lease has expired (no `ExtendIdentityLease` call within the configured TTL).
+2. Delete the expired OpenZiti identity on the Controller via `DELETE /edge/management/v1/identities/{id}`.
+3. Remove the identity record from PostgreSQL.
+
+This is a separate concern from the Orchestrator's agent identity reconciliation. The Orchestrator reconciles agent identities against running workloads. Ziti Management GC handles service identities (Orchestrator, Runner, Gateway) based purely on lease expiry — it does not query Runner or any other service.
+
+Expired identities are inert — the pod that held the enrolled certificate has already stopped (otherwise it would have extended the lease). GC is important for hygiene and OpenZiti Controller resource limits.
+
 ## Identity Management
 
 ### Who Manages Identities
 
-The **Agents Orchestrator** manages the lifecycle of agent OpenZiti identities. The **Runner** is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the container.
+Two identity lifecycle patterns coexist:
 
-This follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification:
+- **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the container.
+- **Service identities** — self-managed by each service (Orchestrator, Runner, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
 
-- The Orchestrator is control plane — it runs reconciliation loops and decides what should exist. Identity existence is a desired-state concern.
-- The Runner is data plane — it executes what it is told. It has no reconciliation loop and no access to the OpenZiti Controller.
+The agent identity pattern follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification: the Orchestrator is control plane (decides what should exist), the Runner is data plane (executes what it is told).
 
 ### Agent Identity Lifecycle
 
@@ -139,6 +155,53 @@ The Orchestrator's existing reconciliation loop handles orphaned identities (fro
 
 This is the same reconciliation pattern used for agent workloads — no new mechanism needed. An orphaned identity with no running container is inert (it can't be used because the enrollment JWT has expired or the enrolled certificate is inside a stopped container), but cleanup is important for hygiene and OpenZiti Controller resource limits.
 
+## Service Identity Self-Enrollment
+
+Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Runner, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
+
+### Design
+
+- **Ephemeral identities** — each pod gets a new OpenZiti identity on startup. The identity is not shared across replicas or preserved across restarts.
+- **In-process enrollment** — the service calls Ziti Management over Istio (in-cluster gRPC). Ziti Management creates the identity on the Controller, enrolls it, and returns the enrolled identity (certificate + key) to the caller.
+- **Ephemeral disk storage** — the enrolled identity is written to ephemeral disk (emptyDir or tmpfs) so the OpenZiti SDK can load it as a file. The identity does not survive pod restart.
+- **Lease-based lifecycle** — the service extends its lease on a timer. Ziti Management garbage-collects identities whose lease expires. This makes the system eventually consistent — no coordination required between pods and Ziti Management beyond the heartbeat.
+
+### Flow
+
+```mermaid
+sequenceDiagram
+    participant P as Service Pod
+    participant ZM as Ziti Management
+    participant ZC as OpenZiti Controller
+
+    Note over P: Pod starts
+    P->>ZM: RequestServiceIdentity(roleAttributes, serviceType)
+    ZM->>ZC: POST /identities (type: Device, roleAttributes, enrollment.ott)
+    ZC->>ZM: Identity ID + enrollment JWT
+    ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
+    ZC->>ZM: Certificate + private key
+    ZM->>ZM: Store identity record + lease timestamp in PostgreSQL
+    ZM->>P: Enrolled identity (cert + key)
+    P->>P: Write identity to ephemeral disk
+    P->>P: Load identity via OpenZiti SDK
+
+    loop Every lease interval
+        P->>ZM: ExtendIdentityLease(identityId)
+        ZM->>ZM: Update lease timestamp in PostgreSQL
+    end
+
+    Note over P: Pod stops (crash, scale-down, restart)
+    Note over ZM: Lease expires → GC deletes identity
+```
+
+### Service-Specific Behavior
+
+| Service | Role Attributes | After enrollment |
+|---------|----------------|-----------------|
+| **Internal Runner** | `["runners"]` | `zitiContext.Listen("runner")` — binds the `runner` service |
+| **Agents Orchestrator** | `["orchestrators"]` | `zitiContext.Dial("runner")` — dials runners |
+| **Gateway** | `["gateway-hosts"]` | `zitiContext.ListenWithOptions("gateway", ...)` — binds the `gateway` service |
+
 ## Service Policies
 
 OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies match identities to services using **role attributes** (string tags). There are two policy types: **Dial** (connect to a service) and **Bind** (host a service).
@@ -167,6 +230,8 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `runners-bind` | Bind | `#runners` | `@runner` | Runners host the `runner` service |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
+
+Static policies, services, and edge router policies are provisioned by Terraform at bootstrap. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) — policies match identities by role attributes, not by specific identity references.
 
 ### Dynamic Policies (Future)
 
@@ -206,7 +271,7 @@ sequenceDiagram
 
 ### Implementation
 
-1. Gateway starts, loads its OpenZiti identity from the mounted Kubernetes Secret, calls `ctx.ListenWithOptions("gateway", ...)`.
+1. Gateway starts, obtains its OpenZiti identity via [self-enrollment](#service-identity-self-enrollment), calls `ctx.ListenWithOptions("gateway", ...)`.
 2. On each incoming connection: `conn, _ := listener.AcceptEdge()`.
 3. `conn.SourceIdentifier()` returns the dialing identity's name and ID. This is set by the OpenZiti router at circuit creation time — it is not self-asserted by the client and is therefore trustworthy.
 4. Gateway calls `ZitiManagement.ResolveIdentity(openZitiIdentityId)`. Ziti Management reads the mapping from PostgreSQL (written when the identity was created). Returns `(identity_id, identity_type)`.
@@ -247,33 +312,37 @@ Runners connect to the OpenZiti overlay to bind the `runner` service and receive
 
 ### Internal Runners
 
-Internal runners are deployed as part of the platform (via bootstrap). Their OpenZiti identity is provisioned by Terraform at deployment time:
+Internal runners are deployed as part of the platform. Their OpenZiti identity is obtained at runtime via [self-enrollment](#service-identity-self-enrollment):
 
 ```mermaid
 sequenceDiagram
-    participant TF as Terraform
-    participant ZC as OpenZiti Controller
-    participant K8s as Kubernetes
     participant R as Runner Pod
+    participant ZM as Ziti Management
+    participant ZC as OpenZiti Controller
 
-    TF->>ZC: Create identity (type: Device, roleAttributes: ["runners"])
-    ZC->>TF: Identity ID + enrollment JWT
-    TF->>ZC: Enroll (exchange JWT for x509 cert + key)
-    ZC->>TF: Certificate + private key
-    TF->>K8s: Create Secret (cert + key)
-    Note over R: Pod mounts Secret as volume
-    R->>R: Load identity from file
-    R->>R: zitiContext.Listen("runner")
+    R->>ZM: RequestServiceIdentity(roleAttributes: ["runners"])
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["runners"], enrollment.ott)
+    ZC->>ZM: Identity ID + enrollment JWT
+    ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
+    ZC->>ZM: Certificate + private key
+    ZM->>ZM: Store identity + lease in PostgreSQL
+    ZM->>R: Enrolled identity (cert + key)
+    R->>R: Write identity to ephemeral disk
+    R->>R: Load identity, zitiContext.Listen("runner")
     Note over R: Accepting gRPC connections via OpenZiti
+
+    loop Every lease interval
+        R->>ZM: ExtendIdentityLease(identityId)
+        ZM->>ZM: Update lease timestamp in PostgreSQL
+    end
 ```
 
-1. Terraform creates an OpenZiti identity on the Controller with `roleAttributes: ["runners"]`.
-2. Terraform enrolls the identity immediately, receiving the x509 certificate and private key.
-3. Terraform stores the enrolled identity (certificate + key) as a Kubernetes Secret.
-4. The runner Helm chart mounts the Secret into the pod.
-5. On startup, the runner loads the identity file and binds the `runner` OpenZiti service via the SDK.
-
-No admin interaction is required. The identity is provisioned as part of `agynio/bootstrap`, alongside the OpenZiti policies, services, and other infrastructure identities.
+1. On startup, the runner calls `ZitiManagement.RequestServiceIdentity()` with `roleAttributes: ["runners"]`.
+2. Ziti Management creates the identity on the Controller, enrolls it, stores the mapping and lease timestamp in PostgreSQL, and returns the enrolled identity (certificate + key).
+3. The runner writes the identity to ephemeral disk and loads it via the OpenZiti SDK.
+4. The runner binds the `runner` OpenZiti service.
+5. On a timer, the runner calls `ZitiManagement.ExtendIdentityLease()` to keep the identity alive.
+6. If the pod restarts, it requests a new identity. The old identity's lease expires and is cleaned up by Ziti Management's [GC loop](#identity-lease-gc).
 
 ### External Runners
 
@@ -307,10 +376,10 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
-| Agents Orchestrator | Persistent (enrolled once) | Infrastructure (Terraform) | Runner (dial) |
-| Internal Runner | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds `runner` service) |
+| Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
+| Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `runner` service) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds `runner` service) |
 | Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway (dial) |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
-| Ziti Management | Persistent (enrolled once) | Infrastructure (Terraform) | OpenZiti Controller (via Istio, not overlay) |
-| Gateway | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds `gateway` service) |
+| Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
+| Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
