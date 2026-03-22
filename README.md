@@ -8,6 +8,10 @@ Architecture documentation for the Agyn AI agent orchestrator platform.
 
 The desired state of the system. Declarative descriptions of all services, patterns, protocols, and contracts. No references to current implementation state, no transitional statements, no legacy caveats. When the architecture changes, this directory is updated to reflect the new target — not annotated with "currently X, will become Y."
 
+### `/changes` — Pending Deltas
+
+Gaps between the desired architecture described in `/architecture` and current implementation. Each file represents a single delta. When the implementation matches the desired state, the file is deleted. Git history preserves the full record.
+
 ### `/open-questions` — Unresolved Decisions
 
 Topics that require further investigation and a decision from a supervisor. Implementation of system parts that are not clearly described in the architecture should be avoided. Raise an open question or wait for a decision instead of building on assumptions that may change.
@@ -60,6 +64,10 @@ How services are built, deployed, run locally, and configured.
 | [Local Development](architecture/operations/local-development.md) | Bootstrap cluster and DevSpace inner loop |
 | [Terraform Provider](architecture/operations/terraform-provider.md) | Recommended configuration-as-code interface |
 | [New Service Development](architecture/operations/new-service.md) | End-to-end process: API schema → implementation → CI/CD → bootstrap → E2E tests |
+
+### [Changes](changes/) — Pending Deltas
+
+Gaps between desired architecture and current implementation. See [Changes README](changes/README.md) for lifecycle rules.
 
 ### [Open Questions](open-questions.md)
 
