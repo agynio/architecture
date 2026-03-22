@@ -71,7 +71,6 @@ What needs to change in services to match the current architecture.
 
 | Document | Description |
 |----------|-------------|
-| [Organizations Migration](gaps/organizations-migration.md) | Tenants → Organizations: rename service, update resource scoping, remove tenant headers |
 
 ### [Open Questions](open-questions.md)
 
