@@ -82,7 +82,7 @@ A workload consists of:
 
 The Runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds the `runner` OpenZiti service. The Agents Orchestrator dials runners via OpenZiti — this is the same protocol for both internal and external runners, eliminating transport branching in the Orchestrator. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
 
-**Internal runners** (deployed as part of the platform) receive their OpenZiti identity from infrastructure provisioning — Terraform creates and enrolls the identity, stores the certificate and key as a Kubernetes Secret, and the runner pod mounts it on startup. No manual admin action is required.
+**Internal runners** (deployed as part of the platform) obtain their OpenZiti identity at runtime via self-enrollment — on startup, the runner calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. No Kubernetes Secrets, no Terraform state. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
 
 **External runners** (operator-managed, outside the cluster) use a service token flow to obtain their OpenZiti identity. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 

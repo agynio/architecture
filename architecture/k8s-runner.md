@@ -133,7 +133,7 @@ These permissions are granted via a Role (not ClusterRole) bound to the workload
 
 The k8s-runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds the `runner` OpenZiti service to receive gRPC connections from the Orchestrator.
 
-The runner's OpenZiti identity is provisioned by Terraform at deployment time — Terraform creates the identity on the OpenZiti Controller, enrolls it, and stores the certificate and key as a Kubernetes Secret. The runner pod mounts the secret and loads the identity on startup. No manual admin action is required. See [OpenZiti Integration — Internal Runners](openziti.md#internal-runners) for the full provisioning flow.
+The runner obtains its OpenZiti identity at runtime via self-enrollment — on startup, it calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. No Kubernetes Secrets, no Terraform state. See [OpenZiti Integration — Internal Runners](openziti.md#internal-runners) for the full provisioning flow.
 
 The runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent container. See [Runner](runner.md#authentication).
 

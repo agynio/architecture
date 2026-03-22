@@ -72,7 +72,7 @@ graph LR
 | **Chat** | Data | Built-in app chat experience on top of Threads |
 | **Authorization** | Data | Checks permissions and manages relationship tuples. Thin proxy to OpenFGA on the live request path |
 | **Runner** | Data | Executes workloads (containers/pods), provides exec and log streaming |
-| **Ziti Management** | Data | Manages OpenZiti identities, services, and policies. Thin proxy to OpenZiti Controller |
+| **Ziti Management** | Data | Manages OpenZiti identities, services, and policies. Runs identity lease GC. Proxy to OpenZiti Controller |
 
 ## Reconciliation
 

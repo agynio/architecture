@@ -83,9 +83,9 @@ Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZi
 
 ### Enrollment
 
-Non-user identities bootstrap onto the OpenZiti network through one of two paths, depending on whether the identity is provisioned as part of platform infrastructure or registered dynamically by an operator:
+Non-user identities bootstrap onto the OpenZiti network through one of three paths:
 
-**Infrastructure-provisioned identities** (Orchestrator, Gateway, Ziti Management, internal Runners) are created by Terraform at deployment time. Terraform creates the OpenZiti identity on the Controller, enrolls it, and stores the resulting certificate and key material as a Kubernetes Secret. The service pod mounts the secret and loads the identity on startup. No manual admin action is required — these identities are part of the platform's bootstrap.
+**Self-enrolled service identities** (Orchestrator, Gateway, internal Runners) request their identity from the [Ziti Management](openziti.md) service at pod startup. Ziti Management creates the identity on the OpenZiti Controller, enrolls it, and returns the enrolled identity (certificate + key). The pod writes the identity to ephemeral disk and extends a lease on a timer. If the pod restarts, it requests a new identity — the old one is garbage-collected by Ziti Management when its lease expires. No Kubernetes Secrets, no Terraform state, no persistent identity files. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
 
 **Operator-provisioned identities** (external Runners, Channels) use a service token flow. An admin creates the resource in the platform, receives a one-time service token, and configures the external service with it. The service presents the token to the platform's enrollment endpoint, which creates an OpenZiti identity, returns an enrollment JWT, and the service enrolls with the Controller.
 
@@ -103,7 +103,9 @@ sequenceDiagram
     Note over SVC: From this point: mTLS via OpenZiti
 ```
 
-The service token flow is for external services only. Internal platform components receive their identities from infrastructure provisioning — no tokens, no manual enrollment.
+**Agent identities** are ephemeral — created by the Orchestrator via Ziti Management before each container starts, and deleted when the container stops. See [Agent Identity Lifecycle](#agent-identity-lifecycle) below.
+
+The service token flow is for external services only. Internal platform components use self-enrollment — no tokens, no manual steps.
 
 ### Agent Identity Lifecycle
 
@@ -121,13 +123,13 @@ The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Inte
 
 | Identity | Lifecycle | Provisioning |  Calls via OpenZiti |
 |----------|-----------|-------------|---------------------|
-| Agents Orchestrator | Persistent (enrolled once) | Infrastructure (Terraform) | Runner |
-| Internal Runner | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds service, receives work) |
+| Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner |
+| Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives work) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds service, receives work) |
 | Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway |
-| Gateway | Persistent (enrolled once) | Infrastructure (Terraform) | — (binds service, receives connections) |
-| Ziti Management | Persistent (enrolled once) | Infrastructure (Terraform) | OpenZiti Controller (via Istio, not overlay) |
+| Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
+| Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 
 ## Two Network Layers
 
