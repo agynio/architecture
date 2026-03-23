@@ -190,11 +190,11 @@ The [Gateway](gateway.md) exposes the Tracing query API via `TracingGateway`:
 | `GetSpan` | `TracingService.GetSpan` |
 | `GetTrace` | `TracingService.GetTrace` |
 
-The ingestion endpoint (`TraceService/Export`) is the standard OTLP gRPC interface and is also exposed through the Gateway for producers that connect via the external API.
+The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. Producers (agents) connect directly to the Tracing service's gRPC endpoint using the standard OTLP exporter configuration.
 
 ## Authorization
 
-Access control for tracing data will be handled via ReBAC. The specific relationships and permissions are not yet defined — traces are independent resources not directly associated with an organization. The authorization model will be determined as the broader [ReBAC migration](authz.md) progresses.
+Access control for tracing data will be handled via ReBAC. The specific relationships and permissions are not yet defined — traces are independent resources not directly associated with an organization. The authorization model will be determined as the broader [ReBAC migration](authz.md) progresses. See [open question: Tracing AuthN/AuthZ](../open-questions.md#tracing-authnz).
 
 ## Classification
 

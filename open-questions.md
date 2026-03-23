@@ -198,3 +198,14 @@ Unresolved architectural decisions requiring discussion.
 - If unified, does Terraform create the runner resource via the Runners service API, receive an enrollment token, and pass it to the deployment?
 - What changes to the current internal runner self-enrollment flow are needed?
 
+
+---
+
+## Tracing AuthN/AuthZ
+
+**Context:** The Tracing service exposes two gRPC interfaces: the standard OTLP `TraceService/Export` for ingestion and the custom `TracingService` for queries. Ingestion is accessed directly by producers (agents) without going through the Gateway. The query API is proxied through the Gateway via `TracingGateway`. Neither interface currently has authentication or authorization.
+
+**Questions:**
+- How is the ingestion endpoint authenticated? (Istio mTLS for internal producers? Service tokens for external producers? Unauthenticated within the cluster?)
+- How is the ingestion endpoint authorized? (Any authenticated producer can export spans? Scoped to specific agents or organizations?)
+- How are query results scoped? (Organization-level visibility, per-agent restriction, or full access for any authenticated user?)
