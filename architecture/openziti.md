@@ -383,3 +383,98 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
+
+## App Identity Lifecycle
+
+[Apps](apps.md) connect to the OpenZiti overlay to both bind their own service (receive commands from Gateway) and dial the Gateway (call platform APIs). App identities are created by the [Apps Service](apps-service.md) via Ziti Management during app registration.
+
+### Flow
+
+```mermaid
+sequenceDiagram
+    participant Admin as Cluster Admin
+    participant AS as Apps Service
+    participant App as App Process
+    participant EP as Enrollment Endpoint
+    participant ZM as Ziti Management
+    participant ZC as OpenZiti Controller
+
+    Note over Admin: Register app
+    Admin->>AS: RegisterApp(slug, name)
+    AS->>AS: Generate service token, store app record
+    AS-->>Admin: App record + service token
+
+    Note over App: App deployed with service token
+    App->>EP: Present service token
+    EP->>EP: Validate token (hash lookup via Apps Service)
+    EP->>ZM: CreateAppIdentity(appId, roleAttributes: ["apps"])
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps"], enrollment.ott)
+    ZC->>ZM: Identity ID + enrollment JWT
+    ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
+    ZC->>ZM: Certificate + private key
+    ZM->>ZM: Store mapping in PostgreSQL
+    ZM->>EP: Enrolled identity (cert + key)
+    EP->>App: Enrolled identity (cert + key)
+    App->>App: Bind own service (e.g., "app-reminders")
+    App->>App: Dial Gateway for platform APIs
+```
+
+This follows the same pattern as [external runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity.
+
+### Identity Creation Request
+
+```json
+{
+  "name": "app-<slug>-<shortUuid>",
+  "type": "Device",
+  "isAdmin": false,
+  "roleAttributes": ["apps"],
+  "externalId": "<platformIdentityId>",
+  "enrollment": { "ott": true }
+}
+```
+
+`Device` is the standard OpenZiti type for non-human identities — same as agents and runners.
+
+### Ziti Management API Addition
+
+| RPC | Caller | Description |
+|-----|--------|-------------|
+| `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
+
+This follows the same pattern as external runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
+
+### OpenZiti Service per App
+
+Each app binds its own OpenZiti service (named `app-{slug}`). The service is created at registration time:
+
+| Operation | When |
+|-----------|------|
+| `POST /edge/management/v1/services` | App registration — creates the app's service (e.g., `app-reminders`) with `roleAttributes: ["app-services"]` |
+| `DELETE /edge/management/v1/services/{id}` | App deletion — removes the service |
+
+### Updated Static Policies
+
+Three new static policies are added at bootstrap:
+
+| Policy | Type | Identity Roles | Service Roles | Purpose |
+|--------|------|---------------|---------------|---------|
+| `apps-dial-gateway` | Dial | `#apps` | `@gateway` | Apps can reach Gateway |
+| `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
+| `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
+
+### Updated Role Attributes Table
+
+| Identity Type | Role Attributes |
+|---|---|
+| Agent container | `["agents", "agent-<agentId>"]` |
+| Channel | `["channels"]` |
+| Runner | `["runners"]` |
+| Orchestrator | `["orchestrators"]` |
+| App | `["apps"]` |
+
+### Updated Identities Summary
+
+| Identity | Lifecycle | Provisioning | Calls via OpenZiti |
+|----------|-----------|--------------|--------------------|
+| App | Persistent (enrolled via enrollment token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |

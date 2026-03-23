@@ -35,6 +35,11 @@ graph TB
         ZitiMgmt[Ziti Management]
         Users[Users]
         Identity[Identity]
+        AppsService[Apps Service]
+    end
+
+    subgraph Apps
+        RemindersApp[Reminders]
     end
 
     subgraph Workloads
@@ -84,6 +89,12 @@ graph TB
     Organizations --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
+    AppsService --> Identity
+    AppsService --> ZitiMgmt
+    AppsService --> Authorization
+    Gateway --> AppsService
+    RemindersApp -->|OpenZiti| Gateway
+
     Agents --> AgentsOrch
 ```
 
@@ -110,6 +121,8 @@ graph TB
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
+| **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
+| **[Reminders](apps/reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
 
 ## Data Stores
 
@@ -141,4 +154,6 @@ graph TB
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
 | `agynio/k8s-runner` | Kubernetes-native Runner implementation | Go | Planned |
 | `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
+| `agynio/apps` | Apps Service | Go | Planned |
+| `agynio/reminders` | Reminders app | Go | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |

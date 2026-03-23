@@ -150,3 +150,51 @@ Unresolved architectural decisions requiring discussion.
 - How does Ziti Management authorize `CreateAgentIdentity` calls from the Orchestrator vs. reject them from other callers?
 - Is Istio `AuthorizationPolicy` (ServiceAccount-level) sufficient for internal callers, or does Ziti Management need application-level authorization logic?
 - For external runners (which connect via OpenZiti, not Istio), what is the trust boundary? Should external runners be able to call Ziti Management at all, or should all identity management be mediated by an internal service?
+
+---
+
+## App Permission Model
+
+**Context:** [Apps](architecture/apps.md) currently use cluster-level permissions — a cluster-scoped app can send messages to any thread in the platform. This is acceptable for self-hosted deployments where the platform operator controls which apps are installed.
+
+**Questions:**
+- When should permissions narrow to org-level? (When org-scoped apps are introduced?)
+- Should thread-level permissions exist? (App X can only write to threads where an agent explicitly granted access?)
+- How does permission delegation work if an agent grants an app access to a specific thread?
+- What is the authorization check path for app → thread operations? (Direct OpenFGA check, or mediated by a service?)
+
+---
+
+## Org-Scoped Apps and Runners
+
+**Context:** The current design covers cluster-scoped apps and runners deployed as platform infrastructure. Future needs include org-scoped resources managed by organization administrators.
+
+**Questions:**
+- How does an org admin register an org-scoped app or runner? (Via `agyn` CLI with org context? Via Terraform?)
+- How are org-scoped and cluster-scoped resources with the same slug resolved? (Org-scoped takes precedence? Cluster slugs are reserved?)
+- How does the enrollment flow differ for org-scoped resources? (Same service token flow, scoped to the org?)
+- Are org-scoped apps visible only within their organization, or can they be shared?
+
+---
+
+## Runner Selection Strategy
+
+**Context:** With multiple runners (cluster-scoped and potentially org-scoped), the [Agents Orchestrator](architecture/agents-orchestrator.md) needs to choose which runner handles a given agent workload.
+
+**Questions:**
+- What criteria determine runner selection? (Organization affinity? Agent resource definition? Labels/tags? Capacity?)
+- Can an agent resource definition specify a runner preference or requirement?
+- How does the orchestrator discover available runners and their capabilities?
+- What is the fallback behavior if a preferred runner is unavailable?
+
+---
+
+## Unified Runner Registration
+
+**Context:** Internal (cluster-scoped) runners are currently deployed via IaC with self-enrollment through Ziti Management. External runners use a service token enrollment flow. [Apps](architecture/apps.md) and runners should follow a unified registration model.
+
+**Questions:**
+- Should cluster-scoped runners be registered resources in the platform (like apps), rather than self-enrolling infrastructure?
+- If unified, does Terraform create the runner resource via the Runners service API, receive an enrollment token, and pass it to the deployment?
+- What changes to the current internal runner self-enrollment flow are needed?
+

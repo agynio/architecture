@@ -37,7 +37,7 @@ The authorization model defines types, relations, and how permissions are comput
 
 ### Identities
 
-All platform identities (users, agents, channels, runners) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
+All platform identities (users, agents, channels, runners, apps) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
 
 Any identity can hold any relationship that is modeled in OpenFGA. See [Identity](identity.md) for the identity registry.
 
@@ -116,3 +116,44 @@ OpenFGA runs as a service within the Kubernetes cluster. It uses PostgreSQL as i
 | Protocol | gRPC |
 | Deployment | Kubernetes (Helm chart) |
 | Local development | Part of the bootstrap cluster |
+
+## Cluster Permissions
+
+In addition to organization-scoped permissions, the platform has cluster-level permissions for administrative operations that span all organizations.
+
+### Cluster Type
+
+The authorization model includes a `cluster` type with a singleton object `cluster:global`:
+
+| Permission | Capabilities |
+|------------|-------------|
+| **admin** | Register and manage cluster-scoped [apps](apps.md). Register and manage cluster-scoped runners. Platform administration |
+
+### Tuples
+
+Cluster admin permissions are stored as relationship tuples in OpenFGA:
+
+```
+identity:<userId>, admin, cluster:global
+```
+
+### Bootstrap
+
+The initial cluster admin is seeded during platform bootstrap. Terraform writes directly to PostgreSQL:
+
+1. Terraform creates a user record in the Users service database. This is a platform-only user — not associated with any OIDC identity.
+2. Terraform registers the user's identity in the Identity service database.
+3. Terraform creates an API token for this user (writes to `user_api_tokens` table — hash of the generated token).
+4. Terraform writes the OpenFGA tuple: `identity:<userId>, admin, cluster:global`.
+
+The generated API token is stored as a Terraform output (sensitive) and is used for cluster-level operations — registering cluster-scoped apps and runners.
+
+### Usage
+
+Services that handle cluster-level operations check the `admin` relation on `cluster:global`:
+
+```
+Check(identity:<callerId>, admin, cluster:global) → allowed: bool
+```
+
+If denied, the service returns a permission error.
