@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
+The platform authenticates five types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
 
 ## Identity Types
 
@@ -12,6 +12,7 @@ The platform authenticates four types of identities. Each identity type has its 
 | **Agent** | Agent container calling platform APIs | OpenZiti (network identity) |
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
+| **App** | [App](apps.md) interacting with threads | OpenZiti (network identity) |
 
 All identity types are represented uniformly as `identity:<identity_id>` in the [authorization model](authz.md). See [Identity](identity.md) for the central identity registry and [Users](users.md) for user-specific details.
 
@@ -22,7 +23,7 @@ After authentication, every request carries a resolved identity in its context:
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
-| `identity_type` | enum | `user`, `agent`, `channel`, `runner` |
+| `identity_type` | enum | `user`, `agent`, `channel`, `runner`, `app` |
 
 Downstream services receive identity context via gRPC metadata. Services use `identity_id` for attribution (e.g., message sender). Organization context is passed as a request parameter where needed — see [Organizations — Request Flow](organizations.md#request-flow).
 

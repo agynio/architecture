@@ -115,3 +115,69 @@ The gateway receives traffic through two Istio VirtualService routes (defined in
 2. **Path-based route** (`virtualservice_platform_ui`): `agyn.dev/api/*` → `gateway-gateway:8080` with URI rewrite (`/api/` → `/`). This route is defined on the same VirtualService as the platform-ui route.
 
 The UI uses the path-based route (`/api/`) so that the gateway API is served from the same origin as the web app, avoiding CORS overhead.
+
+## App Proxy
+
+The Gateway provides a generic proxy mechanism for routing requests to [apps](apps.md). This avoids registering per-app proto services in the Gateway — apps define their own API and the Gateway forwards requests opaquely.
+
+### Routing
+
+App requests are identified by the URL path pattern:
+
+```
+/apps/{slug}/{method}
+```
+
+For example:
+- `/apps/reminders/CreateReminder`
+- `/apps/reminders/ListReminders`
+- `/apps/reminders/CancelReminder`
+
+The `agyn` CLI translates `agyn app <slug> <command>` into HTTP requests to this path pattern.
+
+### Flow
+
+```mermaid
+sequenceDiagram
+    participant C as agyn CLI / Agent
+    participant GW as Gateway
+    participant AS as Apps Service
+    participant App as App (e.g., Reminders)
+
+    C->>GW: POST /apps/reminders/CreateReminder
+    GW->>GW: Authenticate caller (OIDC / API token / OpenZiti)
+    GW->>AS: GetAppBySlug("reminders")
+    AS-->>GW: App record (service_name: "app-reminders")
+    GW->>App: Forward request via OpenZiti (dial "app-reminders")
+    App-->>GW: Response
+    GW-->>C: Response
+```
+
+1. Gateway receives a request matching `/apps/{slug}/{method}`.
+2. Gateway authenticates the caller (same as all other requests).
+3. Gateway resolves the app slug to an app record via the [Apps Service](apps-service.md) (`GetAppBySlug`). The app record contains the OpenZiti `service_name`.
+4. Gateway dials the app's OpenZiti service and forwards the request body.
+5. Gateway returns the app's response to the caller.
+
+### Identity Propagation
+
+The Gateway injects the caller's identity into the forwarded request (same metadata headers as internal services: `x-identity-id`, `x-identity-type`). This allows apps to know who initiated the request (e.g., which agent created a reminder).
+
+### Protocol
+
+The Gateway forwards app requests as opaque HTTP/ConnectRPC calls over OpenZiti. Apps implement their own ConnectRPC services — the Gateway does not interpret request or response payloads. This means:
+
+- Adding a new app does not require Gateway code changes.
+- App API evolution does not require Gateway redeployment.
+- The Gateway's only responsibilities are: authentication, app slug resolution, and transport.
+
+### Caching
+
+The `GetAppBySlug` lookup is cached in-memory with a short TTL. App registrations change infrequently.
+
+### Exposed Services Table Update
+
+| Gateway Proto Service | Internal Service | Methods |
+|-----------------------|-----------------|---------|
+| `AppsGateway` | [Apps Service](apps-service.md) | ListApps, GetApp |
+| *(app proxy)* | *per-app via OpenZiti* | *pass-through* |

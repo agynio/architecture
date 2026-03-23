@@ -75,3 +75,18 @@ This separation handles crash recovery: a consumer can read messages, process th
 On `SendMessage`, Threads publishes a `message.created` event to the [Notifications](notifications.md) service for each recipient. The target room is `thread_participant:{participantId}`. Each consumer subscribes to its own room — one subscription regardless of how many threads it participates in.
 
 Consumers combine notifications with pull to avoid duplicates — see [Consumer Sync Protocol](notifications.md#consumer-sync-protocol).
+
+## Non-Participant Senders
+
+Threads allows identities of type `app` to send messages without being thread participants. This supports [write-only apps](apps.md#write-only-apps) (e.g., Reminders) that post to threads but do not need to receive notifications or acknowledge messages.
+
+When `SendMessage` is called with a `sender_id` whose `identity_type` is `app`:
+
+1. The sender is **not** required to be a thread participant.
+2. The message is created with the app's `sender_id`.
+3. `MessageRecipient` rows are created for **all** thread participants (since the sender is not a participant, no participant is excluded from the recipient list).
+4. Notifications are published to all participants' rooms.
+
+Authorization is checked via [OpenFGA](authz.md) — the app must have `thread:write` permission. For cluster-scoped apps, this permission covers all threads in the platform. See [Apps — Permissions](apps.md#permissions).
+
+This is the only behavioral change to Threads for app support — all other thread interactions (participant apps reading messages, acknowledging, etc.) use the existing interface without modification.
