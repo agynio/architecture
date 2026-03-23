@@ -143,7 +143,7 @@ graph TB
 | `agynio/gateway` | Gateway service | Go | Standalone service |
 | `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/tracing` | Tracing service — span ingestion and query | Go | Planned |
-| `agynio/authorization` | Authorization service (thin proxy to OpenFGA) | Go | Planned |
+| `agynio/authorization` | Authorization service (thin proxy to OpenFGA) + authorization model & Terraform | Go, DSL, HCL | Planned |
 | `agynio/identity` | Identity registry service | Go | Planned |
 | `agynio/users` | Users service | Go | Planned |
 | `agynio/organizations` | Organizations service | Go | Planned |
