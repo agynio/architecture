@@ -72,7 +72,7 @@ When state changes, the owning service writes relationship tuples through the Au
 
 ## Model Deployment
 
-The authorization model is managed as infrastructure-as-code in a dedicated repository (`agynio/openfga-model`):
+The authorization model is managed as infrastructure-as-code in the Authorization service repo (`agynio/authorization`), under `terraform/`:
 
 | Content | Description |
 |---------|-------------|
@@ -80,14 +80,7 @@ The authorization model is managed as infrastructure-as-code in a dedicated repo
 | Terraform module | Creates the OpenFGA store, writes the model version |
 | Model tests | `fga model test` — validates expected check results against sample tuples |
 
-The repository is versioned via git tags. The platform's infrastructure repo (`agynio/bootstrap`) references a specific version:
-
-```hcl
-module "openfga_authz" {
-  source  = "github.com/agynio/openfga-model?ref=v1.2.0"
-  api_url = var.openfga_api_url
-}
-```
+Terraform is applied directly from `agynio/authorization/terraform/` to manage the OpenFGA store and model versions.
 
 The [OpenFGA Terraform provider](https://registry.terraform.io/providers/openfga/openfga/latest) manages store and model lifecycle:
 
@@ -99,12 +92,11 @@ Terraform outputs (`store_id`, `model_id`) feed into the Authorization service's
 
 ### Model Update Flow
 
-1. Change the authorization model DSL in `agynio/openfga-model`.
+1. Change the authorization model DSL in `agynio/authorization/terraform/`.
 2. Run `fga model test` to validate.
-3. Merge, tag a new version.
-4. Update the module version in `agynio/bootstrap`.
-5. `terraform apply` writes the new model version to OpenFGA.
-6. Authorization service picks up the new `model_id` on next deploy (or uses latest if not pinned).
+3. Merge.
+4. `terraform apply` from `agynio/authorization/terraform/` writes the new model version to OpenFGA.
+5. Authorization service picks up the new `model_id` on next deploy (or uses latest if not pinned).
 
 ## OpenFGA Deployment
 
