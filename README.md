@@ -41,7 +41,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Apps](architecture/apps.md) | Apps concept — services that interact with threads (Reminders, Slack, GitHub) |
 | [Apps Service](architecture/apps-service.md) | App registration, profiles, and enrollment |
-| [Reminders](architecture/reminders.md) | Platform-provided app — delayed messages to threads |
+| [Reminders](architecture/apps/reminders.md) | Platform-provided app — delayed messages to threads |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
 | [Media](architecture/media.md) | File attachments in thread messages |
 | [Token Counting](architecture/token-counting.md) | Per-message token counting service |

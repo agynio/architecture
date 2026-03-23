@@ -8,7 +8,7 @@ The Apps Service manages app registrations — the configuration entities that d
 
 | Method | Description |
 |--------|-------------|
-| **RegisterApp** | Register a new app. Creates the app record, registers an identity (type `app`) in [Identity](identity.md), and generates an enrollment token. Requires [cluster admin](authz.md#cluster-permissions) |
+| **RegisterApp** | Register a new app. Creates the app record, registers an identity (type `app`) in [Identity](identity.md), and generates a service token. The OpenZiti service name is derived from the slug as `app-{slug}`. Requires [cluster admin](authz.md#cluster-permissions) |
 | **GetApp** | Get an app by ID |
 | **GetAppBySlug** | Get an app by slug. Used by the [Gateway](gateway.md) for [app proxy](gateway.md#app-proxy) routing |
 | **ListApps** | List registered apps |
@@ -25,8 +25,7 @@ The Apps Service manages app registrations — the configuration entities that d
 | `description` | string | Human-readable description |
 | `icon` | string | Icon URL or identifier for UI display |
 | `identity_id` | string (UUID) | App's identity in the [Identity](identity.md) service |
-| `service_name` | string | OpenZiti service name the app binds (e.g., `app-reminders`). Used by the Gateway to dial the app |
-| `enrollment_status` | enum | `pending`, `enrolled` |
+| `service_token_hash` | string | SHA-256 hash of the service token. Used for enrollment |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
 
@@ -37,33 +36,31 @@ sequenceDiagram
     participant Admin as Cluster Admin
     participant AS as Apps Service
     participant I as Identity
-    participant ZM as Ziti Management
     participant Auth as Authorization
 
-    Admin->>AS: RegisterApp(slug, name, icon, service_name)
+    Admin->>AS: RegisterApp(slug, name, icon)
     AS->>I: RegisterIdentity(id, type: app)
-    AS->>ZM: CreateAppIdentity(appId, roleAttributes: ["apps"])
-    ZM-->>AS: enrollmentJWT
     AS->>Auth: Write(identity:appId, thread:write, cluster:global)
-    AS->>AS: Store app record (enrollment_status: pending)
-    AS-->>Admin: App record + enrollment token (one-time)
+    AS->>AS: Generate service token, store app record
+    AS-->>Admin: App record + service token
 ```
 
 1. Cluster admin calls `RegisterApp` (via `agyn` CLI or Terraform).
 2. Apps Service registers the app's identity in the [Identity](identity.md) service with `identity_type: app`.
-3. Apps Service calls [Ziti Management](openziti.md) to create an OpenZiti identity with `roleAttributes: ["apps"]`, receiving an enrollment JWT.
-4. Apps Service writes authorization tuples granting the app its permissions.
-5. Apps Service stores the app record with `enrollment_status: pending` and returns the enrollment token.
-6. The token is provided to the app deployment (via IaC for cluster-scoped apps, or manually for external apps).
+3. Apps Service writes authorization tuples granting the app its permissions.
+4. Apps Service generates a long-lived service token, stores the app record, and returns the token.
+5. The service token is provided to the app deployment (via IaC for cluster-scoped apps, or manually for external apps).
 
 ## Enrollment
 
-When the app starts, it uses the enrollment JWT to enroll with the OpenZiti Controller (exchange JWT for x509 certificate). After enrollment, the app can:
+When the app starts, it presents the service token to the platform enrollment endpoint. The platform validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key) to the app. This follows the same flow as [external runner enrollment](openziti.md#runner-provisioning).
 
-- **Bind** its OpenZiti service (`service_name`) — Gateway can now route commands to it.
+After enrollment, the app can:
+
+- **Bind** its OpenZiti service (`app-{slug}`) — Gateway can now route commands to it.
 - **Dial** the Gateway — the app can call platform APIs.
 
-The Apps Service updates `enrollment_status: enrolled` when the app's OpenZiti identity is confirmed enrolled.
+The service token is long-lived and can be reused. If the app restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
 
 ## Profile Resolution
 

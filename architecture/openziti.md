@@ -394,25 +394,32 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 sequenceDiagram
     participant Admin as Cluster Admin
     participant AS as Apps Service
+    participant App as App Process
+    participant EP as Enrollment Endpoint
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
-    participant App as App Process
 
     Note over Admin: Register app
-    Admin->>AS: RegisterApp(slug, name, service_name)
-    AS->>ZM: CreateAppIdentity(appId, roleAttributes: ["apps"])
+    Admin->>AS: RegisterApp(slug, name)
+    AS->>AS: Generate service token, store app record
+    AS-->>Admin: App record + service token
+
+    Note over App: App deployed with service token
+    App->>EP: Present service token
+    EP->>EP: Validate token (hash lookup via Apps Service)
+    EP->>ZM: CreateAppIdentity(appId, roleAttributes: ["apps"])
     ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps"], enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
+    ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
+    ZC->>ZM: Certificate + private key
     ZM->>ZM: Store mapping in PostgreSQL
-    ZM->>AS: enrollmentJWT, openZitiIdentityId
-    AS->>AS: Store app record with enrollment JWT
-    AS-->>Admin: App record + enrollment token
-
-    Note over App: App deployed with enrollment token
-    App->>ZC: Enroll (exchange JWT for x509 cert)
+    ZM->>EP: Enrolled identity (cert + key)
+    EP->>App: Enrolled identity (cert + key)
     App->>App: Bind own service (e.g., "app-reminders")
     App->>App: Dial Gateway for platform APIs
 ```
+
+This follows the same pattern as [external runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity.
 
 ### Identity Creation Request
 
@@ -427,17 +434,19 @@ sequenceDiagram
 }
 ```
 
+`Device` is the standard OpenZiti type for non-human identities — same as agents and runners.
+
 ### Ziti Management API Addition
 
 | RPC | Caller | Description |
 |-----|--------|-------------|
-| `CreateAppIdentity` | Apps Service | Create an OpenZiti identity for an app, return enrollment JWT |
+| `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
 
-This follows the same pattern as `CreateAgentIdentity` (called by the Orchestrator for agents).
+This follows the same pattern as external runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
 
 ### OpenZiti Service per App
 
-Each app binds its own OpenZiti service. The service is created at registration time:
+Each app binds its own OpenZiti service (named `app-{slug}`). The service is created at registration time:
 
 | Operation | When |
 |-----------|------|

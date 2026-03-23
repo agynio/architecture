@@ -2,22 +2,22 @@
 
 ## Overview
 
-Reminders is a platform-provided [app](apps.md) that delivers delayed messages to threads. Agents schedule reminders via the [`agyn` CLI](agyn-cli.md); when a reminder fires, the Reminders app posts a message to the thread, waking the agent through the normal [orchestrator reconciliation](agents-orchestrator.md#reconciliation).
+Reminders is a platform-provided [app](../) that delivers delayed messages to threads. Agents schedule reminders via the [`agyn` CLI](../); when a reminder fires, the Reminders app posts a message to the thread, waking the agent through the normal [orchestrator reconciliation](../#reconciliation).
 
-Reminders is the first app built on the [Apps](apps.md) architecture. It is a cluster-scoped app deployed as part of platform infrastructure.
+Reminders is the first app built on the [Apps](../) architecture. It is a cluster-scoped app deployed as part of platform infrastructure.
 
 | Aspect | Detail |
 |--------|--------|
-| **Type** | [App](apps.md) (cluster-scoped) |
-| **Identity** | `app` type in [Identity](identity.md), slug: `reminders` |
+| **Type** | [App](../) (cluster-scoped) |
+| **Identity** | `app` type in [Identity](../), slug: `reminders` |
 | **Thread interaction** | Write-only (non-participant) |
 | **Deployment** | IaC (Terraform/bootstrap) |
 | **Storage** | Own PostgreSQL database |
-| **Connectivity** | [OpenZiti](openziti.md) — binds `app-reminders` service, dials Gateway |
+| **Connectivity** | [OpenZiti](../) — binds `app-reminders` service, dials Gateway |
 
 ## Agent Usage
 
-Agents interact with the Reminders app via shell tool calls to the [`agyn` CLI](agyn-cli.md):
+Agents interact with the Reminders app via shell tool calls to the [`agyn` CLI](../):
 
 ```bash
 # Schedule a reminder
@@ -35,7 +35,7 @@ agyn app reminders get-reminder --id <reminder-id>
 
 ## API
 
-The Reminders app exposes its own API, reached via the Gateway's [app proxy](gateway.md#app-proxy). The Gateway forwards `agyn app reminders <command>` requests to the Reminders app over OpenZiti.
+The Reminders app exposes its own API, reached via the Gateway's [app proxy](../#app-proxy). The Gateway forwards `agyn app reminders <command>` requests to the Reminders app over OpenZiti.
 
 | Method | Description |
 |--------|-------------|
@@ -104,13 +104,13 @@ Returns: the [Reminder](#data-model).
 ### Firing
 
 1. When a reminder's scheduled time arrives, the Reminders app fires it.
-2. The app calls `SendMessage` via Gateway → [Threads](threads.md) with:
+2. The app calls `SendMessage` via Gateway → [Threads](../) with:
    - `sender_id`: the Reminders app's own identity
    - `thread_id`: the reminder's target thread
    - `body`: the reminder note (e.g., `"Reminder: check ci"`)
 3. Threads creates `MessageRecipient` rows for all thread participants (since the sender is not a participant, no participant is excluded).
 4. Threads publishes `message.created` notifications to each participant's room.
-5. The [Agents Orchestrator](agents-orchestrator.md) detects unacknowledged messages and starts the agent workload if not already running.
+5. The [Agents Orchestrator](../) detects unacknowledged messages and starts the agent workload if not already running.
 6. The reminder record is updated: `status: completed`, `completed_at: now`.
 
 ### Cancellation

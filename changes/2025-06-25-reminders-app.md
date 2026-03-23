@@ -2,7 +2,7 @@
 
 ## Target
 
-- [Reminders](../architecture/reminders.md)
+- [Reminders](../architecture/apps/reminders.md)
 
 ## Delta
 

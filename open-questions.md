@@ -198,14 +198,3 @@ Unresolved architectural decisions requiring discussion.
 - If unified, does Terraform create the runner resource via the Runners service API, receive an enrollment token, and pass it to the deployment?
 - What changes to the current internal runner self-enrollment flow are needed?
 
----
-
-## Bootstrap Admin User Seeding
-
-**Context:** Cluster-level operations (registering cluster-scoped apps and runners) require a [cluster admin](architecture/authz.md#cluster-permissions). The initial admin is seeded by Terraform at bootstrap.
-
-**Questions:**
-- How is the initial admin user identified? (By OIDC subject from the IdP? By email? Created as a platform-only user without OIDC?)
-- If the admin user is linked to an OIDC subject, what happens if the IdP is not configured at bootstrap time?
-- Should there be a "break glass" mechanism for regaining cluster admin access if the initial admin is lost?
-- How is the bootstrap API token rotated or revoked?

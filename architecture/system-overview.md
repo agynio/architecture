@@ -122,7 +122,7 @@ graph TB
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
-| **[Reminders](reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
+| **[Reminders](apps/reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
 
 ## Data Stores
 

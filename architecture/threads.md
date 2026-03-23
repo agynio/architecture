@@ -89,4 +89,3 @@ When `SendMessage` is called with a `sender_id` whose `identity_type` is `app`:
 
 Authorization is checked via [OpenFGA](authz.md) — the app must have `thread:write` permission. For cluster-scoped apps, this permission covers all threads in the platform. See [Apps — Permissions](apps.md#permissions).
 
-This is the only behavioral change to Threads for app support — all other thread interactions (participant apps reading messages, acknowledging, etc.) use the existing interface without modification.

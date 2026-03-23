@@ -139,14 +139,14 @@ identity:<userId>, admin, cluster:global
 
 ### Bootstrap
 
-The initial cluster admin is seeded during platform bootstrap. Terraform writes directly to the Users service database and the Authorization service:
+The initial cluster admin is seeded during platform bootstrap. Terraform writes directly to PostgreSQL:
 
-1. Terraform creates a user record in the Users service database (or references an existing OIDC user by subject).
-2. Terraform creates an API token for this user (writes to `user_api_tokens` table — hash of the generated token).
-3. Terraform registers the user's identity in the Identity service.
+1. Terraform creates a user record in the Users service database. This is a platform-only user — not associated with any OIDC identity.
+2. Terraform registers the user's identity in the Identity service database.
+3. Terraform creates an API token for this user (writes to `user_api_tokens` table — hash of the generated token).
 4. Terraform writes the OpenFGA tuple: `identity:<userId>, admin, cluster:global`.
 
-The generated API token is stored as a Terraform output (sensitive) and can be used for subsequent cluster-level operations — registering cluster-scoped apps and runners, managing platform configuration.
+The generated API token is stored as a Terraform output (sensitive) and is used for cluster-level operations — registering cluster-scoped apps and runners.
 
 ### Usage
 

@@ -10,7 +10,7 @@ Apps unify what was previously split between "channels" (bidirectional bridges t
 
 | App | Description | Thread Interaction |
 |-----|-------------|-------------------|
-| **[Reminders](reminders.md)** | Agent-initiated delayed messages | Write only |
+| **[Reminders](apps/reminders.md)** | Agent-initiated delayed messages | Write only |
 | **Slack** (future) | Bidirectional bridge to Slack | Read + write (participant) |
 | **GitHub** (future) | Agent-initiated event subscriptions | Write only |
 
@@ -18,8 +18,8 @@ Apps unify what was previously split between "channels" (bidirectional bridges t
 
 Every app, regardless of implementation:
 
-1. **Registers** in the platform via the [Apps Service](apps-service.md) — receives an enrollment token.
-2. **Enrolls** via OpenZiti — exchanges the token for an x509 identity.
+1. **Registers** in the platform via the [Apps Service](apps-service.md) — receives a long-lived service token.
+2. **Enrolls** via the platform enrollment endpoint — presents the service token, receives an OpenZiti x509 identity.
 3. **Binds** an OpenZiti service — so the Gateway can forward app-specific commands to it.
 4. **Dials** the Gateway — to call platform APIs (SendMessage, etc.) using its own app identity.
 
@@ -83,7 +83,7 @@ The slug appears in CLI usage: `agyn app <slug> <command>`.
 
 Apps connect to the platform via [OpenZiti](openziti.md). An app has **bidirectional** OpenZiti access:
 
-- **Bind** — the app binds its own OpenZiti service (e.g., `app-reminders`) so the Gateway can forward app-specific commands to it.
+- **Bind** — the app binds its OpenZiti service (`app-{slug}`, e.g., `app-reminders`) so the Gateway can forward app-specific commands to it.
 - **Dial** — the app dials the Gateway to call platform APIs (SendMessage, etc.).
 
 See [OpenZiti — App Identity Lifecycle](openziti.md#app-identity-lifecycle) for enrollment details.

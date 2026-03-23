@@ -147,7 +147,7 @@ sequenceDiagram
     C->>GW: POST /apps/reminders/CreateReminder
     GW->>GW: Authenticate caller (OIDC / API token / OpenZiti)
     GW->>AS: GetAppBySlug("reminders")
-    AS-->>GW: App record (service_name: "app-reminders")
+    AS-->>GW: App record (slug: "reminders")
     GW->>App: Forward request via OpenZiti (dial "app-reminders")
     App-->>GW: Response
     GW-->>C: Response
@@ -155,7 +155,7 @@ sequenceDiagram
 
 1. Gateway receives a request matching `/apps/{slug}/{method}`.
 2. Gateway authenticates the caller (same as all other requests).
-3. Gateway resolves the app slug to an app record via the [Apps Service](apps-service.md) (`GetAppBySlug`). The app record contains the OpenZiti `service_name`.
+3. Gateway resolves the app slug via the [Apps Service](apps-service.md) (`GetAppBySlug`). The OpenZiti service name is derived from the slug as `app-{slug}`.
 4. Gateway dials the app's OpenZiti service and forwards the request body.
 5. Gateway returns the app's response to the caller.
 
