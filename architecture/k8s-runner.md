@@ -113,7 +113,6 @@ The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY
 
 All workload Pods are created in a single dedicated namespace (e.g., `agyn-workloads`). The namespace is configurable at deployment time.
 
-> **Open question:** Per-organization namespaces may be needed for stronger isolation (network policies, resource quotas per organization). For now, a single namespace is sufficient. See [Open Questions](../open-questions.md).
 
 ## RBAC
 

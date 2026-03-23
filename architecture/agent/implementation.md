@@ -106,11 +106,7 @@ Rolling summarization keeps the LLM context within a token budget. When context 
 
 ### Packaging
 
-Summarization is currently embedded in the agent code. How it should be packaged is an [open question](../../open-questions.md#summarization-packaging):
-
-- As part of the agent service code (current state).
-- As a separate reusable package that different agent implementations can import.
-- As a standalone service with its own API.
+Summarization is embedded in the agent code. Extraction into a shared package or standalone service will be evaluated when a second agent loop implementation is introduced.
 
 ## State Persistence
 
