@@ -190,7 +190,7 @@ The [Gateway](gateway.md) exposes the Tracing query API via `TracingGateway`:
 | `GetSpan` | `TracingService.GetSpan` |
 | `GetTrace` | `TracingService.GetTrace` |
 
-The ingestion endpoint (`TraceService/Export`) is the standard OTLP gRPC interface and is also exposed through the Gateway for producers that connect via the external API.
+The ingestion endpoint (`TraceService/Export`) is not exposed through the Gateway. Agents send spans directly to the Tracing service over the internal network using the standard OTLP gRPC interface.
 
 ## Authorization
 

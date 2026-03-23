@@ -73,7 +73,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `AgentStateGateway` | [Agent State](agent/state.md) | All methods |
 | `TokenCountingGateway` | [Token Counting](token-counting.md) | All methods |
 | `LLMGateway` | [LLM](llm.md) | CreateChatCompletion (proxied LLM calls) |
-| `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
+| `TracingGateway` | [Tracing](tracing.md) | ListSpans, GetSpan, GetTrace |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue |
 | `UsersGateway` | [Users](users.md) | CreateAPIToken, ListAPITokens, RevokeAPIToken |
 
