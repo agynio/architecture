@@ -35,7 +35,7 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
 
-The exact configuration strategy differs per agent CLI (e.g., where skills are placed, how MCP servers are connected, what environment variables are set). See [Open Questions — agynd Configuration Strategies per Agent](../open-questions.md#agynd-configuration-strategies-per-agent) for the full discussion.
+The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the init image's `config.json` specifies which SDK module `agynd` uses.
 
 ### 3. Agent Process Management
 
@@ -158,7 +158,3 @@ sequenceDiagram
     GW-->>D: message.created
     Note over D: Resume message processing
 ```
-
-## Open Questions
-
-- **Configuration strategies per agent.** How `agynd` prepares the environment for different agent CLIs (`agn`, Claude Code, Codex CLI). See [Open Questions](../open-questions.md#agynd-configuration-strategies-per-agent).
