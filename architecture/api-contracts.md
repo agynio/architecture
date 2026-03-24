@@ -58,7 +58,6 @@ The external API is defined by **gateway proto services** in `agynio/api`. These
 | FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
 | AgentStateGateway | `agynio/api/gateway/v1/agent_state.proto` | [Agent State](agent/state.md) |
 | TokenCountingGateway | `agynio/api/gateway/v1/token_counting.proto` | [Token Counting](token-counting.md) |
-| LLMGateway | `agynio/api/gateway/v1/llm.proto` | [LLM](llm.md) |
 | TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
 | SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |
 

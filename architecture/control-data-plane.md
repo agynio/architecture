@@ -37,6 +37,7 @@ graph LR
         Files
         TokenCounting[Token Counting]
         LLM
+        LLMProxy[LLM Proxy]
         Chat
         Secrets
         Authorization
@@ -67,7 +68,8 @@ graph LR
 | **Tracing** | Data | Ingests and serves tracing data |
 | **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
 | **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
-| **LLM** | Data | Proxies LLM API calls from agents to providers on the hot path during agent execution |
+| **LLM** | Data | Manages LLM providers and models. Provides model resolution for the LLM Proxy |
+| **LLM Proxy** | Data | Exposes OpenAI-compatible Responses API for agents. Forwards LLM requests to providers on the hot path during agent execution |
 | **Secrets** | Data | Resolves secret values from external providers at runtime |
 | **Chat** | Data | Built-in app chat experience on top of Threads |
 | **Authorization** | Data | Checks permissions and manages relationship tuples. Thin proxy to OpenFGA on the live request path |

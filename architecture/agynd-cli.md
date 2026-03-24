@@ -30,7 +30,7 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 | Preparation | Description |
 |-------------|-------------|
 | **Skills** | Loads [skill](resource-definitions.md#skill) content and places it into the filesystem in the directory structure expected by the agent CLI |
-| **LLM endpoint** | Provides LLM endpoint configuration so the agent CLI knows where to make model calls |
+| **LLM endpoint** | Provides [LLM Proxy](llm-proxy.md) endpoint configuration so the agent CLI knows where to make model calls |
 | **MCP tools** | Exposes all configured [MCP](resource-definitions.md#mcp) tool servers as a single aggregated MCP server that proxies tool calls through `agynd` |
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
@@ -141,7 +141,7 @@ sequenceDiagram
 
     R->>D: Start container
     D->>D: Fetch agent configuration (via Gateway)
-    D->>D: Prepare environment (skills, LLM config)
+    D->>D: Prepare environment (skills, LLM Proxy config)
     D->>D: Start aggregated MCP proxy
     D->>GW: Subscribe to thread_participant:{agentId}
     D->>A: Spawn agent CLI via SDK
