@@ -18,7 +18,7 @@ The LLM Proxy bridges this gap: it speaks the OpenAI Responses API wire format e
 |---------------|-------------|
 | **Responses API endpoint** | Serve `POST /v1/responses` with the OpenAI Responses API request/response format |
 | **Authentication** | Authenticate callers via [OpenZiti](#openziti-identity) network identity or [API token](api-tokens.md) |
-| **Authorization** | Verify the caller belongs to the same organization as the requested model |
+| **Authorization** | Call the [Authorization](authz.md) service to check access before forwarding |
 | **Model resolution** | Call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
 | **Request forwarding** | Forward the request to the external LLM provider with injected Bearer credentials and substituted model name |
 | **Streaming** | Support SSE streaming (`stream: true`) — stream the provider's response back to the caller without buffering |
@@ -57,6 +57,7 @@ The LLM Proxy does not interpret the request or response body beyond extracting 
 sequenceDiagram
     participant A as Agent
     participant P as LLM Proxy
+    participant Auth as Authorization Service
     participant L as LLM Service (gRPC)
     participant E as LLM Provider (external)
 
@@ -64,7 +65,8 @@ sequenceDiagram
     P->>P: Authenticate caller (OpenZiti / API token)
     P->>L: ResolveModel(model_id)
     L-->>P: endpoint, token, remoteName, organization_id
-    P->>P: Authorize (caller org == model org)
+    P->>Auth: Check(identity, can_use, model)
+    Auth-->>P: allowed / denied
     P->>E: Forward request (Bearer token, model: remoteName)
     E-->>P: Response (or SSE stream)
     P-->>A: Response (or SSE stream)
@@ -73,7 +75,7 @@ sequenceDiagram
 1. Agent sends an OpenAI Responses API request to the LLM Proxy, specifying the platform model ID.
 2. LLM Proxy authenticates the caller — OpenZiti identity resolution via [Ziti Management](openziti.md), or API token hash lookup via [Users](users.md).
 3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token, remote model name, and organization ID.
-4. LLM Proxy verifies that the caller's organization matches the model's organization.
+4. LLM Proxy calls the [Authorization](authz.md) service to check whether the caller has access. If denied, returns `403 Forbidden`.
 5. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name and injecting the provider's token as a `Bearer` authorization header.
 6. The provider's response is returned to the agent. For streaming requests, SSE events are forwarded without buffering.
 
@@ -86,18 +88,13 @@ The LLM Proxy authenticates callers independently — it does not go through the
 | **OpenZiti** | mTLS identity extracted from the connection via [Ziti Management](openziti.md) `ResolveIdentity` | Agents running inside the platform (primary path) |
 | **API token** | `Authorization: Bearer agyn_...` → hash lookup via [Users](users.md) `ResolveAPIToken` | External callers, local development, CI |
 
-Both methods resolve to an `identity_id` and `identity_type`. The LLM Proxy uses `identity_id` to determine organization membership for authorization.
+Both methods resolve to an `identity_id` and `identity_type`. The `identity_id` is passed to the [Authorization](authz.md) service for permission checks.
 
 ## Authorization
 
-Authorization is org-level: any authenticated caller within an organization can use any model within that organization.
+The LLM Proxy delegates authorization to the [Authorization](authz.md) service, following the same pattern as all other platform services. After authentication and model resolution, the LLM Proxy calls `Check` on the Authorization service. If denied, returns `403 Forbidden`.
 
-1. Resolve the caller's `identity_id` from authentication.
-2. Resolve the model's `organization_id` from the `ResolveModel` response.
-3. Check that the caller has a relationship to the model's organization (via [Authorization](authz.md) service).
-4. If the check fails, return `403 Forbidden`.
-
-No per-model or per-agent authorization. Any identity with access to the organization can use any model in that organization.
+The authorization logic — what relationships and permissions grant access to a model — is defined in the [authorization model](authz.md#authorization-model). The LLM Proxy does not implement or interpret authorization rules.
 
 ## OpenZiti Identity
 

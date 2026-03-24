@@ -19,13 +19,13 @@ graph TB
         LLMLoop --> MCP
     end
 
-    subgraph External (via OpenZiti)
-        LLMProxy[LLM Proxy<br/>OpenAI Responses API]
+    subgraph External
+        LLMProvider[LLM Provider<br/>OpenAI Responses API]
         AgentState[Agent State Service<br/>gRPC]
         TracingDep[Tracing<br/>optional]
     end
 
-    LLMLoop --> LLMProxy
+    LLMLoop --> LLMProvider
     Persistence --> AgentState
     LLMLoop -.-> TracingDep
 ```
@@ -79,7 +79,7 @@ The Router after CallModel inspects the LLM response:
 
 ### LLM Provider
 
-Uses **OpenAI Responses API** via the [LLM Proxy](../llm-proxy.md). The agent connects to the LLM Proxy over OpenZiti (or via its public endpoint for local development). The LLM client wraps the provider and handles message serialization.
+Uses **OpenAI Responses API**. The LLM client wraps any OpenAI-compatible endpoint and handles message serialization. When running on the platform, [`agynd`](../agynd-cli.md) configures the endpoint to point to the [LLM Proxy](../llm-proxy.md).
 
 Message types sent to the provider:
 

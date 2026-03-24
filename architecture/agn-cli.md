@@ -79,7 +79,7 @@ graph TB
     end
 
     subgraph External
-        LLM[LLM Proxy]
+        LLM[LLM Endpoint]
         MCP[MCP Server]
         StateStore[State Store<br/>Agent State / Local]
     end
@@ -110,7 +110,7 @@ graph LR
 |-------|-------------|
 | **Load** | Load conversation messages from state persistence |
 | **Summarize** | If context exceeds the token budget, fold older messages into a rolling summary |
-| **CallModel** | Prepend system prompt, send context to [LLM Proxy](llm-proxy.md) |
+| **CallModel** | Prepend system prompt, send context to LLM endpoint |
 | **Route** | Inspect the LLM response and decide next step |
 | **CallTools** | Execute tool calls via MCP, collect results |
 | **Save** | Persist the updated conversation state |
@@ -141,14 +141,14 @@ All `agn` configuration and credentials live under `~/.agyn/` — the shared hom
 
 ### Minimal configuration
 
-The initial configuration covers the two things `agn` needs to run: an [LLM Proxy](llm-proxy.md) endpoint and a system prompt.
+The initial configuration covers the two things `agn` needs to run: an LLM endpoint and a system prompt.
 
 ```yaml
 # ~/.agyn/agn/config.yaml
 
 llm:
-  # LLM Proxy URL (OpenAI-compatible API)
-  endpoint: https://llm.agyn.dev/v1
+  # LLM endpoint URL (OpenAI-compatible API)
+  endpoint: https://api.openai.com/v1
   # Authentication method for the LLM endpoint
   auth:
     # API key authentication
@@ -165,7 +165,7 @@ system_prompt: |
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `llm.endpoint` | string | yes | [LLM Proxy](llm-proxy.md) base URL (OpenAI-compatible) |
+| `llm.endpoint` | string | yes | OpenAI-compatible API base URL |
 | `llm.auth.api_key` | string | one of | API key, provided directly |
 | `llm.auth.api_key_env` | string | one of | Environment variable name containing the API key |
 | `llm.model` | string | yes | Model identifier |
@@ -173,7 +173,7 @@ system_prompt: |
 
 ### Platform vs local
 
-When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The [LLM Proxy](llm-proxy.md) endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
+When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
 
 When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `agn exec` reads it on startup.
 
@@ -199,5 +199,5 @@ The local backend enables running `agn` fully offline without any platform depen
 | [`agynd`](agynd-cli.md) | Spawns `agn` via `agn-sdk-go`, prepares its environment, feeds messages, collects output |
 | [Agent State](agent/state.md) | Optional remote persistence backend |
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
-| [LLM Proxy](llm-proxy.md) | Configured by `agynd` or manually; `agn` calls it for model completions |
+| LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
 | MCP Server | Configured by `agynd` (aggregated proxy) or manually; `agn` calls it for tool execution |
