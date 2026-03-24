@@ -152,7 +152,7 @@ functions:
                     sleep 1; elapsed=$((elapsed + 1))
                     [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
-                  buf generate buf.build/agynio/api --path agynio/api/threads/v1 --path agynio/api/notifications/v1
+                  buf generate buf.build/agynio/api --include-imports --path agynio/api/threads/v1 --path agynio/api/notifications/v1
                   exec go run ./cmd/threads
               volumeMounts:
                 - name: data

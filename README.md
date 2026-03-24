@@ -36,6 +36,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
 | [agyn-cli](architecture/agyn-cli.md) | Platform CLI — Gateway API access for admins, developers, and agents |
 | [agynd-cli](architecture/agynd-cli.md) | Agent wrapper daemon — bridges agent CLIs with platform services |
+| [Agent Init Container](architecture/agent-init.md) | Init container design for injecting platform binaries into agent pods |
 | [agn-cli](architecture/agn-cli.md) | Our agent loop implementation — LLM reasoning with tool use |
 | [Chat](architecture/chat.md) | Built-in web/mobile app chat on top of Threads |
 | [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |

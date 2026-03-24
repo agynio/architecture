@@ -56,6 +56,7 @@ An agent definition that determines how an agent workload behaves when processin
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
 | `image` | string | | Container image for the agent pod (e.g., `ghcr.io/agynio/agent:latest`) |
+| `init_image` | string | | Platform init image reference (e.g., `ghcr.io/agynio/agent-init-codex:v1.0.0`). Contains agynd + agent CLI. Runs as init container |
 | `resources` | object | | Compute resources for the agent container (see [Compute Resources](#compute-resources)) |
 
 The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Agents service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
