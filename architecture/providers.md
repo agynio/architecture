@@ -2,7 +2,7 @@
 
 ## LLM Provider
 
-An LLM provider represents a connection to an external LLM service. All LLM providers expose an OpenAI-compatible Responses API. The platform uses the same client for every provider — only the endpoint and auth differ.
+An LLM provider represents a connection to an external LLM service. All LLM providers expose an OpenAI-compatible Responses API. The [LLM Proxy](llm-proxy.md) uses the same client for every provider — only the endpoint and auth differ.
 
 ### Resource Definition
 

@@ -36,6 +36,7 @@ graph TB
         Users[Users]
         Identity[Identity]
         AppsService[Apps Service]
+        LLMProxy[LLM Proxy]
     end
 
     subgraph Apps
@@ -58,12 +59,15 @@ graph TB
     Gateway --> Chat
     Gateway --> Files
     Gateway --> Notifications
-    Gateway --> LLM
     Gateway --> Secrets
     Gateway --> Threads
     Gateway --> AgentState
     Gateway --> TokenCounting
     Gateway --> Tracing
+    LLMProxy --> LLM
+    LLMProxy --> ZitiMgmt
+    LLMProxy --> Users
+    LLMProxy --> Authorization
     Chat --> Threads
     Chat --> Identity
     Chat --> Users
@@ -81,6 +85,7 @@ graph TB
     Agent1 --> MCP1
     Agent2 --> MCP2
     Agent1 & Agent2 -->|OpenZiti| Gateway
+    Agent1 & Agent2 -->|OpenZiti| LLMProxy
 
     Chat --> Authorization
     Files --> Authorization
@@ -110,7 +115,8 @@ graph TB
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
 | **Token Counting** | Per-message token counting for LLM messages |
-| **LLM** | Manages LLM providers and models. Proxies LLM API calls from agents to providers with injected credentials |
+| **LLM** | Manages LLM providers and models. Provides model resolution (model ID → provider endpoint, token, remote name) for the LLM Proxy |
+| **[LLM Proxy](llm-proxy.md)** | Exposes an OpenAI-compatible Responses API endpoint for agents. Authenticates callers, resolves models via LLM service, forwards requests to external providers |
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
@@ -152,6 +158,7 @@ graph TB
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
+| `agynio/llm-proxy` | LLM Proxy — OpenAI-compatible Responses API endpoint for agents | Go | Planned |
 | `agynio/agent-init-codex` | Init container image: agynd + Codex CLI | Dockerfile | Active |
 | `agynio/agent-init-claude` | Init container image: agynd + Claude Code CLI | Dockerfile | Active |
 | `agynio/agent-init-agn` | Init container image: agynd + agn CLI | Dockerfile | Active |

@@ -21,6 +21,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Runner** | Bind (server) | `zitiContext.Listen("runner")` → `grpcServer.Serve(listener)` |
 | **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
+| **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
 
 Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
@@ -201,6 +202,7 @@ sequenceDiagram
 | **Internal Runner** | `["runners"]` | `zitiContext.Listen("runner")` — binds the `runner` service |
 | **Agents Orchestrator** | `["orchestrators"]` | `zitiContext.Dial("runner")` — dials runners |
 | **Gateway** | `["gateway-hosts"]` | `zitiContext.ListenWithOptions("gateway", ...)` — binds the `gateway` service |
+| **LLM Proxy** | `["llm-proxy-hosts"]` | `zitiContext.ListenWithOptions("llm-proxy", ...)` — binds the `llm-proxy` service |
 
 ## Service Policies
 
@@ -214,6 +216,7 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 | Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
+| LLM Proxy | `["llm-proxy-hosts"]` |
 
 The `agent-<agentId>` attribute is assigned at creation time for future use in per-agent policies. It has no effect until matching service policies are created.
 
@@ -228,6 +231,8 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `orchestrators-dial-runners` | Dial | `#orchestrators` | `@runner` | Orchestrator can reach Runners |
 | `gateway-bind` | Bind | `#gateway-hosts` | `@gateway` | Gateway hosts the `gateway` service |
 | `runners-bind` | Bind | `#runners` | `@runner` | Runners host the `runner` service |
+| `agents-dial-llm-proxy` | Dial | `#agents` | `@llm-proxy` | All agents can reach LLM Proxy |
+| `llm-proxy-bind` | Bind | `#llm-proxy-hosts` | `@llm-proxy` | LLM Proxy hosts the `llm-proxy` service |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
@@ -363,14 +368,16 @@ Both internal and external runners bind the same `runner` OpenZiti service and a
 
 ## Agent Access Scope
 
-Agents connect to the **Gateway only**, regardless of runner location (internal or external). The static service policy `agents-dial-gateway` grants all agents Dial access to the `gateway` service. No other OpenZiti services are dialable by agents.
+Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location (internal or external). The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
 
 | Connection | Layer |
 |------------|-------|
 | Agent → Gateway | OpenZiti |
+| Agent → LLM Proxy | OpenZiti |
 | Gateway → internal services | Istio |
+| LLM Proxy → internal services | Istio |
 
-The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. Agents never connect directly to internal services.
+The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. The LLM Proxy handles LLM API calls — it resolves models via the LLM service and forwards requests to external providers. Agents never connect directly to other internal services.
 
 ## OpenZiti Identities Summary
 
@@ -379,10 +386,11 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
 | Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `runner` service) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds `runner` service) |
-| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway (dial) |
+| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial) |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
+| LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
 
 ## App Identity Lifecycle
 

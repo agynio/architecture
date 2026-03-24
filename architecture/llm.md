@@ -2,7 +2,9 @@
 
 ## Overview
 
-The LLM service manages LLM providers and models as internal resources, and exposes a proxy endpoint for making LLM calls. Agents do not connect to LLM providers directly — they call the LLM service, which resolves the model's provider and forwards the request with the appropriate endpoint and token.
+The LLM service manages LLM providers and models as internal resources, and provides model resolution for the [LLM Proxy](llm-proxy.md). It is the single source of truth for provider credentials and model-to-provider mappings.
+
+Agents do not interact with the LLM service directly. They call the [LLM Proxy](llm-proxy.md), which resolves models through this service.
 
 ## Responsibilities
 
@@ -10,47 +12,44 @@ The LLM service manages LLM providers and models as internal resources, and expo
 |---------------|-------------|
 | **Provider CRUD** | Create, read, update, delete LLM provider resources |
 | **Model CRUD** | Create, read, update, delete model resources |
-| **LLM Proxy** | Accept LLM API calls from agents, resolve the model → provider chain, forward to the provider with injected credentials |
+| **Model resolution** | Resolve a model ID to provider endpoint, token, remote model name, and organization ID — consumed by the [LLM Proxy](llm-proxy.md) |
 
 ## Classification
 
-The LLM service is a **data plane** service — it carries live LLM traffic on the agent execution hot path.
+The LLM service is a **data plane** service — model resolution is on the hot path during agent execution.
 
-## LLM Proxy
+## Model Resolution
 
-The proxy endpoint accepts OpenAI-compatible Responses API requests. The caller specifies a model by its internal ID. The service resolves the model to its LLM provider, then forwards the request to the provider's endpoint with the provider's token injected as a Bearer token.
+The `ResolveModel` method returns everything the [LLM Proxy](llm-proxy.md) needs to forward a request to an external LLM provider.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent
-    participant L as LLM Service
-    participant P as LLM Provider<br/>(external)
+### ResolveModel
 
-    A->>L: Responses API request<br/>(model ID)
-    L->>L: Resolve model → provider<br/>(endpoint + token + remoteName)
-    L->>P: Forward request<br/>(Bearer token, remoteName)
-    P-->>L: Response
-    L-->>A: Response
+**Request:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model_id` | string (UUID) | Platform model ID |
+
+**Response:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `endpoint` | string | Provider base URL (e.g., `https://api.openai.com`) |
+| `token` | string | Provider authentication token |
+| `remote_name` | string | Model identifier on the provider's side (e.g., `gpt-5`, `anthropic/claude-sonnet-4-20250514`) |
+| `organization_id` | string (UUID) | Organization that owns the model |
+
+### Resolution Chain
+
+```
+Model.id → Model.llmProvider → LLM Provider (endpoint + token) + Model.remoteName
 ```
 
-### Request Flow
-
-1. Agent sends an OpenAI-compatible Responses API request to the LLM service, specifying the internal model ID.
-2. The LLM service looks up the model resource to get the LLM provider reference and remote model name.
-3. The LLM service looks up the LLM provider resource to get the endpoint URL and token.
-4. The LLM service forwards the request to the provider's endpoint, replacing the model ID with the remote model name and injecting the token as a Bearer authorization header.
-5. The provider's response is returned to the agent.
-
-The agent is configured with the LLM service endpoint. It uses the standard OpenAI client pointed at the LLM service — no provider-specific client logic in the agent.
-
-### Streaming
-
-The proxy supports streaming responses. When the agent requests a streaming response, the LLM service streams the provider's response back to the agent without buffering.
+The LLM service looks up the model, follows the provider reference, and returns the combined result.
 
 ## Provider Management
 
 CRUD operations for LLM provider resources. See [Providers, Models, and Secrets](providers.md#llm-provider) for the resource definition.
-
 
 ## Model Management
 

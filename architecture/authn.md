@@ -86,7 +86,7 @@ Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZi
 
 Non-user identities bootstrap onto the OpenZiti network through one of three paths:
 
-**Self-enrolled service identities** (Orchestrator, Gateway, internal Runners) request their identity from the [Ziti Management](openziti.md) service at pod startup. Ziti Management creates the identity on the OpenZiti Controller, enrolls it, and returns the enrolled identity (certificate + key). The pod writes the identity to ephemeral disk and extends a lease on a timer. If the pod restarts, it requests a new identity — the old one is garbage-collected by Ziti Management when its lease expires. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
+**Self-enrolled service identities** (Orchestrator, Gateway, LLM Proxy, internal Runners) request their identity from the [Ziti Management](openziti.md) service at pod startup. Ziti Management creates the identity on the OpenZiti Controller, enrolls it, and returns the enrolled identity (certificate + key). The pod writes the identity to ephemeral disk and extends a lease on a timer. If the pod restarts, it requests a new identity — the old one is garbage-collected by Ziti Management when its lease expires. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
 
 **Operator-provisioned identities** (external Runners, Channels) use a service token flow. An admin creates the resource in the platform, receives a one-time service token, and configures the external service with it. The service presents the token to the platform's enrollment endpoint, which creates an OpenZiti identity, returns an enrollment JWT, and the service enrolls with the Controller.
 
@@ -127,9 +127,10 @@ The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Inte
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner |
 | Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives work) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds service, receives work) |
-| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway |
+| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway, LLM Proxy |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
+| LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 
 ## Two Network Layers
@@ -152,6 +153,7 @@ graph TB
             Threads[Threads]
             Files[Files]
             Notif[Notifications]
+            LLMProxy[LLM Proxy]
             Other[Other Services]
         end
 
@@ -172,7 +174,9 @@ graph TB
     Orch -.->|"OpenZiti (SDK)"| ExtRunner
 
     ZR -->|Istio| GW
+    ZR -->|Istio| LLMProxy
     GW -->|Istio| Chat & Threads & Files & Notif & Other
+    LLMProxy -->|Istio| Other
     Orch -->|Istio| Threads & Other
 ```
 
@@ -185,6 +189,7 @@ Services that participate in both the Istio mesh and the OpenZiti overlay use th
 | **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner")` | All other outbound calls (Threads, Agents, Secrets, etc.) |
 | **Internal Runner** | Binds `runner` service via `zitiContext.Listen("runner")` | Not used for inbound Runner API traffic |
 | **Gateway** | Binds `gateway` service via `zitiContext.ListenWithOptions("gateway", ...)` | All outbound calls to internal services |
+| **LLM Proxy** | Binds `llm-proxy` service via `zitiContext.ListenWithOptions("llm-proxy", ...)` | All outbound calls to internal services (LLM, Users, Authorization, Ziti Management) |
 
 The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server can accept connections from an OpenZiti listener the same way it accepts connections from a TCP listener. Similarly, a gRPC client can dial through an OpenZiti context the same way it dials a TCP address. See [`openziti/sdk-golang`](https://github.com/openziti/sdk-golang).
 
@@ -221,15 +226,17 @@ They operate on different connections:
 | Connection | Layer | Notes |
 |------------|-------|-------|
 | Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location |
+| Agent → LLM Proxy | OpenZiti | LLM API calls via overlay, regardless of location |
 | Channel → Gateway | OpenZiti | Channels always connect via overlay |
 | Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for internal and external runners |
 | Orchestrator → Threads, Agents, etc. | Istio | Standard internal service calls |
 | Gateway → internal services | Istio | Standard internal service calls |
+| LLM Proxy → internal services | Istio | LLM service, Users, Authorization, Ziti Management |
 | Internal service → internal service | Istio | Standard internal service calls |
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). Organization membership is not validated at the Gateway — it is enforced by the [authorization model](authz.md) at the service level.
+**External traffic**: Authenticated at the **Gateway** or the **[LLM Proxy](llm-proxy.md)**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). The LLM Proxy authenticates agents via OpenZiti mTLS or API token for LLM API calls. Organization membership is not validated at the authentication boundary — it is enforced by the [authorization model](authz.md) at the service level.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 
