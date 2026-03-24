@@ -14,7 +14,7 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 
 | RPC | Description |
 |-----|-------------|
-| `StartWorkload` | Start a workload (main container + optional sidecars with shared network) |
+| `StartWorkload` | Start a workload (init containers + main container + optional sidecars with shared network) |
 | `StopWorkload` | Stop a running workload |
 | `RemoveWorkload` | Remove a workload and optionally its volumes |
 | `InspectWorkload` | Inspect workload state (id, image, labels, mounts, status) |
@@ -60,6 +60,7 @@ Exec supports:
 ```mermaid
 graph TB
     subgraph Workload
+        Init[Init Container]
         Main[Main Container]
         S1[Sidecar 1]
         S2[Sidecar 2]
@@ -67,6 +68,7 @@ graph TB
         V2[Volume: ephemeral]
     end
 
+    Init --> Main
     Main ---|shared network| S1
     Main ---|shared network| S2
     V1 --> Main
@@ -74,6 +76,7 @@ graph TB
 ```
 
 A workload consists of:
+- **Init containers** — run before the main container to populate shared volumes.
 - **Main container** — the primary process.
 - **Sidecars** — optional containers sharing the same network namespace.
 - **Volumes** — ephemeral or named (persistent), mounted into containers.

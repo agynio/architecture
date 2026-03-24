@@ -16,7 +16,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent definitions: identity, model, image, compute resources, behavioral configuration | ✓ |
+| **Agents** | Agent definitions: identity, model, image, init image, compute resources, behavioral configuration | ✓ |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
 | **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
 | **MCPs** | MCP server definitions: image, command, compute resources. Belong to an agent | ✓ |

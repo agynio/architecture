@@ -155,6 +155,8 @@ See [E2E Testing](https://github.com/agynio/architecture/blob/main/architecture/
 
 The service generates Go code from `agynio/api` protos locally using `buf generate` with a `buf.gen.yaml` pointing at `buf.build/agynio/api`. Generated code is written to an internal `.gen/` directory. It is not committed — generated at build time (in Dockerfile and CI).
 
+When using `buf generate` with `--path` filters, include `--include-imports` so dependent protos are generated.
+
 ### Helm Chart
 
 The chart inherits from the shared base chart:

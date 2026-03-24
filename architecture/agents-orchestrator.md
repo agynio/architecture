@@ -120,6 +120,14 @@ The orchestrator assembles the full workload specification from multiple sources
 8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
 9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent container for network identity bootstrap.
 
+The orchestrator also wires the init container flow:
+
+- Read `init_image` from the agent definition (fall back to `DEFAULT_INIT_IMAGE`).
+- Add `agyn-bin` ephemeral volume.
+- Build init container with the init image.
+- Set main container command to `/agyn-bin/agynd`.
+- Mount `agyn-bin` in the main container.
+
 The orchestrator is the only service that performs this assembly. The Runner receives an opaque workload spec — it does not know about agents, agent resources, or secrets.
 
 ## Agent Stop Flow

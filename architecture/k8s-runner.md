@@ -24,6 +24,7 @@ The Runner [workload model](runner.md#workload-model) maps to Kubernetes primiti
 | Workload | Pod |
 | Main container | Pod container |
 | Sidecar | Additional Pod container (shared network namespace is native to Pods) |
+| Init container | Pod initContainer |
 | Ephemeral volume (`persistent: false`) | `emptyDir` volume |
 | Persistent volume (`persistent: true`) | PersistentVolumeClaim |
 | Labels | Pod labels |
@@ -49,8 +50,10 @@ graph TB
 When `StartWorkload` is called, the k8s-runner:
 
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
-2. Builds a Pod spec with all containers (main + sidecars), volume mounts, environment variables, resource requests/limits, and labels.
+2. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts, environment variables, resource requests/limits, and labels.
 3. Creates the Pod via the Kubernetes API.
+
+Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn-bin`).
 
 The Pod's `restartPolicy` is `Never` — the Agents Orchestrator owns lifecycle decisions. If a container crashes, the Runner reports the failure; it does not restart the Pod.
 

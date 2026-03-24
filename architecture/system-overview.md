@@ -150,7 +150,11 @@ graph TB
 | `agynio/agents` | Agents service (agent resource management) | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
+| `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
+| `agynio/agent-init-codex` | Init container image: agynd + Codex CLI | Dockerfile | Active |
+| `agynio/agent-init-claude` | Init container image: agynd + Claude Code CLI | Dockerfile | Active |
+| `agynio/agent-init-agn` | Init container image: agynd + agn CLI | Dockerfile | Active |
 | `agynio/k8s-runner` | Kubernetes-native Runner implementation | Go | Planned |
 | `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
 | `agynio/apps` | Apps Service | Go | Planned |

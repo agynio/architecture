@@ -64,6 +64,8 @@ agynd
 | **Claude Code** | `claude-sdk-go` | Custom JSONL | `claude --output-format stream-json --input-format stream-json --verbose` |
 | **agn** | `agn-sdk-go` | JSON-RPC v2 | `agn serve` |
 
+Only `codex-sdk-go` is integrated in the initial implementation; `claude-sdk-go` does not exist as a repo and `agn-sdk-go` lives in `agn-cli/sdk/` but is not wired into `agynd`, so Claude and agn return `unsupported` at runtime.
+
 ### SDK responsibilities
 
 Each SDK module is responsible for:

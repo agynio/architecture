@@ -84,7 +84,7 @@ One init image per supported agent type, each in its own repository:
 | Image | Repository | Contents |
 |-------|------------|----------|
 | `ghcr.io/agynio/agent-init-codex:<version>` | `agynio/agent-init-codex` | `agynd` + `codex` (static musl binary) + `config.json` with `sdk: codex` |
-| `ghcr.io/agynio/agent-init-claude:<version>` | `agynio/agent-init-claude` | `agynd` + `claude` (standalone binary) + `config.json` with `sdk: claude` |
+| `ghcr.io/agynio/agent-init-claude:<version>` | `agynio/agent-init-claude` | `agynd` + `claude` (static musl binary) + `config.json` with `sdk: claude` |
 | `ghcr.io/agynio/agent-init-agn:<version>` | `agynio/agent-init-agn` | `agynd` + `agn` (static Go binary) + `config.json` with `sdk: agn` |
 
 #### Repository Structure
@@ -136,6 +136,8 @@ ARG AGYND_VERSION
 ARG CODEX_VERSION
 ARG TARGETARCH
 
+RUN mkdir -p /tools
+
 # Download agynd from agynio/agynd-cli releases
 RUN apk add --no-cache curl && \
     curl -fsSL "https://github.com/agynio/agynd-cli/releases/download/v${AGYND_VERSION}/agynd-linux-${TARGETARCH}" \
@@ -143,10 +145,14 @@ RUN apk add --no-cache curl && \
     chmod +x /tools/agynd
 
 # Download Codex CLI from upstream releases
-RUN ARCH_SUFFIX=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
-    curl -fsSL "https://github.com/openai/codex/releases/download/v${CODEX_VERSION}/codex-${ARCH_SUFFIX}-unknown-linux-musl.tar.gz" \
+RUN case "${TARGETARCH}" in \
+      amd64) ARCH="x86_64" ;; \
+      arm64) ARCH="aarch64" ;; \
+      *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${ARCH}-unknown-linux-musl.tar.gz" \
       | tar -xz -C /tools/ && \
-    mv /tools/codex-* /tools/codex && \
+    mv "/tools/codex-${ARCH}-unknown-linux-musl" /tools/codex && \
     chmod +x /tools/codex
 
 COPY config.json /tools/config.json
@@ -164,7 +170,7 @@ All binaries are statically linked and run on any Linux base image:
 |--------|-------|--------|
 | `agynd` | Go, `CGO_ENABLED=0` | Yes |
 | Codex CLI | Rust, musl target (`codex-x86_64-unknown-linux-musl`) | Yes |
-| Claude Code CLI | Standalone native binary from Anthropic installer | Yes |
+| Claude Code CLI | musl variant from Anthropic distribution (GCS bucket) | Yes (musl variant only) |
 | agn CLI | Go, `CGO_ENABLED=0` | Yes |
 
 #### CI
@@ -182,11 +188,11 @@ Each init image repo has its own CI workflow following the platform [CI/CD conve
 |-----------|--------------------|
 | `agynd` | ~15 MB |
 | Codex CLI (musl) | ~30 MB |
-| Claude Code CLI | ~50 MB |
+| Claude Code CLI (musl) | ~225 MB |
 | agn CLI | ~15 MB |
 | Alpine base | ~5 MB |
 
-Each init image is ~50–70 MB compressed. Pulled once per node via the Kubernetes image cache.
+Codex and agn init images are ~50–70 MB compressed; the Claude init image is ~225 MB compressed. Pulled once per node via the Kubernetes image cache.
 
 ## Startup Sequence
 
