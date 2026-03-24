@@ -81,14 +81,14 @@ graph TB
     subgraph External
         LLM[LLM Endpoint]
         MCP[MCP Server]
-        StateStore[State Store<br/>Agent State / Local]
+        Disk[(Persistent Volume / Local FS)]
     end
 
     LLMLoop --> LLM
     LLMLoop --> MCP
     LLMLoop <--> Summarization
     LLMLoop <--> Persistence
-    Persistence --> StateStore
+    Persistence --> Disk
 ```
 
 ## LLM Loop
@@ -126,7 +126,7 @@ See [Agent Implementation](agent/implementation.md) for detailed stage descripti
 | **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Inside agent containers where `agynd` has enrolled an OpenZiti identity |
 | **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Local development — running `agn` on a developer machine |
 
-Authentication is only required when `agn` connects to platform services (Agent State). When running fully locally with filesystem persistence, no authentication is needed.
+Authentication is required when `agn` connects to platform services. When running fully locally (local LLM endpoint, local MCP servers, filesystem state), no authentication is needed.
 
 ## Configuration
 
@@ -179,25 +179,18 @@ When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `
 
 ### Future configuration
 
-Additional configuration (MCP servers, skills directory, state persistence backend, summarization parameters) will be added to this file as those features are implemented.
+Additional configuration (MCP servers, skills directory, summarization parameters) will be added to this file as those features are implemented.
 
 ## State Persistence
 
-`agn` persists conversation state (messages, summaries) across turns. Two backends:
-
-| Backend | Store | Use Case |
-|---------|-------|----------|
-| **Remote** | [Agent State (APSS)](agent/state.md) service via gRPC | Platform usage — durable, shared |
-| **Local** | Filesystem | Local development — no external dependencies |
-
-The local backend enables running `agn` fully offline without any platform dependencies.
+`agn` persists conversation state (messages, summaries) on the local filesystem. State is written to a path backed by a persistent volume when running on the platform, or to a local directory when running standalone. See [Agent State](agent/state.md) for the persistence model.
 
 ## Relationship to Other Components
 
 | Component | Relationship |
 |-----------|-------------|
 | [`agynd`](agynd-cli.md) | Spawns `agn` via `agn-sdk-go`, prepares its environment, feeds messages, collects output |
-| [Agent State](agent/state.md) | Optional remote persistence backend |
+| [Agent State](agent/state.md) | Disk-based persistence model |
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
 | MCP Server | Configured by `agynd` (aggregated proxy) or manually; `agn` calls it for tool execution |

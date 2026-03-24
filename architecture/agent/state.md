@@ -1,66 +1,33 @@
-# Agent State (APSS)
+# Agent State
 
 ## Overview
 
-The Agent Persistent State Service (APSS) stores agent conversation context for long-term persistence. It uses `conversationId` as the primary routing key (threadId/nodeId mapping is handled outside the service).
+Agent state is managed entirely by each agent implementation and persisted locally on disk. The platform provides a persistent volume — the agent decides what to store and how to organize it. There is no platform-level state service, schema, or contract for agent state.
 
-## gRPC API
+## Design Principles
 
-Defined in `agynio/api` at `proto/agynio/api/agent_state/v1/agent_state.proto`.
+- **Agent-owned.** Each agent implementation (our [`agn`](../agn-cli.md), wrapped Codex, wrapped Claude, custom agents) defines its own state format and storage layout. The platform does not interpret or validate agent state.
+- **Disk-based.** State is written to a filesystem path backed by a persistent volume. No external service dependency for state persistence.
+- **Volume-scoped lifetime.** State lives as long as the persistent volume exists. The [Volume](../resource-definitions.md#volume) resource's lifecycle (creation, deletion) determines when state is created and lost.
 
-### Conversation Messages
+## How It Works
 
-| RPC | Description |
-|-----|-------------|
-| `AppendConversationMessages` | Append a batch of messages |
-| `ListConversationMessages` | List with role/kind filtering and pagination (oldest → newest) |
-| `ListConversationMessageIds` | List message IDs with pagination |
-| `ReplaceConversationMessagesRange` | Replace a contiguous range with references |
-| `DeleteConversationMessagesRange` | Delete a contiguous range |
-| `GetConversation` | Get conversation metadata (count, timestamps) |
+The [Agents Orchestrator](../agents-orchestrator.md) assembles the workload spec with persistent volumes defined as [Volume](../resource-definitions.md#volume) resources. The [Runner](../runner.md) creates PersistentVolumeClaims on first use and reuses them on subsequent starts. When the agent container starts, the persistent volume is mounted at the configured path, and the agent reads/writes state to it as a regular filesystem.
 
-### Context Snapshots
+When the agent is stopped (idle timeout, crash, or explicit stop), the PVC survives. On the next start, the same PVC is mounted, and the agent resumes from its persisted state.
 
-Materialized copies of the exact context sent to an LLM call. Guarantees reproducibility after trims/edits.
+## Isolation
 
-| RPC | Description |
-|-----|-------------|
-| `CreateSnapshot` | Create from an ordered list of message IDs |
-| `ListSnapshotMessages` | List materialized messages in a snapshot |
-| `ListSnapshotMessageIds` | List message IDs in a snapshot |
+Agent state is one of three distinct data concerns in the platform, each with its own storage and lifecycle:
 
-## Data Model
+| Concern | What it stores | Storage | Lifetime |
+|---------|---------------|---------|----------|
+| **Chat / Threads** | User messages and agent responses | PostgreSQL ([Threads](../threads.md)) | Long-lived. The conversation record |
+| **Agent state** | Internal working memory — conversation context, summaries, tool state, any agent-specific data | Disk (persistent volume) | Lives as long as the volume exists |
+| **Tracing** | Full LLM call context (complete request bodies sent to the model) for observability and debugging | PostgreSQL ([Tracing](../tracing.md)) | Shorter retention due to data volume |
 
-### Message
+These concerns are cleanly separated:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string (UUID) | Server-assigned |
-| `conversation_id` | string | Routing key |
-| `role` | enum | `user`, `assistant`, `tool` |
-| `kind` | string | Free-form tag (`system`, `summary`, `memory`, `tool_output`) |
-| `body` | oneof | `TextBody` or `ToolOutputBody` |
-| `created_at` | timestamp | |
-
-### Message Body
-
-**TextBody:** `{ text: string }`
-
-**ToolOutputBody:**
-
-| Field | Type |
-|-------|------|
-| `tool_name` | string |
-| `tool_call_id` | string |
-| `output` | oneof: `ToolTextOutput` or `ToolImageOutput` |
-| `metadata` | map<string, string> |
-
-### Context Snapshot
-
-| Field | Type |
-|-------|------|
-| `snapshot_id` | string (UUID) |
-| `conversation_id` | string |
-| `created_at` | timestamp |
-
-Each snapshot item includes a `body_sha256` integrity hash.
+- **Threads** is the shared conversation record visible to all participants. Already stored in PostgreSQL. No changes.
+- **Agent state** is private to the agent. No external service reads or writes it. The agent manages its own state without platform involvement.
+- **Tracing** captures the full LLM context for each request as observability data. Due to the volume of data (complete message arrays per LLM call), tracing data has shorter retention than conversation records.

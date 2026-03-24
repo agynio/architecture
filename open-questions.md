@@ -29,7 +29,7 @@ Unresolved architectural decisions requiring discussion.
 
 ## Authorization Model Completeness
 
-**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, organization roles, and agent state. The full model needs to cover all resource types and access patterns.
+**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, and organization roles. The full model needs to cover all resource types and access patterns.
 
 **Questions:**
 - What are the complete relation definitions for all resource types (models, workspaces, MCP servers, channels, secrets)? How do org-scoped vs independent resources differ in their relation definitions?

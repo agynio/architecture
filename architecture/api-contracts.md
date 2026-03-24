@@ -24,7 +24,6 @@ Services **do not** commit generated schema code in their own repositories. They
 | Runner | `agynio/api/runner/v1/runner.proto` |
 | Notifications | `agynio/api/notifications/v1/notifications.proto` |
 | Files | `agynio/api/files/v1/files.proto` |
-| Agent State | `agynio/api/agent_state/v1/agent_state.proto` |
 | Threads | `agynio/api/threads/v1/threads.proto` |
 | Chat | `agynio/api/chat/v1/chat.proto` |
 | Tracing | `agynio/api/tracing/v1/tracing.proto` |
@@ -56,7 +55,6 @@ The external API is defined by **gateway proto services** in `agynio/api`. These
 | ChatGateway | `agynio/api/gateway/v1/chat.proto` | [Chat](chat.md) |
 | NotificationsGateway | `agynio/api/gateway/v1/notifications.proto` | [Notifications](notifications.md) |
 | FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
-| AgentStateGateway | `agynio/api/gateway/v1/agent_state.proto` | [Agent State](agent/state.md) |
 | TokenCountingGateway | `agynio/api/gateway/v1/token_counting.proto` | [Token Counting](token-counting.md) |
 | TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
 | SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |

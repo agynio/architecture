@@ -32,7 +32,6 @@ graph LR
         Threads
         Notifications
         Runner
-        AgentState[Agent State]
         Tracing
         Files
         TokenCounting[Token Counting]
@@ -64,7 +63,6 @@ graph LR
 | **Threads** | Data | Carries conversation messages between participants |
 | **Notifications** | Data | Holds persistent connections, fans out real-time events |
 | **Gateway** | Data | Routes external API requests to internal services |
-| **Agent State** | Data | Stores and retrieves agent conversation context |
 | **Tracing** | Data | Ingests and serves tracing data |
 | **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
 | **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
