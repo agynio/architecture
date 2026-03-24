@@ -29,7 +29,6 @@ graph TB
         Secrets[Secrets]
         Notifications[Notifications]
         Runner[Runner]
-        AgentState[Agent State]
         Tracing[Tracing]
         Authorization[Authorization]
         ZitiMgmt[Ziti Management]
@@ -61,7 +60,6 @@ graph TB
     Gateway --> Notifications
     Gateway --> Secrets
     Gateway --> Threads
-    Gateway --> AgentState
     Gateway --> TokenCounting
     Gateway --> Tracing
     LLMProxy --> LLM
@@ -121,8 +119,7 @@ graph TB
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
-| **Agent State** | Long-term agent context persistence (APSS) |
-| **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans |
+| **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans. Captures full LLM call context for observability |
 | **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
@@ -130,13 +127,25 @@ graph TB
 | **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
 | **[Reminders](apps/reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
 
+## Data Concerns
+
+The platform separates three distinct data concerns, each with its own storage and lifecycle:
+
+| Concern | What it stores | Storage | Lifetime |
+|---------|---------------|---------|----------|
+| **Chat / Threads** | User messages and agent responses — the conversation record | PostgreSQL ([Threads](threads.md)) | Long-lived |
+| **Agent state** | Internal working memory managed by each agent implementation | Disk (persistent volume) | Lives as long as the volume exists |
+| **Tracing** | Full LLM call context (complete request bodies) for observability and debugging | PostgreSQL ([Tracing](tracing.md)) | Shorter retention due to data volume |
+
+See [Agent State](agent/state.md) for the persistence model.
+
 ## Data Stores
 
 | Store | Current Usage |
 |-------|--------------|
-| PostgreSQL | Primary relational store (agent state, platform data, user records, identity registry, organizations) |
+| PostgreSQL | Primary relational store (platform data, user records, identity registry, organizations, tracing) |
 | Redis | Pub/sub for notifications, caching |
-| Filesystem | Graph store (agent graph definitions persisted as filesystem dataset) |
+| Persistent Volumes | Agent state — managed by each agent implementation on disk |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
 | OpenFGA | Relationship-based access control (authorization model and relationship tuples). PostgreSQL-backed |
 
@@ -147,7 +156,6 @@ graph TB
 | `agynio/api` | API schemas: protobuf (internal gRPC + external gateway ConnectRPC) | Proto | Active |
 | `agynio/notifications` | Notifications service | Go | Standalone service |
 | `agynio/gateway` | Gateway service | Go | Standalone service |
-| `agynio/agent-state` | Agent State (APSS) service | Go | Standalone service |
 | `agynio/tracing` | Tracing service — span ingestion and query | Go | Planned |
 | `agynio/authorization` | Authorization service (thin proxy to OpenFGA) + authorization model & Terraform | Go, DSL, HCL | Planned |
 | `agynio/identity` | Identity registry service | Go | Planned |

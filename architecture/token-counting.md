@@ -61,4 +61,4 @@ The response array has the same length as the input `messages` array. Each eleme
 
 ## Token Storage
 
-The agent counts tokens once when it processes a message and persists the count in the Agent State service. The summarization reducer reads stored token counts from agent state rather than re-counting. It sums the per-message counts to decide whether to summarize (`maxTokens` threshold) and uses them for the head/tail split (`keepTokens` budget).
+The agent counts tokens once when it processes a message and persists the count in agent state on disk. The summarization reducer reads stored token counts from agent state rather than re-counting. It sums the per-message counts to decide whether to summarize (`maxTokens` threshold) and uses them for the head/tail split (`keepTokens` budget).

@@ -33,7 +33,7 @@ Target architecture of the platform. Describes how the system should work.
 | [API Tokens](architecture/api-tokens.md) | Long-lived opaque tokens for programmatic access (CI, integrations, developer tooling) |
 | [Control Plane & Data Plane](architecture/control-data-plane.md) | Boundary definitions, criteria, service classification |
 | [Resource Definitions](architecture/resource-definitions.md) | Canonical schemas for all agent-managed resources |
-| [Agent](architecture/agent/) | Agent contract, our implementation, state persistence |
+| [Agent](architecture/agent/) | Agent contract, our implementation, disk-based state persistence |
 | [agyn-cli](architecture/agyn-cli.md) | Platform CLI — Gateway API access for admins, developers, and agents |
 | [agynd-cli](architecture/agynd-cli.md) | Agent wrapper daemon — bridges agent CLIs with platform services |
 | [Agent Init Container](architecture/agent-init.md) | Init container design for injecting platform binaries into agent pods |
@@ -54,7 +54,7 @@ Target architecture of the platform. Describes how the system should work.
 | [k8s-runner](architecture/k8s-runner.md) | Kubernetes-native Runner implementation |
 | [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
 | [Agents Service](architecture/agents-service.md) | Agent resource management |
-| [Tracing](architecture/tracing.md) | Span ingestion and query — standard OTLP with upsert for in-progress spans |
+| [Tracing](architecture/tracing.md) | Span ingestion and query — standard OTLP with upsert for in-progress spans. Captures full LLM call context |
 | [Gateway](architecture/gateway.md) | External API surface — ConnectRPC (gRPC + HTTP/JSON) |
 | [API Contracts](architecture/api-contracts.md) | Proto schema conventions for internal and external APIs |
 

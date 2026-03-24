@@ -70,7 +70,6 @@ Independent resources have no `organization_id`. Access is governed by [ReBAC pe
 |---------|-----------|-------------|
 | [Threads](threads.md) | Threads, Messages, MessageRecipients | ReBAC permissions on the thread |
 | [Files](media.md) | File metadata and objects | ReBAC permissions via the thread that references the file |
-| [Agent State](agent/state.md) | Agent state records | Owned by agent (`agent_id`) via ReBAC |
 | [Runner](runner.md) | Workloads | Owned by agent via ReBAC |
 | [Identity](identity.md) | Identity records | System-wide, no org association |
 | [Users](users.md) | User records and profiles | System-wide, no org association |

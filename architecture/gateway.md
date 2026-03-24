@@ -70,7 +70,6 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `ChatGateway` | [Chat](chat.md) | All methods |
 | `NotificationsGateway` | [Notifications](notifications.md) | Subscribe (server-streaming) |
 | `FilesGateway` | [Files](media.md) | UploadFile (client-streaming), GetFileMetadata, GetDownloadURL |
-| `AgentStateGateway` | [Agent State](agent/state.md) | All methods |
 | `TokenCountingGateway` | [Token Counting](token-counting.md) | All methods |
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue |

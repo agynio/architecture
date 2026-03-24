@@ -227,4 +227,4 @@ Consumers (Gateway, agent) resolve file IDs to metadata and download URLs by cal
 
 ## Context Size and Summarization
 
-Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored in the Agent State service and used by the summarization reducer.
+Media files consume tokens that cannot be estimated from text length. The [Token Counting](token-counting.md) service provides accurate per-message token counts, including media content. Token counts are stored in agent state on disk and used by the summarization reducer.

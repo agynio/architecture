@@ -1,6 +1,6 @@
 # Agent Implementation
 
-Our agent implementation ([`agn`](../agn-cli.md)). This is the primary agent — a Go-based LLM loop with rolling summarization and pluggable state persistence.
+Our agent implementation ([`agn`](../agn-cli.md)). This is the primary agent — a Go-based LLM loop with rolling summarization and disk-based state persistence.
 
 For the general agent contract, lifecycle, and tools, see [Agent](overview.md).
 
@@ -21,12 +21,11 @@ graph TB
 
     subgraph External
         LLMProvider[LLM Provider<br/>OpenAI Responses API]
-        AgentState[Agent State Service<br/>gRPC]
         TracingDep[Tracing<br/>optional]
     end
 
     LLMLoop --> LLMProvider
-    Persistence --> AgentState
+    Persistence --> Disk[(Persistent Volume)]
     LLMLoop -.-> TracingDep
 ```
 
@@ -34,7 +33,7 @@ graph TB
 |-----------|---------------|
 | **LLM Loop** | Orchestrates the turn: load context → summarize → call model → route → call tools → save |
 | **Summarization** | Reduces context size to fit within the token budget |
-| **State Persistence** | Reads and writes conversation state (messages, summaries) |
+| **State Persistence** | Reads and writes conversation state (messages, summaries) to the local filesystem |
 | **MCP Tool Servers** | Provides tools to the LLM via MCP protocol |
 
 ## LLM Loop
@@ -110,17 +109,9 @@ Summarization is embedded in the agent code. Extraction into a shared package or
 
 ## State Persistence
 
-The agent persists conversation state (messages, summaries) across turns:
+The agent persists conversation state (messages, summaries) on the local filesystem. State is written to a path backed by a persistent volume. See [Agent State](state.md) for the persistence model.
 
-| Strategy | Store | Use Case |
-|----------|-------|----------|
-| Local | Filesystem | Development, offline usage, no external dependencies |
-| Remote (APSS) | [Agent State](state.md) service via [Gateway](../gateway.md) | Production — durable, shared |
-
-The remote strategy uses the Agent Persistent State Service (APSS). It provides:
-- Append/list/replace/delete conversation messages.
-- Context snapshots for LLM call reproducibility.
-- Keyed by `conversationId` (mapping from threadId/nodeId is handled by the agent).
+The state format and storage layout are owned by the agent implementation. The platform provides the volume — the agent decides what to store and how to organize it.
 
 ## Configuration
 
