@@ -121,3 +121,14 @@ Unresolved architectural decisions requiring discussion.
 - How is the ingestion endpoint authenticated? (Istio mTLS for internal producers? Service tokens for external producers? Unauthenticated within the cluster?)
 - How is the ingestion endpoint authorized? (Any authenticated producer can export spans? Scoped to specific agents or organizations?)
 - How are query results scoped? (Organization-level visibility, per-agent restriction, or full access for any authenticated user?)
+
+---
+
+## Workload Discovery and Runner Routing
+
+**Context:** The UI needs to list running containers for a conversation (to populate the container popover in the chat header) and the [Terminal Proxy](architecture/terminal-proxy.md) needs to reach the specific runner instance hosting a workload. Currently, all runners bind the same `runner` OpenZiti service — `Dial("runner")` load-balances across instances, with no mechanism to target a specific runner.
+
+**Questions:**
+- Where does workload discovery live? The UI needs a service that can answer "what containers are running for thread X?" The [Agents Orchestrator](architecture/agents-orchestrator.md) tracks workload state in PostgreSQL but has no external API. Options: (a) a dedicated query service reading from the orchestrator's store, (b) extending the [Agents Service](architecture/agents-service.md) with runtime workload state, (c) the orchestrator exposes read-only query methods.
+- How does the Terminal Proxy route to the correct runner instance? Options: (a) per-runner OpenZiti services (e.g., `runner-{id}`) with dynamic policies, (b) the orchestrator or discovery service returns a runner-specific address, (c) a runner-side routing layer that forwards exec requests to the correct instance.
+- Does the orchestrator's `FindWorkloadsByLabels` call have the same routing problem? If multiple runners exist, a single `Dial("runner")` only reaches one — how does the reconciler discover workloads across all runners?
