@@ -152,12 +152,23 @@ The ingress route is defined as an Istio VirtualService in `agynio/bootstrap` (s
 
 Agents are configured with the LLM Proxy as their LLM endpoint. The wrapper daemon ([`agynd`](agynd-cli.md)) sets the endpoint when preparing the agent environment.
 
-**Codex CLI** uses `OPENAI_BASE_URL` and `OPENAI_API_KEY`:
+**Codex CLI** uses a custom model provider in `config.toml`:
 
-```bash
-OPENAI_BASE_URL=https://llm.agyn.dev/v1   # or OpenZiti address
-OPENAI_API_KEY=agyn_...                     # platform API token (unused over OpenZiti)
+`agynd` writes `$CODEX_HOME/config.toml` with a custom provider pointing at the LLM Proxy. The custom provider avoids inheriting OpenAI-specific behavior (remote compaction via `POST /responses/compact`, realtime WebSocket) that the LLM Proxy does not implement.
+
+```toml
+model_provider = "platform"
+
+[model_providers.platform]
+name = "Agyn LLM"
+base_url = "https://llm.agyn.dev/v1"  # or OpenZiti address
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
 ```
+
+`agynd` sets `OPENAI_API_KEY` in the Codex subprocess environment. Over OpenZiti, the token value is unused (authentication is via mTLS). Over the public endpoint, the token must be a valid platform API token (`agyn_...`).
+
+> **Note:** Using `OPENAI_BASE_URL` env var to override the built-in OpenAI provider does not work with `codex app-server`. The built-in provider has `name = "OpenAI"` which triggers remote compaction (`POST /responses/compact`) and has `env_key: None` which prevents the `OPENAI_API_KEY` env var from being used for Bearer authentication in the subprocess auth pipeline.
 
 **[`agn`](agn-cli.md)** uses `llm.endpoint` in its configuration:
 
