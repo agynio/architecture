@@ -33,6 +33,14 @@ The test process runs inside the cluster but in its own pod. It resolves service
 
 The `test-e2e` command must never deploy, patch, or modify any service pod. It only manages the test pod.
 
+### No Guards, No Skip Conditions
+
+Every E2E test must execute unconditionally. No `t.Skip()`, no environment-variable guards, no feature flags, no `skipIf` helpers, no build-tag exclusions that remove tests from the default run. If a test exists in `test/e2e/`, it runs — every time, in every environment.
+
+If a test cannot pass, it must be fixed or deleted — not skipped. A skipped test is invisible: it does not fail CI, does not appear in dashboards, and silently rots until the feature it covers breaks in production. The only acceptable test states are **pass** and **fail**.
+
+This applies to all test frameworks used in E2E (Go `testing`, `testify`, Terraform `resource.Test`, Playwright, Vitest). No framework-specific skip mechanism is permitted.
+
 This separation exists for one reason: the same `devspace run test-e2e` command must work in two modes:
 
 1. **Against pinned release images** — the cluster is untouched, all services run their released versions. The test verifies the real deployed behavior. This is the default on `main` and release branches.
@@ -669,3 +677,4 @@ If `test-e2e` also deployed from source, it would be impossible to run the `main
 | Test selection | `-run` regex + Go build tags (`smoke`, `regression`) |
 | Test images to build/push | None — DevSpace syncs source, dev container has toolchain |
 | Environment | Bootstrap cluster — no additional config |
+| Guards / skip conditions | Not allowed — every test runs unconditionally, or is deleted |
