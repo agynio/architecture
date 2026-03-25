@@ -40,6 +40,10 @@ The serialization format for keys (JSON, YAML, or other) is an [open question](#
 
 The agent creates memories via a dedicated tool. The tool accepts a key and content and persists the memory in the Memory service. There is no manual creation interface — memories are created exclusively by agents during execution.
 
+### Cold Start
+
+When creating a memory, the agent should also provide positive and negative examples of keys — contexts where the memory should and should not be activated. These examples serve as initial training data for the activation function, allowing it to make reasonable retrieval decisions before real feedback scores accumulate.
+
 ## Activation Function
 
 The activation function is a trained model that evaluates the current context against all stored memory keys for an agent and returns a relevance probability for each memory.
@@ -50,6 +54,12 @@ The activation function is a trained model that evaluates the current context ag
 | **Output** | Activation probability `[0, 1]` for each stored memory |
 | **Selection** | Top-K + threshold filtering: only memories that exceed the activation probability threshold **and** rank in the top-K are selected for injection. This prevents memories from being surfaced on every call, reducing noise and context bloat |
 | **Training** | Continuously fine-tuned using agent-provided feedback scores (see [Scoring](#scoring)) |
+
+### Architecture
+
+The activation model uses a **pretrained encoder** (taken from a lightweight LLM suitable for running on a local machine) with a **lightweight trainable head per agent**. The shared encoder provides strong text representations out of the box; only the per-agent head is trained on feedback data, keeping compute and storage requirements low.
+
+Each agent has its own activation model (shared encoder + agent-specific head). How to store per-agent models is an [open question](#per-agent-model-storage). Which encoder to use is an [open question](#encoder-selection).
 
 ## Injection via Hooks
 
@@ -66,6 +76,10 @@ After a memory has been used, the agent scores its usefulness on a `[0, 1]` scal
 ### Timing
 
 Scoring does not happen immediately after injection — the agent needs time to actually use (or ignore) the memory. The natural trigger is at the end of the memory's lifetime: just before deletion or at a logical session boundary.
+
+### Label Storage
+
+Feedback labels (memory ID, context key, score) must be persisted for training. How and where to store labels is an [open question](#label-storage).
 
 ## Memory Lifecycle
 
@@ -93,3 +107,23 @@ How long an injected memory persists in context is an open research question. Th
 2. **Pin to originating tool call, no expiry.** Memory is injected once into the output of the tool call that activated it and stays there permanently. Per-thread injection state is tracked to avoid re-injection. *Upside:* full traceability — you know exactly which tool call surfaced which memory. *Downside:* stale memories accumulate; context grows unboundedly over long threads.
 
 3. **Agent-controlled expiry.** Same TTL counter as option 1, but before deletion the agent is asked whether the memory should be retained. The agent can extend its lifetime or let it expire. *Upside:* more adaptive. *Downside:* adds LLM calls and complexity; agent judgment may be inconsistent.
+
+### Label Storage
+
+Feedback labels (memory ID, context key, score) are produced by the agent after memory usage. How and where to store these labels has not been decided (e.g., in the Memory service database, a separate training data store, or alongside the model artifacts).
+
+### Per-Agent Model Storage
+
+Each agent has its own activation model (shared encoder + agent-specific trainable head). How to store and serve per-agent model weights has not been decided (e.g., object storage, model registry, or alongside the Memory service database).
+
+### Encoder Selection
+
+The activation model architecture uses a pretrained encoder from a lightweight LLM with a trainable head per agent. Which specific encoder to use has not been decided.
+
+### Training Update Strategy
+
+How the activation model is retrained as new feedback labels arrive. Two candidate approaches:
+
+1. **Mini-batch.** Accumulate labels until a batch of sufficient size is collected, then run a training step. *Upside:* stable gradient updates, standard training practice. *Downside:* delay between feedback and model improvement.
+
+2. **Per-step with small learning rate.** Train on each new label immediately with a very small learning rate. *Upside:* fastest adaptation. *Downside:* potential instability from noisy single-sample updates.
