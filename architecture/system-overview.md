@@ -36,6 +36,7 @@ graph TB
         Identity[Identity]
         AppsService[Apps Service]
         LLMProxy[LLM Proxy]
+        TerminalProxy[Terminal Proxy]
     end
 
     subgraph Apps
@@ -63,6 +64,8 @@ graph TB
     Gateway --> TokenCounting
     Gateway --> Tracing
     LLMProxy --> LLM
+    WebApp & MobileApp -- "/terminal/" --> TerminalProxy
+    TerminalProxy -->|OpenZiti| Runner
     LLMProxy --> ZitiMgmt
     LLMProxy --> Users
     LLMProxy --> Authorization
@@ -90,6 +93,7 @@ graph TB
     Threads --> Authorization
     Agents --> Authorization
     Organizations --> Authorization
+    TerminalProxy --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
     AppsService --> Identity
@@ -115,6 +119,7 @@ graph TB
 | **Token Counting** | Per-message token counting for LLM messages |
 | **LLM** | Manages LLM providers and models. Provides model resolution (model ID → provider endpoint, token, remote name) for the LLM Proxy |
 | **[LLM Proxy](llm-proxy.md)** | Exposes an OpenAI-compatible Responses API endpoint for agents. Authenticates callers, resolves models via LLM service, forwards requests to external providers |
+| **[Terminal Proxy](terminal-proxy.md)** | Standalone WebSocket service for interactive terminal access to workload containers. Authenticates callers, bridges WebSocket sessions to Runner Exec RPC via OpenZiti |
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |
 | **Notifications** | Real-time event fanout via persistent connections (socket). All services publish state change events through Notifications |
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
@@ -167,6 +172,7 @@ See [Agent State](agent/state.md) for the persistence model.
 | `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
 | `agynio/llm-proxy` | LLM Proxy — OpenAI-compatible Responses API endpoint for agents | Go | Planned |
+| `agynio/terminal-proxy` | Terminal Proxy — WebSocket terminal access to workload containers | Go | Planned |
 | `agynio/agent-init-codex` | Init container image: agynd + Codex CLI | Dockerfile | Active |
 | `agynio/agent-init-claude` | Init container image: agynd + Claude Code CLI | Dockerfile | Active |
 | `agynio/agent-init-agn` | Init container image: agynd + agn CLI | Dockerfile | Active |
