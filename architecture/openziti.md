@@ -353,7 +353,7 @@ sequenceDiagram
 
 External runners are provisioned by an operator using a service token:
 
-1. Admin creates a Runner resource in the platform. The system generates a service token.
+1. Admin registers a runner via the [Runners](runners.md) service. The system generates a service token.
 2. Operator configures the external runner with the service token.
 3. Runner presents the token to the platform enrollment endpoint.
 4. Platform validates the token → calls `ZitiManagement.CreateRunnerIdentity(runnerId)`.

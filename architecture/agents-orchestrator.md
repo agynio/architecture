@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Agents Orchestrator is a **control plane** service that ensures every thread with unacknowledged agent messages has a running agent workload processing it. It is a background reconciler with no external API — it observes desired state (threads needing agents) and actual state (running workloads), and converges them.
+The Agents Orchestrator is a **control plane** service that ensures every thread with unacknowledged agent messages has a running agent workload processing it. It is a background reconciler — it observes desired state (threads needing agents) and actual state (running workloads via the [Runners](runners.md) service), and converges them.
 
 The orchestrator does not decide which agent should be on a thread. It does not manage thread participants. By the time the orchestrator acts, the agent is already a participant on the thread. The orchestrator's job is: **if a thread has unacked messages for an agent participant, ensure a workload is running for that agent on that thread.**
 
@@ -18,6 +18,7 @@ graph TB
     Notifications -->|message.created events| Reconciler
     Agents -->|agent definitions + sub-resources| Reconciler
     Secrets -->|secret resolution for ENVs| Reconciler
+    Runners[Runners] -->|workload state| Reconciler
     Reconciler -->|start/stop workloads| Runner
     Reconciler -->|create/delete identities| ZitiMgmt[Ziti Management]
 ```
@@ -28,6 +29,7 @@ graph TB
 | **Notifications** | Subscribe to `message.created` events for fast reactivity |
 | **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
+| **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner) |
 | **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
 
@@ -41,7 +43,7 @@ Threads with unacknowledged messages for agent participants. The orchestrator qu
 
 ### Actual State
 
-Running agent workloads. The orchestrator queries Runner (`FindWorkloadsByLabels`) to discover what is currently running.
+Running agent workloads. The orchestrator queries the [Runners](runners.md) service to discover what is currently running.
 
 ### Loop
 
@@ -54,11 +56,11 @@ graph LR
     Wait --> Fetch
 ```
 
-1. On startup, the orchestrator subscribes to Notifications for `message.created` events and fetches the current state from Threads and Runner.
+1. On startup, the orchestrator subscribes to Notifications for `message.created` events and fetches the current state from Threads and the [Runners](runners.md) service.
 2. **Compare:** For each agent participant with unacked messages — check if a workload is running. For each running workload — check if it still has unacked messages or recent activity.
 3. **Act:**
-   - **Start:** If an agent has unacked messages and no running workload → assemble workload spec → create OpenZiti identity → start workload via Runner.
-   - **Stop:** If a running workload has been idle beyond the configured timeout → stop workload via Runner → delete OpenZiti identity.
+   - **Start:** If an agent has unacked messages and no running workload → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
+   - **Stop:** If a running workload has been idle beyond the configured timeout → stop workload via Runner → remove workload from [Runners](runners.md) service → delete OpenZiti identity.
 4. **Wait:** Block until a notification arrives or the poll interval expires, then repeat from step 2.
 
 The polling loop is a consistency fallback. Notifications handle the latency-sensitive path — when a new message arrives on a thread, the `message.created` event wakes the orchestrator to re-evaluate immediately.
@@ -67,7 +69,7 @@ Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) fo
 
 ### Idle Timeout
 
-The orchestrator owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload`.
+The orchestrator owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload` and removed from the [Runners](runners.md) service.
 
 The agent container does not implement idle detection. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
 
@@ -76,7 +78,7 @@ The agent container does not implement idle detection. It may exit naturally (pr
 In addition to agent workloads, the orchestrator reconciles OpenZiti identities:
 
 1. Each reconciliation pass: call `ZitiManagement.ListManagedIdentities()`.
-2. Compare against active workloads from `Runner.FindWorkloadsByLabels()`.
+2. Compare against active workloads from the [Runners](runners.md) service.
 3. Delete OpenZiti identities that have no matching running workload via `ZitiManagement.DeleteIdentity()`.
 
 Orphaned identities arise from Runner crashes, container crashes, or orchestrator restarts. An orphaned identity with no running container is inert (the enrollment JWT has expired or the enrolled certificate is inside a stopped container), but cleanup is important for hygiene and OpenZiti Controller resource limits.
@@ -94,6 +96,7 @@ sequenceDiagram
     participant S as Secrets
     participant ZM as Ziti Management
     participant R as Runner
+    participant RS as Runners Service
 
     O->>T: Get agent definition + sub-resources
     T-->>O: Agent, MCPs, Volumes, ENVs, InitScripts, Hooks, Skills
@@ -104,6 +107,8 @@ sequenceDiagram
     ZM-->>O: enrollmentJWT, openZitiIdentityId
     O->>R: StartWorkload(spec, enrollmentJWT)
     R-->>O: workloadId
+    O->>RS: CreateWorkload(runnerId, workloadId, threadId, agentId, containers)
+    RS-->>O: OK
 ```
 
 ### Workload Spec Assembly
@@ -138,10 +143,13 @@ When the orchestrator decides an agent workload should stop (idle timeout exceed
 sequenceDiagram
     participant O as Orchestrator
     participant R as Runner
+    participant RS as Runners Service
     participant ZM as Ziti Management
 
     O->>R: StopWorkload(workloadId)
     R-->>O: OK
+    O->>RS: DeleteWorkload(workloadId)
+    RS-->>O: OK
     O->>ZM: DeleteIdentity(openZitiIdentityId)
     ZM-->>O: OK
 ```
@@ -164,7 +172,7 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 |--------|--------|
 | **Plane** | Control |
 | **API** | None — pure background reconciler |
-| **State** | PostgreSQL (workload ↔ identity mappings) |
+| **State** | Stateless — reads/writes workload state via [Runners](runners.md) service |
 | **Scaling** | Leader-elected; scales with number of agent definitions, not traffic |
 | **Failure impact** | Temporary loss delays new agent starts and idle stops; already-running agents continue |
 

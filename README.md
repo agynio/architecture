@@ -50,6 +50,7 @@ Target architecture of the platform. Describes how the system should work.
 | [LLM](architecture/llm.md) | LLM provider/model management and LLM call proxy |
 | [Secrets](architecture/secrets.md) | Secret provider/secret management and secret resolution |
 | [Notifications](architecture/notifications.md) | Real-time event fanout service |
+| [Runners](architecture/runners.md) | Runner registration and workload runtime state |
 | [Runner](architecture/runner.md) | Workload execution service |
 | [k8s-runner](architecture/k8s-runner.md) | Kubernetes-native Runner implementation |
 | [Agents Orchestrator](architecture/agents-orchestrator.md) | Agent workload reconciliation — start, monitor, stop |
