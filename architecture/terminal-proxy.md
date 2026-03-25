@@ -11,6 +11,7 @@ The Terminal Proxy is a standalone service that provides interactive web-based t
 | **WebSocket endpoint** | Accept WebSocket upgrade requests for terminal sessions |
 | **Authentication** | Authenticate callers via OIDC bearer token (same mechanism as the [Gateway](gateway.md)) |
 | **Authorization** | Call the [Authorization](authz.md) service to verify the caller can access the workload |
+| **Runner resolution** | Query the [Runners](runners.md) service to resolve which runner hosts the target workload |
 | **Shell detection** | Execute a non-interactive command via Runner `Exec` to detect the available shell before starting the interactive session |
 | **Exec bridging** | Open a bidirectional streaming `Exec` RPC to the Runner and bridge stdin/stdout between the WebSocket and the exec stream |
 
@@ -58,12 +59,15 @@ sequenceDiagram
     participant UI as Web App
     participant TP as Terminal Proxy
     participant Auth as Authorization
+    participant RS as Runners Service
     participant R as Runner
 
     UI->>TP: WebSocket upgrade /terminal/ws?workloadId=...&containerId=...
     TP->>TP: Authenticate (OIDC bearer token)
     TP->>Auth: Check(identity, can_access, workload)
     Auth-->>TP: allowed / denied
+    TP->>RS: GetWorkload(workloadId)
+    RS-->>TP: workload (runner_id, containers)
     TP->>R: Exec (non-interactive, shell detection)
     R-->>TP: detected shell path
     TP->>R: Exec (bidirectional stream, TTY, detected shell)
@@ -102,6 +106,8 @@ The Terminal Proxy starts the Runner `Exec` RPC with:
 ### Workload Container Selection
 
 A workload consists of multiple containers (main container, MCP server sidecars, hook sidecars). The `containerId` parameter identifies which container to exec into. The Terminal Proxy passes this to the Runner's `Exec` RPC, which targets the specified container within the workload's pod.
+
+The Terminal Proxy resolves the hosting runner by calling `GetWorkload` on the [Runners](runners.md) service, which returns the `runner_id`. The Terminal Proxy then dials that specific runner via OpenZiti to issue the `Exec` RPC.
 
 ## Authentication
 
@@ -145,6 +151,7 @@ The ingress route is defined as an Istio VirtualService in `agynio/bootstrap`. U
 
 | Field | Source | Description |
 |-------|--------|-------------|
+| `RUNNERS_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Runners](runners.md) service |
 | `AUTHORIZATION_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Authorization](authz.md) service |
 | `ZITI_MANAGEMENT_ADDRESS` | Deployment config | gRPC address of the [Ziti Management](openziti.md) service |
 | `OIDC_ISSUER` | Deployment config | OIDC issuer URL for token validation |
@@ -158,4 +165,4 @@ The ingress route is defined as an Istio VirtualService in `agynio/bootstrap`. U
 | Language | Go |
 | HTTP framework | Standard `net/http` with `nhooyr.io/websocket` for WebSocket handling |
 | OpenZiti | Embedded SDK (`openziti/sdk-golang`) for dialing Runners |
-| Internal calls | Standard gRPC clients for Authorization and Ziti Management |
+| Internal calls | Standard gRPC clients for Runners, Authorization, and Ziti Management |
