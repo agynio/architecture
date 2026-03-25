@@ -33,7 +33,7 @@ Every service that creates an identity registers it here:
 | **User** | [Users](users.md) | On first OIDC login (user provisioning) |
 | **Agent** | [Agents](agents-service.md) | On agent resource creation |
 | **Channel** | [Channels](channels.md) | On channel creation |
-| **Runner** | Runner enrollment flow | On runner enrollment |
+| **Runner** | [Runners](runners.md) | On runner registration |
 | **App** | [Apps Service](apps-service.md) | On app registration |
 
 The registering service generates the `identity_id` (UUID) and calls `RegisterIdentity` before storing the identity in its own database.

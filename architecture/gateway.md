@@ -74,6 +74,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue |
 | `UsersGateway` | [Users](users.md) | CreateAPIToken, ListAPITokens, RevokeAPIToken |
+| `RunnersGateway` | [Runners](runners.md) | ListWorkloadsByThread, GetWorkload |
 
 ### Handler Implementation
 

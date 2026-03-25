@@ -14,6 +14,7 @@ graph TB
 
     subgraph Control Plane
         Agents[Agents]
+        RunnersService[Runners]
         AgentsOrch[Agents<br/>Orchestrator]
         Organizations[Organizations]
     end
@@ -89,6 +90,7 @@ graph TB
     Files --> Authorization
     Threads --> Authorization
     Agents --> Authorization
+    RunnersService --> Authorization
     Organizations --> Authorization
     Authorization --> OpenFGA[(OpenFGA)]
 
@@ -121,6 +123,7 @@ graph TB
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
 | **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans. Captures full LLM call context for observability |
 | **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
+| **[Runners](runners.md)** | Manages runner registrations and workload runtime state. Central registry of runners (cluster-scoped and org-scoped) and running workloads |
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
@@ -162,6 +165,7 @@ See [Agent State](agent/state.md) for the persistence model.
 | `agynio/users` | Users service | Go | Planned |
 | `agynio/organizations` | Organizations service | Go | Planned |
 | `agynio/agents` | Agents service (agent resource management) | Go | Planned |
+| `agynio/runners` | Runners service — runner registration and workload state | Go | Planned |
 | `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |

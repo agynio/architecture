@@ -78,38 +78,37 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Org-Scoped Apps and Runners
+## Org-Scoped Apps
 
-**Context:** The current design covers cluster-scoped apps and runners deployed as platform infrastructure. Future needs include org-scoped resources managed by organization administrators.
+**Context:** The current design covers cluster-scoped apps deployed as platform infrastructure. Future needs include org-scoped apps managed by organization administrators. (Runner org-scoping is handled by the [Runners](architecture/runners.md) service.)
 
 **Questions:**
-- How does an org admin register an org-scoped app or runner? (Via `agyn` CLI with org context? Via Terraform?)
-- How are org-scoped and cluster-scoped resources with the same slug resolved? (Org-scoped takes precedence? Cluster slugs are reserved?)
-- How does the enrollment flow differ for org-scoped resources? (Same service token flow, scoped to the org?)
+- How does an org admin register an org-scoped app? (Via `agyn` CLI with org context? Via Terraform?)
+- How are org-scoped and cluster-scoped apps with the same slug resolved? (Org-scoped takes precedence? Cluster slugs are reserved?)
+- How does the enrollment flow differ for org-scoped apps? (Same service token flow, scoped to the org?)
 - Are org-scoped apps visible only within their organization, or can they be shared?
 
 ---
 
 ## Runner Selection Strategy
 
-**Context:** With multiple runners (cluster-scoped and potentially org-scoped), the [Agents Orchestrator](architecture/agents-orchestrator.md) needs to choose which runner handles a given agent workload.
+**Context:** With multiple runners (cluster-scoped and org-scoped) registered in the [Runners](architecture/runners.md) service, the [Agents Orchestrator](architecture/agents-orchestrator.md) needs to choose which runner handles a given agent workload.
 
 **Questions:**
 - What criteria determine runner selection? (Organization affinity? Agent resource definition? Labels/tags? Capacity?)
 - Can an agent resource definition specify a runner preference or requirement?
-- How does the orchestrator discover available runners and their capabilities?
 - What is the fallback behavior if a preferred runner is unavailable?
 
 ---
 
-## Unified Runner Registration
+## Per-Runner OpenZiti Addressing
 
-**Context:** Internal (cluster-scoped) runners are currently deployed via IaC with self-enrollment through Ziti Management. External runners use a service token enrollment flow. [Apps](architecture/apps.md) and runners should follow a unified registration model.
+**Context:** The [Runners](architecture/runners.md) service tracks which runner hosts each workload. The [Terminal Proxy](architecture/terminal-proxy.md) and [Agents Orchestrator](architecture/agents-orchestrator.md) need to reach a specific runner instance. Currently, all runners bind the same `runner` OpenZiti service — `Dial("runner")` load-balances across instances with no mechanism to target a specific one.
 
 **Questions:**
-- Should cluster-scoped runners be registered resources in the platform (like apps), rather than self-enrolling infrastructure?
-- If unified, does Terraform create the runner resource via the Runners service API, receive an enrollment token, and pass it to the deployment?
-- What changes to the current internal runner self-enrollment flow are needed?
+- How does a caller dial a specific runner? Options: (a) per-runner OpenZiti services (e.g., `runner-{runnerId}`) created dynamically at registration, (b) OpenZiti `appdata` or terminator-level identity matching, (c) a different addressing mechanism.
+- If per-runner services, who creates them? The [Runners](architecture/runners.md) service during registration via [Ziti Management](architecture/openziti.md)?
+- How do static Dial policies work with dynamic per-runner services?
 
 ---
 
