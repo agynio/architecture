@@ -137,7 +137,7 @@ The k8s-runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-gola
 
 The runner obtains its OpenZiti identity at runtime via self-enrollment — on startup, it calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. See [OpenZiti Integration — Internal Runners](openziti.md#internal-runners) for the full provisioning flow.
 
-The runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent container. See [Runner](runner.md#authentication).
+The runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent pod's Ziti sidecar container. See [Runner](runner.md#authentication).
 
 ## Classification
 

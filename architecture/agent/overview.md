@@ -43,7 +43,7 @@ graph TB
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it connects to the [Gateway](../gateway.md) via [OpenZiti](../openziti.md) and accesses all platform services through it. It does not expose any server or accept inbound connections.
+The agent is a **pure client** — it connects to the [Gateway](../gateway.md) and the [LLM Proxy](../llm-proxy.md) via the pod's [Ziti sidecar](../openziti.md#agent-access-scope) and accesses all platform services through them. It does not expose any server or accept inbound connections.
 
 ## Communication Protocol
 
@@ -81,7 +81,7 @@ sequenceDiagram
     GW->>T: AckMessages
 ```
 
-1. On startup, the agent connects to the [Gateway](../gateway.md) (via OpenZiti), subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+1. On startup, the agent connects to the [Gateway](../gateway.md) (via the Ziti sidecar's local address), subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
 2. During processing, new messages may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new messages at the appropriate point in its processing loop.
 3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
 4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.
@@ -90,7 +90,7 @@ sequenceDiagram
 ### Design Principles
 
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via OpenZiti). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
+- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via the Ziti sidecar's local address). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
 
 ## Tools
 
@@ -168,7 +168,7 @@ sequenceDiagram
 1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
 2. Orchestrator requests Runner to start an agent workload with thread ID and agent config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent connects to the Gateway (via OpenZiti), subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
+4. Agent connects to the Gateway (via the Ziti sidecar's local address), subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
 5. Agent waits for new messages (notification or poll fallback).
 6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the workload via Runner.
 

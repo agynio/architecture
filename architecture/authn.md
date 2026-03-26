@@ -114,8 +114,8 @@ Agent containers are short-lived. Their OpenZiti identities are created and dest
 
 1. The Agents Orchestrator creates an OpenZiti identity via the Ziti Management service before requesting the container.
 2. The Orchestrator passes the enrollment JWT to Runner as part of `StartWorkload` configuration.
-3. Runner starts the container with the JWT. The agent enrolls on startup, receiving an x509 certificate.
-4. All API calls from the agent use mTLS. The Gateway extracts identity from the connection.
+3. Runner starts the pod with the JWT. The Ziti sidecar enrolls on startup, receiving an x509 certificate.
+4. All API calls from processes in the pod reach platform APIs via the sidecar's local addresses.
 5. When the Orchestrator stops the workload, it deletes the OpenZiti identity via Ziti Management. The certificate becomes invalid.
 
 The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Integration](openziti.md) for the full lifecycle diagram.
@@ -127,7 +127,7 @@ The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Inte
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner |
 | Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives work) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds service, receives work) |
-| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway, LLM Proxy |
+| Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway, LLM Proxy |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
@@ -142,7 +142,7 @@ graph TB
     subgraph OpenZiti Overlay
         direction LR
         ExtRunner[External Runner]
-        AgentExt[Agent Container<br/>external]
+        AgentExt[Agent Pod + Ziti Sidecar<br/>external]
         Channel[Channel]
     end
 
@@ -162,7 +162,7 @@ graph TB
             IntRunner[Internal Runner]
         end
 
-        AgentInt[Agent Container<br/>internal]
+        AgentInt[Agent Pod + Ziti Sidecar<br/>internal]
         ZR[OpenZiti Router]
     end
 
@@ -182,7 +182,9 @@ graph TB
 
 ### SDK Embedding
 
-Services that participate in both the Istio mesh and the OpenZiti overlay use the **OpenZiti Go SDK** embedded in the application process — not an OpenZiti sidecar or tunneler. This avoids conflicts between the Istio sidecar proxy and an OpenZiti sidecar competing for outbound traffic routing.
+**Infrastructure services** that participate in both the Istio mesh and the OpenZiti overlay use the **OpenZiti Go SDK** embedded in the application process — not an OpenZiti sidecar or tunneler. This avoids conflicts between the Istio sidecar proxy and an OpenZiti sidecar competing for outbound traffic routing.
+
+Agent pods are not in the Istio mesh. They use a Ziti sidecar container within the pod to enroll the agent identity and expose OpenZiti services as local addresses.
 
 | Service | OpenZiti SDK Usage | Istio |
 |---------|-------------------|-------|
@@ -225,8 +227,8 @@ They operate on different connections:
 
 | Connection | Layer | Notes |
 |------------|-------|-------|
-| Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location |
-| Agent → LLM Proxy | OpenZiti | LLM API calls via overlay, regardless of location |
+| Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location (via Ziti sidecar) |
+| Agent → LLM Proxy | OpenZiti | LLM API calls via overlay, regardless of location (via Ziti sidecar) |
 | Channel → Gateway | OpenZiti | Channels always connect via overlay |
 | Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for internal and external runners |
 | Orchestrator → Threads, Agents, etc. | Istio | Standard internal service calls |
@@ -250,7 +252,7 @@ All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](
 
 | Priority | Method | Mechanism | When Used |
 |----------|--------|-----------|-----------|
-| 1 | **Network identity** | [OpenZiti](#network-identity-openziti) mTLS | Automatic when the environment provides an enrolled OpenZiti identity (e.g., inside agent containers) |
+| 1 | **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](#network-identity-openziti) mTLS via the Ziti sidecar | Automatic when the environment provides an enrolled OpenZiti identity (e.g., inside agent pods with a Ziti sidecar) |
 | 2 | **Auth token** | Token stored in `~/.agyn/credentials`, sent to the [Gateway](gateway.md) as a bearer token | Developer machines, CI, or any environment without OpenZiti |
 
 ### Resolution Order

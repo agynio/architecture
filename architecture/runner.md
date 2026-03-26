@@ -89,4 +89,4 @@ The Runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) 
 
 **External runners** (operator-managed, outside the cluster) use a service token flow to obtain their OpenZiti identity. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 
-The Runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).
+The Runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent pod's Ziti sidecar container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).

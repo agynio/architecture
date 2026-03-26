@@ -200,12 +200,17 @@ Codex and agn init images are ~50–70 MB compressed; the Claude init image is ~
 sequenceDiagram
     participant K as Kubernetes
     participant IC as Init Container
+    participant ZS as Ziti Sidecar
     participant MC as Main Container (user image)
     participant GW as Gateway
 
     K->>IC: Start init container
     IC->>IC: cp /tools/* → /agyn-bin/
     IC-->>K: Exit 0
+
+    K->>ZS: Start Ziti sidecar container
+    ZS->>ZS: Enroll OpenZiti identity (JWT)
+    Note over ZS: Gateway and LLM Proxy available as local addresses
 
     K->>MC: Start main container
     Note over MC: command: /agyn-bin/agynd
@@ -372,6 +377,12 @@ spec:
         - name: agyn-bin
           mountPath: /agyn-bin
         # ... user volumes
+
+    - name: ziti-sidecar
+      image: ghcr.io/agynio/ziti-sidecar:latest
+      env:
+        - name: ZITI_ENROLLMENT_JWT
+          value: "<jwt>"
 
     - name: mcp-<short-id>                              # MCP sidecars (existing pattern)
       image: ghcr.io/agynio/mcp-filesystem:latest

@@ -44,8 +44,8 @@ graph TB
     end
 
     subgraph Workloads
-        Agent1[Agent Container]
-        Agent2[Agent Container]
+        Agent1[Agent Pod + Ziti Sidecar]
+        Agent2[Agent Pod + Ziti Sidecar]
         MCP1[MCP Server]
         MCP2[MCP Server]
     end

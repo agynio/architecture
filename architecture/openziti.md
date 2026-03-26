@@ -12,7 +12,9 @@ This document covers the **implementation** of OpenZiti integration: which servi
 
 ## SDK Embedding
 
-Services that participate in both the Istio mesh and the OpenZiti overlay embed the **OpenZiti Go SDK** ([`openziti/sdk-golang`](https://github.com/openziti/sdk-golang)) directly in the application process. This avoids deploying an OpenZiti sidecar alongside the Istio sidecar, which would create conflicts over outbound traffic routing.
+**Infrastructure services** that participate in both the Istio mesh and the OpenZiti overlay embed the **OpenZiti Go SDK** ([`openziti/sdk-golang`](https://github.com/openziti/sdk-golang)) directly in the application process. This avoids deploying an OpenZiti sidecar alongside the Istio sidecar, which would create conflicts over outbound traffic routing.
+
+**Agent containers** are not in the Istio mesh. They use a **Ziti sidecar container** within the pod that enrolls the agent's OpenZiti identity and exposes OpenZiti services as local network addresses accessible to all processes in the pod. See [Agent Access Scope](#agent-access-scope).
 
 The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server accepts connections from an OpenZiti listener the same way it accepts from a TCP listener. A gRPC client dials through an OpenZiti context the same way it dials a TCP address.
 
@@ -22,6 +24,8 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 | **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
+
+Agent containers do not embed the OpenZiti SDK. Instead, a **Ziti sidecar** runs alongside the agent process within the same pod. See [Agent Access Scope](#agent-access-scope).
 
 Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
@@ -101,7 +105,7 @@ sequenceDiagram
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
     participant R as Runner
-    participant A as Agent Container
+    participant A as Agent Pod
 
     Note over O: Reconciliation: thread needs agent
     O->>ZM: CreateAgentIdentity(agentId)
@@ -111,9 +115,9 @@ sequenceDiagram
     ZM->>O: enrollmentJWT, openZitiIdentityId
     O->>O: Store workload ↔ identity mapping in PostgreSQL
     O->>R: StartWorkload(config, enrollmentJWT)
-    R->>A: Start container with enrollment JWT
-    A->>ZC: Enroll (exchange JWT for x509 cert)
-    A->>A: Call platform APIs via OpenZiti mTLS
+    R->>A: Start pod with enrollment JWT
+    Note over A: Ziti sidecar enrolls (exchanges JWT for x509 cert)
+    A->>A: All pod processes reach platform APIs via sidecar-provided local addresses
 
     Note over O: Reconciliation: agent idle
     O->>R: StopWorkload(workloadId)
@@ -212,7 +216,7 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent container | `["agents", "agent-<agentId>"]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
 | Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
@@ -370,6 +374,8 @@ Both internal and external runners bind the same `runner` OpenZiti service and a
 
 Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location (internal or external). The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
 
+Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and makes OpenZiti services available as local network addresses within the pod. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway and LLM Proxy as regular network calls — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
+
 | Connection | Layer |
 |------------|-------|
 | Agent → Gateway | OpenZiti |
@@ -386,7 +392,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
 | Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `runner` service) |
 | External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds `runner` service) |
-| Agent container | Ephemeral (per container) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial) |
+| Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial) |
 | Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
@@ -475,7 +481,7 @@ Three new static policies are added at bootstrap:
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent container | `["agents", "agent-<agentId>"]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
 | Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
