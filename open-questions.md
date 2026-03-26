@@ -120,3 +120,16 @@ Unresolved architectural decisions requiring discussion.
 - How is the ingestion endpoint authenticated? (Istio mTLS for internal producers? Service tokens for external producers? Unauthenticated within the cluster?)
 - How is the ingestion endpoint authorized? (Any authenticated producer can export spans? Scoped to specific agents or organizations?)
 - How are query results scoped? (Organization-level visibility, per-agent restriction, or full access for any authenticated user?)
+
+---
+
+## Codex LLM Endpoint Configuration: `OPENAI_BASE_URL` vs Custom Provider
+
+**Context:** `agynd` currently configures Codex to use the [LLM Proxy](architecture/llm-proxy.md) by writing a custom model provider in `$CODEX_HOME/config.toml` (see [LLM Proxy — Agent Configuration](architecture/llm-proxy.md#agent-configuration)). The alternative is setting the `OPENAI_BASE_URL` environment variable to override the built-in OpenAI provider.
+
+The custom provider approach was chosen because the built-in OpenAI provider triggers behaviors the LLM Proxy does not implement (remote compaction via `POST /responses/compact`, realtime WebSocket) and has `env_key: None` which prevents `OPENAI_API_KEY` from being used for Bearer authentication. However, this reasoning is based on the current Codex CLI behavior and may change as Codex evolves.
+
+**Questions:**
+- Does `OPENAI_BASE_URL` work correctly with `codex app-server`, or only with the interactive CLI?
+- If Codex adds proper `OPENAI_BASE_URL` support for `app-server` (respecting `env_key` and disabling provider-specific behaviors), should we switch to it for simplicity?
+- Are there other Codex provider-specific behaviors beyond compaction and WebSocket that the custom provider avoids?
