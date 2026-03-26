@@ -363,6 +363,13 @@ spec:
         - name: agyn-bin
           mountPath: /agyn-bin
 
+    - name: ziti-sidecar
+      image: ghcr.io/agynio/ziti-sidecar:latest
+      restartPolicy: Always
+      env:
+        - name: ZITI_ENROLLMENT_JWT
+          value: "<jwt>"
+
   containers:
     - name: agent-<short-id>
       image: ghcr.io/my-org/my-devcontainer:latest     # from agent.image
@@ -377,12 +384,6 @@ spec:
         - name: agyn-bin
           mountPath: /agyn-bin
         # ... user volumes
-
-    - name: ziti-sidecar
-      image: ghcr.io/agynio/ziti-sidecar:latest
-      env:
-        - name: ZITI_ENROLLMENT_JWT
-          value: "<jwt>"
 
     - name: mcp-<short-id>                              # MCP sidecars (existing pattern)
       image: ghcr.io/agynio/mcp-filesystem:latest

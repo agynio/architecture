@@ -9,7 +9,7 @@ The platform authenticates five types of identities. Each identity type has its 
 | Type | Description | Authentication Method |
 |------|-------------|----------------------|
 | **User** | Human operator using web/mobile app | OIDC or [API token](api-tokens.md) |
-| **Agent** | Agent container calling platform APIs | OpenZiti (network identity) |
+| **Agent** | Agent pod calling platform APIs | OpenZiti (network identity) |
 | **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 | **App** | [App](apps.md) interacting with threads | OpenZiti (network identity) |
@@ -104,15 +104,15 @@ sequenceDiagram
     Note over SVC: From this point: mTLS via OpenZiti
 ```
 
-**Agent identities** are ephemeral — created by the Orchestrator via Ziti Management before each container starts, and deleted when the container stops. See [Agent Identity Lifecycle](#agent-identity-lifecycle) below.
+**Agent identities** are ephemeral — created by the Orchestrator via Ziti Management before each pod starts, and deleted when the pod stops. See [Agent Identity Lifecycle](#agent-identity-lifecycle) below.
 
 The service token flow is for external services only. Internal platform components use self-enrollment — no tokens, no manual steps.
 
 ### Agent Identity Lifecycle
 
-Agent containers are short-lived. Their OpenZiti identities are created and destroyed with the container.
+Agent pods are short-lived. Their OpenZiti identities are created and destroyed with the pod.
 
-1. The Agents Orchestrator creates an OpenZiti identity via the Ziti Management service before requesting the container.
+1. The Agents Orchestrator creates an OpenZiti identity via the Ziti Management service before requesting the pod.
 2. The Orchestrator passes the enrollment JWT to Runner as part of `StartWorkload` configuration.
 3. Runner starts the pod with the JWT. The Ziti sidecar enrolls on startup, receiving an x509 certificate.
 4. All API calls from processes in the pod reach platform APIs via the sidecar's local addresses.

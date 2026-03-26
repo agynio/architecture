@@ -14,7 +14,7 @@ This document covers the **implementation** of OpenZiti integration: which servi
 
 **Infrastructure services** that participate in both the Istio mesh and the OpenZiti overlay embed the **OpenZiti Go SDK** ([`openziti/sdk-golang`](https://github.com/openziti/sdk-golang)) directly in the application process. This avoids deploying an OpenZiti sidecar alongside the Istio sidecar, which would create conflicts over outbound traffic routing.
 
-**Agent containers** are not in the Istio mesh. They use a **Ziti sidecar container** within the pod that enrolls the agent's OpenZiti identity and exposes OpenZiti services as local network addresses accessible to all processes in the pod. See [Agent Access Scope](#agent-access-scope).
+**Agent pods** are not in the Istio mesh. They use a **Ziti sidecar container** within the pod that enrolls the agent's OpenZiti identity and exposes OpenZiti services as local network addresses accessible to all processes in the pod. See [Agent Access Scope](#agent-access-scope).
 
 The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server accepts connections from an OpenZiti listener the same way it accepts from a TCP listener. A gRPC client dials through an OpenZiti context the same way it dials a TCP address.
 
@@ -25,7 +25,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 | **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
 
-Agent containers do not embed the OpenZiti SDK. Instead, a **Ziti sidecar** runs alongside the agent process within the same pod. See [Agent Access Scope](#agent-access-scope).
+Agent pods do not embed the OpenZiti SDK. Instead, a **Ziti sidecar** runs alongside the agent process within the same pod. See [Agent Access Scope](#agent-access-scope).
 
 Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
@@ -92,7 +92,7 @@ Expired identities are inert — the pod that held the enrolled certificate has 
 
 Two identity lifecycle patterns coexist:
 
-- **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the container.
+- **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the agent pod's Ziti sidecar container.
 - **Service identities** — self-managed by each service (Orchestrator, Runner, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
 
 The agent identity pattern follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification: the Orchestrator is control plane (decides what should exist), the Runner is data plane (executes what it is told).
@@ -121,7 +121,7 @@ sequenceDiagram
 
     Note over O: Reconciliation: agent idle
     O->>R: StopWorkload(workloadId)
-    R->>A: Stop container
+    R->>A: Stop pod
     O->>ZM: DeleteIdentity(openZitiIdentityId)
     ZM->>ZC: DELETE /identities/{id}
     ZM->>ZM: Remove mapping from PostgreSQL
@@ -152,13 +152,13 @@ When Ziti Management creates an agent identity, it sends:
 
 ### Orphan Reconciliation
 
-The Orchestrator's existing reconciliation loop handles orphaned identities (from Runner crashes, container crashes, or Orchestrator restarts):
+The Orchestrator's existing reconciliation loop handles orphaned identities (from Runner crashes, pod crashes, or Orchestrator restarts):
 
 1. Each reconciliation pass: Orchestrator calls `ZitiManagement.ListManagedIdentities()`.
 2. Compares against active workloads from `Runner.FindWorkloadsByLabels()`.
 3. Deletes OpenZiti identities that have no matching running workload via `ZitiManagement.DeleteIdentity()`.
 
-This is the same reconciliation pattern used for agent workloads — no new mechanism needed. An orphaned identity with no running container is inert (it can't be used because the enrollment JWT has expired or the enrolled certificate is inside a stopped container), but cleanup is important for hygiene and OpenZiti Controller resource limits.
+This is the same reconciliation pattern used for agent workloads — no new mechanism needed. An orphaned identity with no running pod is inert (it can't be used because the enrollment JWT has expired or the enrolled certificate is inside a stopped pod), but cleanup is important for hygiene and OpenZiti Controller resource limits.
 
 ## Service Identity Self-Enrollment
 

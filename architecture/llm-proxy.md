@@ -163,7 +163,7 @@ model_provider = "platform"
 
 [model_providers.platform]
 name = "Agyn LLM"
-base_url = "https://llm.agyn.dev/v1"  # local address provided by Ziti sidecar
+base_url = "http://127.0.0.1:8080/v1"  # local address provided by Ziti sidecar
 env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 ```
