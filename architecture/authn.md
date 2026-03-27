@@ -115,7 +115,7 @@ Agent pods are short-lived. Their OpenZiti identities are created and destroyed 
 1. The Agents Orchestrator creates an OpenZiti identity via the Ziti Management service before requesting the pod.
 2. The Orchestrator passes the enrollment JWT to Runner as part of `StartWorkload` configuration.
 3. Runner starts the pod with the JWT. The Ziti sidecar enrolls on startup, receiving an x509 certificate.
-4. All API calls from processes in the pod reach platform APIs via the sidecar's local addresses.
+4. All API calls from processes in the pod reach platform APIs via OpenZiti service hostnames resolved by the sidecar DNS server and intercepted via TPROXY.
 5. When the Orchestrator stops the workload, it deletes the OpenZiti identity via Ziti Management. The certificate becomes invalid.
 
 The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Integration](openziti.md) for the full lifecycle diagram.
@@ -184,7 +184,7 @@ graph TB
 
 **Infrastructure services** that participate in both the Istio mesh and the OpenZiti overlay use the **OpenZiti Go SDK** embedded in the application process — not an OpenZiti sidecar or tunneler. This avoids conflicts between the Istio sidecar proxy and an OpenZiti sidecar competing for outbound traffic routing.
 
-Agent pods are not in the Istio mesh. They use a Ziti sidecar container within the pod to enroll the agent identity and expose OpenZiti services as local addresses.
+Agent pods are not in the Istio mesh. They use a Ziti sidecar container within the pod to enroll the agent identity, resolve OpenZiti service hostnames via DNS, and transparently intercept traffic with TPROXY.
 
 | Service | OpenZiti SDK Usage | Istio |
 |---------|-------------------|-------|

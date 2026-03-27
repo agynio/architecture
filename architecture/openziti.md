@@ -14,7 +14,7 @@ This document covers the **implementation** of OpenZiti integration: which servi
 
 **Infrastructure services** that participate in both the Istio mesh and the OpenZiti overlay embed the **OpenZiti Go SDK** ([`openziti/sdk-golang`](https://github.com/openziti/sdk-golang)) directly in the application process. This avoids deploying an OpenZiti sidecar alongside the Istio sidecar, which would create conflicts over outbound traffic routing.
 
-**Agent pods** are not in the Istio mesh. They use a **Ziti sidecar container** within the pod that enrolls the agent's OpenZiti identity and exposes OpenZiti services as local network addresses accessible to all processes in the pod. See [Agent Access Scope](#agent-access-scope).
+**Agent pods** are not in the Istio mesh. They use a **Ziti sidecar container** within the pod that enrolls the agent's OpenZiti identity, runs DNS for OpenZiti service hostnames, and transparently intercepts traffic via iptables TPROXY. This makes hostnames like `gateway.ziti` and `llm-proxy.ziti` reachable as normal network addresses inside the pod. See [Agent Access Scope](#agent-access-scope).
 
 The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` interfaces. A gRPC server accepts connections from an OpenZiti listener the same way it accepts from a TCP listener. A gRPC client dials through an OpenZiti context the same way it dials a TCP address.
 
@@ -117,7 +117,7 @@ sequenceDiagram
     O->>R: StartWorkload(config, enrollmentJWT)
     R->>A: Start pod with enrollment JWT
     Note over A: Ziti sidecar enrolls (exchanges JWT for x509 cert)
-    A->>A: All pod processes reach platform APIs via sidecar-provided local addresses
+    A->>A: All pod processes reach platform APIs via OpenZiti hostnames (intercepted by sidecar)
 
     Note over O: Reconciliation: agent idle
     O->>R: StopWorkload(workloadId)
@@ -374,7 +374,7 @@ Both internal and external runners bind the same `runner` OpenZiti service and a
 
 Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location (internal or external). The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
 
-Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and makes OpenZiti services available as local network addresses within the pod. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway and LLM Proxy as regular network calls — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
+Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and configures transparent access to OpenZiti services. The sidecar runs a DNS server on `127.0.0.1` that resolves OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`) to `100.64.0.0/10` addresses and installs iptables TPROXY rules that intercept those connections and tunnel them over OpenZiti. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway and LLM Proxy using standard hostnames and HTTP clients — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
 
 | Connection | Layer |
 |------------|-------|
