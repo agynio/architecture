@@ -61,7 +61,7 @@ sequenceDiagram
     participant L as LLM Service (gRPC)
     participant E as LLM Provider (external)
 
-    A->>P: POST /v1/responses (model: platform-model-id)
+    A->>P: POST /v1/responses (model: platform-model-id) [via llm-proxy.ziti (intercepted by sidecar)]
     P->>P: Authenticate caller (OpenZiti / API token)
     P->>L: ResolveModel(model_id)
     L-->>P: endpoint, token, remoteName, organization_id
@@ -87,6 +87,8 @@ The LLM Proxy authenticates callers independently — it does not go through the
 |--------|-----------|----------|
 | **OpenZiti** | mTLS identity extracted from the connection via [Ziti Management](openziti.md) `ResolveIdentity` | Agents running inside the platform (primary path) |
 | **API token** | `Authorization: Bearer agyn_...` → hash lookup via [Users](users.md) `ResolveAPIToken` | External callers, local development, CI |
+
+When an agent connects to `llm-proxy.ziti`, the Ziti sidecar resolves the hostname to a `100.64.0.0/10` address and transparently intercepts the connection via DNS + iptables TPROXY, establishing an OpenZiti mTLS connection to the LLM Proxy on behalf of the pod. The LLM Proxy extracts the agent identity from this mTLS connection identically to how it would from an embedded-SDK connection.
 
 Both methods resolve to an `identity_id` and `identity_type`. The `identity_id` is passed to the [Authorization](authz.md) service for permission checks.
 
@@ -161,12 +163,12 @@ model_provider = "platform"
 
 [model_providers.platform]
 name = "Agyn LLM"
-base_url = "https://llm.agyn.dev/v1"  # or OpenZiti address
+base_url = "http://llm-proxy.ziti/v1"  # OpenZiti hostname intercepted by Ziti sidecar
 env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 ```
 
-`agynd` sets `OPENAI_API_KEY` in the Codex subprocess environment. Over OpenZiti, the token value is unused (authentication is via mTLS). Over the public endpoint, the token must be a valid platform API token (`agyn_...`).
+`agynd` sets `OPENAI_API_KEY` in the Codex subprocess environment. When running with the Ziti sidecar, the `base_url` points to the OpenZiti hostname (`llm-proxy.ziti`), resolved by the sidecar DNS server and intercepted via TPROXY. Authentication is handled at the network level by the sidecar's mTLS — the token value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
 
 > **Note:** Using `OPENAI_BASE_URL` env var to override the built-in OpenAI provider does not work with `codex app-server`. The built-in provider has `name = "OpenAI"` which triggers remote compaction (`POST /responses/compact`) and has `env_key: None` which prevents the `OPENAI_API_KEY` env var from being used for Bearer authentication in the subprocess auth pipeline.
 
@@ -174,7 +176,7 @@ wire_api = "responses"
 
 ```yaml
 llm:
-  endpoint: https://llm.agyn.dev/v1
+  endpoint: http://llm-proxy.ziti/v1
 ```
 
-Inside the platform, agents connect to the LLM Proxy over OpenZiti. The endpoint address is the OpenZiti service name, resolved by the SDK. `agynd` configures this automatically.
+Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` OpenZiti hostname. The Ziti sidecar resolves the hostname to a `100.64.0.0/10` address and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses (Codex CLI, Claude Code, `agn`) connect with standard HTTP clients — no OpenZiti SDK or special client logic required. `agynd` configures the endpoint address automatically.

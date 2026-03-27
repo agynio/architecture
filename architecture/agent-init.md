@@ -200,12 +200,17 @@ Codex and agn init images are ~50–70 MB compressed; the Claude init image is ~
 sequenceDiagram
     participant K as Kubernetes
     participant IC as Init Container
+    participant ZS as Ziti Sidecar
     participant MC as Main Container (user image)
     participant GW as Gateway
 
     K->>IC: Start init container
     IC->>IC: cp /tools/* → /agyn-bin/
     IC-->>K: Exit 0
+
+    K->>ZS: Start Ziti sidecar container
+    ZS->>ZS: Enroll OpenZiti identity (JWT)
+    Note over ZS: Sidecar resolves gateway.ziti/llm-proxy.ziti and intercepts traffic (DNS + TPROXY)
 
     K->>MC: Start main container
     Note over MC: command: /agyn-bin/agynd
@@ -350,6 +355,11 @@ metadata:
     agyn.dev/thread-id: <thread-uuid>
 spec:
   restartPolicy: Never
+  dnsPolicy: None
+  dnsConfig:
+    nameservers:
+      - 127.0.0.1          # Ziti sidecar DNS
+      - <cluster-dns-ip>   # CoreDNS fallback
 
   initContainers:
     - name: agent-init
@@ -357,6 +367,18 @@ spec:
       volumeMounts:
         - name: agyn-bin
           mountPath: /agyn-bin
+
+    - name: ziti-sidecar
+      image: ghcr.io/agynio/ziti-sidecar:latest
+      restartPolicy: Always
+      securityContext:
+        capabilities:
+          add: ["NET_ADMIN"]
+      env:
+        - name: ZITI_ENROLLMENT_JWT
+          value: "<jwt>"
+        - name: ZITI_IDENTITY_BASENAME
+          value: "/var/lib/ziti/identity/agent"
 
   containers:
     - name: agent-<short-id>

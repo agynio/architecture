@@ -46,7 +46,7 @@ All users interact with the same Gateway API. [Authorization](authz.md) determin
 
 | Method | Mechanism | Use Case |
 |--------|-----------|----------|
-| **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Inside agent containers where `agynd` has enrolled an OpenZiti identity |
+| **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](authn.md#network-identity-openziti) mTLS via the Ziti sidecar — automatic when the sidecar is present | Inside agent pods where a Ziti sidecar has enrolled an OpenZiti identity |
 | **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Developer machines, CI, any environment without OpenZiti |
 
 Network identity takes precedence when available. Otherwise, `agyn` reads the stored token from `~/.agyn/credentials`.

@@ -123,7 +123,7 @@ The orchestrator assembles the full workload specification from multiple sources
 6. **Init scripts** (from Agents): shell scripts for container initialization.
 7. **Hooks** (from Agents): event-driven sidecar containers.
 8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
-9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent container for network identity bootstrap.
+9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
 
 The orchestrator also wires the init container flow:
 

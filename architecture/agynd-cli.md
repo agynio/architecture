@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to the [Gateway](gateway.md) (via [OpenZiti](openziti.md)), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
+`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to the [Gateway](gateway.md) and the [LLM Proxy](llm-proxy.md) via OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`) that are transparently intercepted by the pod's [Ziti sidecar](openziti.md#agent-access-scope), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
 
 | Aspect | Details |
 |--------|---------|
@@ -96,25 +96,28 @@ Each SDK module is responsible for:
 
 | Method | Mechanism | Use Case |
 |--------|-----------|----------|
-| **Network identity** | [OpenZiti](authn.md#network-identity-openziti) mTLS — automatic when the environment provides it | Primary. The Orchestrator creates an OpenZiti identity and passes the enrollment JWT via Runner. `agynd` enrolls on startup |
+| **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](authn.md#network-identity-openziti) mTLS via the Ziti sidecar — automatic when the sidecar is present | Primary. The Orchestrator creates an OpenZiti identity and passes the enrollment JWT via Runner. The Ziti sidecar enrolls on startup and transparently intercepts OpenZiti service hostnames via DNS + TPROXY |
 | **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Development, testing, or environments without OpenZiti |
 
-In production, `agynd` uses network identity. The [agent identity lifecycle](authn.md#agent-identity-lifecycle) is managed by the Orchestrator — `agynd` receives the enrollment JWT as container configuration and enrolls transparently.
+In production, the pod's Ziti sidecar handles OpenZiti enrollment and mTLS. `agynd` connects to Gateway and LLM Proxy using OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`); the sidecar resolves these names and transparently intercepts traffic via DNS + TPROXY, so `agynd` does not embed the OpenZiti SDK. The [agent identity lifecycle](authn.md#agent-identity-lifecycle) is managed by the Orchestrator. The enrollment JWT is consumed by the sidecar, not by `agynd`.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    subgraph "Agent Container"
-        agynd[agynd]
-        AgentCLI[Agent CLI<br/>agn / 3rd-party]
-        AggMCP[Aggregated MCP Proxy]
-        Skills[Skills on filesystem]
+    subgraph "Agent Pod"
+        ZitiSidecar[Ziti Sidecar]
+        subgraph "Agent Container"
+            agynd[agynd]
+            AgentCLI[Agent CLI<br/>agn / 3rd-party]
+            AggMCP[Aggregated MCP Proxy]
+            Skills[Skills on filesystem]
 
-        agynd -->|spawns via SDK| AgentCLI
-        agynd --> AggMCP
-        AggMCP -->|proxies| AgentCLI
-        Skills -->|read by| AgentCLI
+            agynd -->|spawns via SDK| AgentCLI
+            agynd --> AggMCP
+            AggMCP -->|proxies| AgentCLI
+            Skills -->|read by| AgentCLI
+        end
     end
 
     subgraph "MCP Sidecars"
@@ -122,11 +125,15 @@ graph TB
         MCP2[MCP Server 2]
     end
 
-    subgraph Platform (via Gateway)
+    subgraph Platform
         Gateway
+        LLMProxy[LLM Proxy]
     end
 
-    agynd -->|all platform calls| Gateway
+    agynd -->|platform calls via OpenZiti hostname| Gateway
+    AgentCLI -->|LLM calls via OpenZiti hostname| LLMProxy
+    ZitiSidecar -.->|OpenZiti mTLS| Gateway
+    ZitiSidecar -.->|OpenZiti mTLS| LLMProxy
     AggMCP -->|proxies tool calls| MCP1 & MCP2
 ```
 
@@ -139,8 +146,9 @@ sequenceDiagram
     participant GW as Gateway
     participant A as Agent CLI
 
-    R->>D: Start container
-    D->>D: Fetch agent configuration (via Gateway)
+    R->>D: Start pod (Ziti sidecar enrolls identity)
+    Note over D: Ziti sidecar resolves OpenZiti hostnames and intercepts traffic (DNS + TPROXY)
+    D->>D: Fetch agent configuration (via Gateway at gateway.ziti)
     D->>D: Prepare environment (skills, LLM Proxy config)
     D->>D: Start aggregated MCP proxy
     D->>GW: Subscribe to thread_participant:{agentId}
