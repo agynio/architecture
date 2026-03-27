@@ -576,6 +576,62 @@ func TestGatewayAgentCRUD(t *testing.T) {
 }
 ```
 
+## Deterministic LLM (TestLLM)
+
+Agentic flows depend on LLM responses for decision-making, tool calling, and message generation. Real LLMs are non-deterministic — the same input can produce different outputs across runs. This makes E2E assertions on agent behavior impossible without a deterministic substitute.
+
+[TestLLM](https://github.com/agynio/testllm) is a standalone service that exposes an OpenAI-compatible Responses API backed by predefined conversation sequences. Instead of calling a real LLM provider, the test infrastructure configures agents to hit TestLLM, which replays scripted responses — making agent behavior fully deterministic and assertable.
+
+### How It Works
+
+A **test** in TestLLM is an ordered sequence of items (input messages, output messages, function calls, function call outputs) following the OpenAI Responses API format. On each request, TestLLM matches the incoming `input` items against the expected prefix in the sequence. On exact match, it returns the next output items. On mismatch, it returns an error with a detailed description of the divergence.
+
+The E2E test sets up the platform to route LLM traffic through TestLLM:
+
+1. Create an **LLM Provider** resource with `endpoint` pointing at the TestLLM URL.
+2. Create a **Model** resource with `remoteName` set to the test name in TestLLM.
+3. Create or configure an **Agent** to use that model.
+4. Trigger the agent (e.g., send a message to a thread).
+5. The agent's LLM requests flow through the [LLM Proxy](../llm-proxy.md) → [LLM Service](../llm.md) → TestLLM and receive scripted responses.
+6. Assert agent behavior (messages posted, tool calls made, final state).
+
+```mermaid
+sequenceDiagram
+    participant T as E2E Test
+    participant P as Platform
+    participant A as Agent
+    participant LLM as LLM Service
+    participant TL as TestLLM
+
+    T->>P: Create LLM Provider (endpoint: TestLLM)
+    T->>P: Create Model (remoteName: test name)
+    T->>P: Create Agent (model: Model ID)
+    T->>P: Send message to thread
+    P->>A: Start agent
+    A->>LLM: Responses API request (model ID)
+    LLM->>TL: Forward (model → remoteName = test name)
+    TL-->>LLM: Scripted response
+    LLM-->>A: Response
+    A->>P: Post response to thread
+    T->>P: Assert agent behavior
+```
+
+### Test Suites Repository
+
+Test suites are managed as code in [`agynio/testllm-suites`](https://github.com/agynio/testllm-suites) using the [TestLLM Terraform provider](https://github.com/agynio/terraform-provider-testllm). Each `.tf` file defines a test suite and its tests — the full conversation sequences that agents will replay during E2E runs.
+
+When testing a new agentic flow, the corresponding TestLLM test (the predefined conversation sequence) must be created first in `agynio/testllm-suites` before writing the E2E test that exercises that flow.
+
+### Separation of Concerns
+
+TestLLM is an independent service with its own repository, deployment, and release cycle. Changes to TestLLM (the service itself, its Terraform provider, or the test suites) must be managed separately — never as part of an Agyn platform feature PR. This keeps the platform's E2E infrastructure stable and independently versioned.
+
+| Repository | Purpose |
+|-----------|---------|
+| [`agynio/testllm`](https://github.com/agynio/testllm) | TestLLM service — Responses API, management UI, data model |
+| [`agynio/testllm-suites`](https://github.com/agynio/testllm-suites) | Test suite definitions managed via Terraform |
+| [`agynio/terraform-provider-testllm`](https://github.com/agynio/terraform-provider-testllm) | Terraform provider for TestLLM resources |
+
 ## Test Selection
 
 Go's built-in `-run` flag and build tags provide test selection without any additional framework:
@@ -677,4 +733,5 @@ If `test-e2e` also deployed from source, it would be impossible to run the `main
 | Test selection | `-run` regex + Go build tags (`smoke`, `regression`) |
 | Test images to build/push | None — DevSpace syncs source, dev container has toolchain |
 | Environment | Bootstrap cluster — no additional config |
+| Deterministic LLM | [TestLLM](https://github.com/agynio/testllm) — predefined conversation sequences, test suites in [`agynio/testllm-suites`](https://github.com/agynio/testllm-suites) |
 | Guards / skip conditions | Not allowed — every test runs unconditionally, or is deleted |
