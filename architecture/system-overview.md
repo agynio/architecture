@@ -37,6 +37,7 @@ graph TB
         Identity[Identity]
         AppsService[Apps Service]
         LLMProxy[LLM Proxy]
+        Memory[Memory]
     end
 
     subgraph Apps
@@ -129,6 +130,7 @@ graph TB
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
 | **[Reminders](apps/reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
+| **[Memory](memory.md)** | Per-agent memory store with learned activation. Agents create `(key, content)` pairs; a trained activation function selects relevant memories for injection via hooks; agent feedback scores drive continuous retraining |
 
 ## Data Concerns
 

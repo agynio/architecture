@@ -58,6 +58,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Tracing](architecture/tracing.md) | Span ingestion and query — standard OTLP with upsert for in-progress spans. Captures full LLM call context |
 | [Gateway](architecture/gateway.md) | External API surface — ConnectRPC (gRPC + HTTP/JSON) |
 | [API Contracts](architecture/api-contracts.md) | Proto schema conventions for internal and external APIs |
+| [Memory](architecture/memory.md) | Per-agent memory — `(key, content)` pairs with learned activation, hook-based injection, and score-driven lifecycle |
 
 ### [Operations](architecture/operations/) — CI/CD, Local Development, Configuration
 
