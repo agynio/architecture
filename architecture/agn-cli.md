@@ -195,11 +195,60 @@ system_prompt: |
 | `summarization.llm.model` | string | no | Model identifier for summarization (required when `summarization.llm` is set) |
 | `system_prompt` | string | no | System prompt prepended to every LLM call |
 
+### MCP configuration
+
+`agn` connects to MCP servers listed under `mcp.servers`. Each entry is an independent server — `agn` discovers tools from each server separately and routes tool calls to the originating server.
+
+Two transports are supported:
+
+| Transport | Config key | Description |
+|-----------|-----------|-------------|
+| **stdio** | `command` | `agn` spawns the server as a subprocess and communicates over stdin/stdout |
+| **Streamable HTTP** | `url` | `agn` connects to a remote server over HTTP (Streamable HTTP transport) |
+
+Each server entry must use exactly one transport — either `command` or `url`.
+
+```yaml
+# ~/.agyn/agn/config.yaml
+
+mcp:
+  servers:
+    # stdio transport — spawned as a subprocess
+    filesystem:
+      command: mcp-filesystem
+      args:
+        - --root
+        - /workspace
+      env:
+        MCP_LOG_LEVEL: debug
+
+    # stdio transport
+    github:
+      command: mcp-github
+      env:
+        GITHUB_TOKEN_ENV: GITHUB_TOKEN
+
+    # Streamable HTTP transport — remote server
+    remote_tools:
+      url: http://mcp-tools.internal:8080/mcp
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mcp` | object | no | MCP configuration section. Absent = no tools |
+| `mcp.servers` | map[string]MCPServer | no | Named MCP server definitions |
+| `mcp.servers.<name>.command` | string | one of | Executable path or name (stdio transport) |
+| `mcp.servers.<name>.args` | []string | no | Command-line arguments (stdio only) |
+| `mcp.servers.<name>.env` | map[string]string | no | Additional environment variables (stdio only) |
+| `mcp.servers.<name>.url` | string | one of | Server endpoint URL (Streamable HTTP transport) |
+
+Server names must match `^[a-z][a-z0-9_]{0,62}$`.
+
 ### Platform vs local
 
-When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
+When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform. It also writes MCP server entries under `mcp.servers`.
 
-When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `agn exec` reads it on startup.
+When running locally, the developer writes `~/.agyn/agn/config.yaml` manually and lists MCP servers directly under `mcp.servers`. `agn exec` reads it on startup.
 
 ## State Persistence
 

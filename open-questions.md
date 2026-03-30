@@ -45,7 +45,6 @@ Unresolved architectural decisions requiring discussion.
 
 **Questions:**
 - What is the directory convention for skills on the filesystem?
-- How does `agn` discover its MCP server? (Stdio command, socket path, environment variable?)
 - What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
 
 ---
