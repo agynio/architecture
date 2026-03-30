@@ -43,9 +43,10 @@ Unresolved architectural decisions requiring discussion.
 
 **Context:** [`agn`](architecture/agn-cli.md) configuration lives in `~/.agyn/agn/config.yaml`. The minimal configuration (LLM endpoint, system prompt) is defined — see [agn Configuration](architecture/agn-cli.md#configuration). Remaining questions are about features not yet implemented.
 
+**Resolved:** `agn` discovers its MCP servers via `mcp.servers` in `config.yaml`. Each entry is a named subprocess server spawned on startup.
+
 **Questions:**
 - What is the directory convention for skills on the filesystem?
-- How does `agn` discover its MCP server? (Stdio command, socket path, environment variable?)
 - What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
 
 ---

@@ -195,11 +195,46 @@ system_prompt: |
 | `summarization.llm.model` | string | no | Model identifier for summarization (required when `summarization.llm` is set) |
 | `system_prompt` | string | no | System prompt prepended to every LLM call |
 
+### MCP configuration
+
+`agn` can spawn MCP servers as subprocesses and aggregate their tools into a single namespace.
+
+```yaml
+# ~/.agyn/agn/config.yaml
+
+mcp:
+  servers:
+    filesystem:
+      command: mcp-filesystem
+      args:
+        - --root
+        - /workspace
+      env:
+        MCP_LOG_LEVEL: debug
+
+    github:
+      command: mcp-github
+      env:
+        GITHUB_TOKEN_ENV: GITHUB_TOKEN
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mcp` | object | no | MCP configuration section. Absent = no tools |
+| `mcp.servers` | map[string]MCPServer | no | Named MCP server definitions. Key = server name (tool namespace) |
+| `mcp.servers.<name>.command` | string | yes | Executable path or name |
+| `mcp.servers.<name>.args` | []string | no | Command-line arguments |
+| `mcp.servers.<name>.env` | map[string]string | no | Additional environment variables for the subprocess |
+
+Server names must match `^[a-z][a-z0-9_]{0,62}$`.
+
+Tools from all configured servers are merged into a single list, namespaced as `<server>:<tool>`. `agn` routes tool calls by splitting the namespace prefix and forwarding the request to the corresponding subprocess server.
+
 ### Platform vs local
 
-When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
+When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform. It also writes a single `mcp.servers` entry pointing at its aggregated MCP proxy.
 
-When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `agn exec` reads it on startup.
+When running locally, the developer writes `~/.agyn/agn/config.yaml` manually and lists MCP servers directly under `mcp.servers`. `agn exec` reads it on startup.
 
 ## State Persistence
 
