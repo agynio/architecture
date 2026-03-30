@@ -141,7 +141,7 @@ All `agn` configuration and credentials live under `~/.agyn/` — the shared hom
 
 ### Minimal configuration
 
-The initial configuration covers the two things `agn` needs to run: an LLM endpoint and a system prompt.
+The initial configuration covers the required LLM endpoint and system prompt, plus optional summarization overrides.
 
 ```yaml
 # ~/.agyn/agn/config.yaml
@@ -158,6 +158,24 @@ llm:
   # Model to use
   model: gpt-4.1
 
+summarization:
+  # Tokens preserved verbatim from recent messages
+  keep_tokens: 2048
+  # Total token budget that triggers summarization
+  max_tokens: 4096
+  # Optional dedicated LLM for summarization
+  llm:
+    # LLM endpoint URL (OpenAI-compatible API)
+    endpoint: https://api.openai.com/v1
+    # Authentication method for the LLM endpoint
+    auth:
+      # API key authentication
+      api_key: sk-...
+      # Or: environment variable reference (resolved at runtime)
+      # api_key_env: OPENAI_SUMMARIZATION_API_KEY
+    # Model to use
+    model: gpt-4.1-mini
+
 # System prompt — prepended to every LLM call
 system_prompt: |
   You are a software engineering agent.
@@ -169,6 +187,12 @@ system_prompt: |
 | `llm.auth.api_key` | string | one of | API key, provided directly |
 | `llm.auth.api_key_env` | string | one of | Environment variable name containing the API key |
 | `llm.model` | string | yes | Model identifier |
+| `summarization.keep_tokens` | integer | no | Tokens preserved verbatim from recent messages (default: 2048) |
+| `summarization.max_tokens` | integer | no | Total token budget that triggers summarization (default: 4096) |
+| `summarization.llm.endpoint` | string | no | OpenAI-compatible API base URL for summarization LLM (required when `summarization.llm` is set) |
+| `summarization.llm.auth.api_key` | string | one of | API key for the summarization LLM (required when `summarization.llm` is set) |
+| `summarization.llm.auth.api_key_env` | string | one of | Environment variable name containing the summarization API key (required when `summarization.llm` is set) |
+| `summarization.llm.model` | string | no | Model identifier for summarization (required when `summarization.llm` is set) |
 | `system_prompt` | string | no | System prompt prepended to every LLM call |
 
 ### Platform vs local
@@ -176,10 +200,6 @@ system_prompt: |
 When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform.
 
 When running locally, the developer writes `~/.agyn/agn/config.yaml` manually. `agn exec` reads it on startup.
-
-### Future configuration
-
-Additional configuration (MCP servers, skills directory, summarization parameters) will be added to this file as those features are implemented.
 
 ## State Persistence
 
