@@ -98,8 +98,8 @@ Rolling summarization keeps the LLM context within a token budget. When context 
 ### Algorithm
 
 1. Count tokens in the full conversation.
-2. If total ≤ `summarizationMaxTokens`, skip summarization.
-3. Otherwise, keep the most recent `summarizationKeepTokens` worth of messages verbatim.
+2. If total ≤ `summarization.max_tokens`, skip summarization.
+3. Otherwise, keep the most recent `summarization.keep_tokens` worth of messages verbatim.
 4. Send the remaining older messages to the LLM with a summarization prompt.
 5. Replace the older messages with the resulting summary message.
 
@@ -119,5 +119,15 @@ Implementation-specific configuration fields (in addition to the [base agent con
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `summarizationKeepTokens` | integer | Number of most-recent tokens preserved verbatim |
-| `summarizationMaxTokens` | integer | Total token budget for context sent to the LLM |
+| `summarization.llm.endpoint` | string | OpenAI-compatible API base URL for summarization LLM |
+| `summarization.llm.auth.api_key` | string | API key, provided directly |
+| `summarization.llm.auth.api_key_env` | string | Environment variable name containing the API key |
+| `summarization.llm.model` | string | Model identifier for summarization |
+| `summarization.keep_tokens` | integer | Tokens preserved verbatim from recent messages (default: 2048) |
+| `summarization.max_tokens` | integer | Total token budget that triggers summarization (default: 4096) |
+
+Summarization configuration fallback behavior:
+
+- If `summarization` is omitted entirely, the agent uses the main LLM with default thresholds.
+- If `summarization` is present but `summarization.llm` is omitted, the agent uses the main LLM with the specified thresholds.
+- If `summarization.llm` is provided, all sub-fields follow the same rules as the top-level `llm` block.
