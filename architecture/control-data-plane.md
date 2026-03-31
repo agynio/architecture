@@ -2,7 +2,7 @@
 
 ## Definitions
 
-**Control plane** manages the desired state of the system. It is stateless and responsible for reconciliation of dynamic resources (agents, channels, workspaces, etc.). It answers: *"what should be running?"*
+**Control plane** manages the desired state of the system. It is stateless and responsible for reconciliation of dynamic resources (agents, workspaces, etc.). It answers: *"what should be running?"*
 
 **Data plane** handles the actual work: carrying messages, executing agent workloads, streaming events. It answers: *"how does the work get done?"*
 
@@ -28,7 +28,7 @@ graph LR
 
     subgraph Data Plane
         Gateway
-        Channels
+        Apps
         Threads
         Notifications
         Runner
@@ -56,13 +56,12 @@ graph LR
 | **Agents** | Control | Manages desired state of agent resources (agent definitions, MCP server configs, workspace configs) |
 | **Agents orchestrator** | Control | Decides which agent workloads should exist; reconciles agent lifecycle |
 | **Organizations** | Control | Manages organization definitions (CRUD) and lists accessible organizations for an identity (queries Authorization) |
-| **Channels** (configuration) | Control | Defines channel desired state (credentials, target IDs, routing rules) |
-| **Channels** (connection) | Data | Maintains live connections to 3rd-party APIs, translates messages |
 | **Users** | Data | Provisions user identities on OIDC login, serves user profiles on the request hot path |
 | **Identity** | Data | Central identity type registry. Maps identity IDs to types on the request hot path |
 | **Threads** | Data | Carries conversation messages between participants |
 | **Notifications** | Data | Holds persistent connections, fans out real-time events |
 | **Gateway** | Data | Routes external API requests to internal services |
+| **Apps** | Data | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products (Slack) and platform-provided capabilities (Reminders) |
 | **Tracing** | Data | Ingests and serves tracing data |
 | **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
 | **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
@@ -98,5 +97,4 @@ graph LR
 **Resources to reconcile:**
 - **Agents** — Ensure agent workloads exist for threads with pending messages; remove idle agents.
 - **Agent OpenZiti identities** — Ensure every running agent has a corresponding OpenZiti identity; delete orphaned identities with no matching workload. See [OpenZiti Integration](openziti.md).
-- **Channels** — Ensure channel connections match their configuration (reconnect on credential rotation).
 - **Workspaces** — Ensure workspace containers match desired image/config; enforce TTL.

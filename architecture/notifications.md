@@ -80,12 +80,12 @@ Rooms are scoped by resource type and ID:
 
 | Pattern | Example | Used by |
 |---------|---------|---------|
-| `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, channels, users) |
+| `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, apps, users) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
 | `agent:{id}` | `agent:f47ac10b-...` | Agents → agent resource updates |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
 
-Consumers subscribe to rooms matching their identity or the resources they observe. A channel subscribes to `thread_participant:{channelId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
+Consumers subscribe to rooms matching their identity or the resources they observe. A participant app subscribes to `thread_participant:{appId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
 
 ## Delivery Guarantees
 
@@ -106,5 +106,5 @@ On reconnect, repeat from step 1. The fetch in step 3 guarantees no messages are
 ## Internal Design
 
 - **Redis Pub/Sub** distributes envelopes across service instances.
-- **Hub** fans out envelopes to registered subscribers with bounded buffers. Slow consumers are dropped (channel closed) to prevent backpressure.
+- **Hub** fans out envelopes to registered subscribers with bounded buffers. Slow consumers are dropped (connection closed) to prevent backpressure.
 - Buffer size is configurable per hub instance.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, LLM providers, models, secret providers, secrets, channels, and chats. Resources that belong to an organization have an `organization_id` field.
+The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, LLM providers, models, secret providers, secrets, and chats. Resources that belong to an organization have an `organization_id` field.
 
 Not all resources belong to organizations. Threads, files, agent state, and workloads are **independent resources** — access to them is governed by [ReBAC permissions](authz.md) rather than organizational membership. This separation reflects the domain: conversations (threads) and runtime artifacts (state, workloads) connect participants across organizational boundaries, while configuration resources (agents, providers, secrets) are organizational infrastructure.
 
@@ -39,7 +39,7 @@ When the UI needs to display an organization switcher, it calls the Organization
 
 ## Identities and Organizations
 
-Any identity — user, agent, channel, or runner — can have access to an organization. What an identity can do within an organization is determined by its [authorization relationships](authz.md), not by its type.
+Any identity — user, agent, runner, or app — can have access to an organization. What an identity can do within an organization is determined by its [authorization relationships](authz.md), not by its type.
 
 An identity can have access to multiple organizations. User-to-organization membership is managed entirely through OpenFGA relationship tuples — the [Users](users.md) service has no organization association.
 
@@ -59,7 +59,6 @@ Org-scoped resources belong to an organization. They have an `organization_id` f
 | [Agents](agents-service.md) | MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent, MCP, or hook). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
 | [LLM](llm.md) | LLM Providers, Models | `organization_id` on the resource |
 | [Secrets](secrets.md) | Secret Providers, Secrets | `organization_id` on the resource |
-| [Channels](channels.md) | Channel configuration | `organization_id` on the resource |
 | [Chat](chat.md) | Chats | `organization_id` for listing chats within an organization. The underlying [thread](threads.md) is independent |
 
 ### Independent Resources

@@ -11,7 +11,7 @@ The k8s-runner is the Kubernetes-native implementation of the [Runner](runner.md
 | **Repository** | `agynio/k8s-runner` |
 | **API** | gRPC (`RunnerService`) |
 | **Backend** | Kubernetes API (in-cluster) |
-| **Authentication** | OpenZiti network identity (SDK-embedded) |
+| **Authentication** | OpenZiti network identity (SDK-embedded, service token enrollment) |
 
 The k8s-runner runs inside the same Kubernetes cluster where it creates workload Pods.
 
@@ -133,9 +133,9 @@ These permissions are granted via a Role (not ClusterRole) bound to the workload
 
 ## Authentication
 
-The k8s-runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds the `runner` OpenZiti service to receive gRPC connections from the Orchestrator.
+The k8s-runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds its per-runner OpenZiti service (`runner-{runnerId}`) to receive gRPC connections from the Orchestrator.
 
-The runner obtains its OpenZiti identity at runtime via self-enrollment — on startup, it calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. See [OpenZiti Integration — Internal Runners](openziti.md#internal-runners) for the full provisioning flow.
+Like all runners, the k8s-runner uses the service token enrollment flow. On startup, it presents its service token to the platform enrollment endpoint, which validates the token, creates an OpenZiti identity, and returns the enrolled identity (certificate + key) along with the service name. The k8s-runner writes the identity to disk, loads it, and binds its service. See [Runner — Authentication](runner.md#authentication) and [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 
 The runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent pod's Ziti sidecar container. See [Runner](runner.md#authentication).
 

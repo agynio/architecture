@@ -19,4 +19,4 @@ The Apps concept does not exist in the current implementation. No Apps Service, 
 ## Notes
 
 - Depends on: cluster admin authorization (see `2025-06-25-cluster-admin.md`), OpenZiti app policies, Ziti Management `CreateAppIdentity` RPC.
-- The Channels concept will eventually be subsumed by Apps. Channels continue to work as-is until migration.
+- The Channels concept has been subsumed by Apps. Bidirectional integrations (e.g., Slack) are now participant apps under the Apps model.

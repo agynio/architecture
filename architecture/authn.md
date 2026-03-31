@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform authenticates five types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
+The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
 
 ## Identity Types
 
@@ -10,7 +10,6 @@ The platform authenticates five types of identities. Each identity type has its 
 |------|-------------|----------------------|
 | **User** | Human operator using web/mobile app | OIDC or [API token](api-tokens.md) |
 | **Agent** | Agent pod calling platform APIs | OpenZiti (network identity) |
-| **Channel** | Channel service connecting to external apps | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 | **App** | [App](apps.md) interacting with threads | OpenZiti (network identity) |
 
@@ -23,7 +22,7 @@ After authentication, every request carries a resolved identity in its context:
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
-| `identity_type` | enum | `user`, `agent`, `channel`, `runner`, `app` |
+| `identity_type` | enum | `user`, `agent`, `runner`, `app` |
 
 Downstream services receive identity context via gRPC metadata. Services use `identity_id` for attribution (e.g., message sender). Organization context is passed as a request parameter where needed — see [Organizations — Request Flow](organizations.md#request-flow).
 
@@ -80,33 +79,17 @@ The OIDC provider is configured system-wide. Because the SPA is a public client 
 
 ## Network Identity (OpenZiti)
 
-Agents, Channels, Runners, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay.
+Agents, Runners, Apps, and the Agents Orchestrator authenticate via **OpenZiti** network-level identity. Each receives a unique x509 certificate from the OpenZiti Controller. All API communication uses mTLS over the OpenZiti overlay.
 
 ### Enrollment
 
 Non-user identities bootstrap onto the OpenZiti network through one of three paths:
 
-**Self-enrolled service identities** (Orchestrator, Gateway, LLM Proxy, internal Runners) request their identity from the [Ziti Management](openziti.md) service at pod startup. Ziti Management creates the identity on the OpenZiti Controller, enrolls it, and returns the enrolled identity (certificate + key). The pod writes the identity to ephemeral disk and extends a lease on a timer. If the pod restarts, it requests a new identity — the old one is garbage-collected by Ziti Management when its lease expires. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
+**Self-enrolled service identities** (Orchestrator, Gateway, LLM Proxy) request their identity from the [Ziti Management](openziti.md) service at pod startup. Ziti Management creates the identity on the OpenZiti Controller, enrolls it, and returns the enrolled identity (certificate + key). The pod writes the identity to ephemeral disk and extends a lease on a timer. If the pod restarts, it requests a new identity — the old one is garbage-collected by Ziti Management when its lease expires. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
 
-**Operator-provisioned identities** (external Runners, Channels) use a service token flow. An admin creates the resource in the platform, receives a one-time service token, and configures the external service with it. The service presents the token to the platform's enrollment endpoint, which creates an OpenZiti identity, returns an enrollment JWT, and the service enrolls with the Controller.
-
-```mermaid
-sequenceDiagram
-    participant Admin as Admin / Platform
-    participant SVC as Service (External Runner, Channel)
-    participant ZC as OpenZiti Controller
-
-    Admin->>SVC: Provision with service token
-    SVC->>ZC: Present token to enrollment endpoint
-    ZC->>ZC: Validate token, create identity
-    ZC->>SVC: Enrollment JWT
-    SVC->>ZC: Enroll (exchange JWT for x509 cert)
-    Note over SVC: From this point: mTLS via OpenZiti
-```
+**Service-token-provisioned identities** (Runners, Apps) use a service token flow. An admin registers the resource in the platform (via Terraform provider or CLI), receives a service token, and deploys the service with it. On startup, the service presents the token to the platform's enrollment endpoint, which creates an OpenZiti identity, enrolls it, and returns the enrolled identity (certificate + key). The service token is long-lived and reusable — if the service restarts, it re-enrolls and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
 
 **Agent identities** are ephemeral — created by the Orchestrator via Ziti Management before each pod starts, and deleted when the pod stops. See [Agent Identity Lifecycle](#agent-identity-lifecycle) below.
-
-The service token flow is for external services only. Internal platform components use self-enrollment — no tokens, no manual steps.
 
 ### Agent Identity Lifecycle
 
@@ -122,13 +105,12 @@ The Runner treats the enrollment JWT as opaque configuration. See [OpenZiti Inte
 
 ### OpenZiti Identities
 
-| Identity | Lifecycle | Provisioning |  Calls via OpenZiti |
-|----------|-----------|-------------|---------------------|
+| Identity | Lifecycle | Provisioning | Calls via OpenZiti |
+|----------|-----------|-------------|--------------------|
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner |
-| Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives work) |
-| External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds service, receives work) |
+| Runner | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | — (binds service, receives work) |
 | Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway, LLM Proxy |
-| Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway |
+| App | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | Gateway (dial) + own service (bind) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds service, receives connections) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
@@ -141,9 +123,9 @@ The platform uses two network layers.
 graph TB
     subgraph OpenZiti Overlay
         direction LR
-        ExtRunner[External Runner]
+        Runner[Runner]
         AgentExt[Agent Pod + Ziti Sidecar<br/>external]
-        Channel[Channel]
+        App[App]
     end
 
     subgraph Kubernetes Cluster
@@ -159,19 +141,17 @@ graph TB
 
         subgraph "Istio + OpenZiti SDK"
             Orch[Agents Orchestrator]
-            IntRunner[Internal Runner]
         end
 
         AgentInt[Agent Pod + Ziti Sidecar<br/>internal]
         ZR[OpenZiti Router]
     end
 
-    ExtRunner -.->|OpenZiti| ZR
+    Runner -.->|OpenZiti| ZR
     AgentExt -.->|OpenZiti| ZR
-    Channel -.->|OpenZiti| ZR
+    App -.->|OpenZiti| ZR
     AgentInt -.->|OpenZiti| ZR
-    Orch -.->|"OpenZiti (SDK)"| IntRunner
-    Orch -.->|"OpenZiti (SDK)"| ExtRunner
+    Orch -.->|"OpenZiti (SDK)"| Runner
 
     ZR -->|Istio| GW
     ZR -->|Istio| LLMProxy
@@ -188,8 +168,7 @@ Agent pods are not in the Istio mesh. They use a Ziti sidecar container within t
 
 | Service | OpenZiti SDK Usage | Istio |
 |---------|-------------------|-------|
-| **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner")` | All other outbound calls (Threads, Agents, Secrets, etc.) |
-| **Internal Runner** | Binds `runner` service via `zitiContext.Listen("runner")` | Not used for inbound Runner API traffic |
+| **Agents Orchestrator** | Dials runners via `zitiContext.Dial("runner-{runnerId}")` | All other outbound calls (Threads, Agents, Secrets, etc.) |
 | **Gateway** | Binds `gateway` service via `zitiContext.ListenWithOptions("gateway", ...)` | All outbound calls to internal services |
 | **LLM Proxy** | Binds `llm-proxy` service via `zitiContext.ListenWithOptions("llm-proxy", ...)` | All outbound calls to internal services (LLM, Users, Authorization, Ziti Management) |
 
@@ -213,15 +192,15 @@ OpenZiti provides identity and connectivity for actors outside the cluster or ne
 | Concern | Mechanism |
 |---------|-----------|
 | mTLS | Per-identity x509 certificates from OpenZiti Controller |
-| Identity model | Platform-managed identities (agent ID, runner ID, channel ID) |
+| Identity model | Platform-managed identities (agent ID, runner ID, app ID) |
 | Policy enforcement | OpenZiti service policies (which identity can dial which service) |
-| Scope | Cross-boundary (external runners, agents) and internal (agents in cluster, orchestrator-to-runner) |
+| Scope | Cross-boundary (runners, agents, apps) and internal (agents in cluster, orchestrator-to-runner) |
 
 ### Why Both
 
 **Istio** secures internal service-to-service communication. It knows nothing about application-level identity (which specific agent, which organization).
 
-**OpenZiti** provides application-level identity and connectivity for actors that cross the cluster boundary (external runners, agents, channels) and for connections that must use a uniform protocol regardless of location (orchestrator-to-runner).
+**OpenZiti** provides application-level identity and connectivity for actors that cross the cluster boundary (runners, agents, apps) and for connections that must use a uniform protocol regardless of location (orchestrator-to-runner).
 
 They operate on different connections:
 
@@ -229,8 +208,8 @@ They operate on different connections:
 |------------|-------|-------|
 | Agent → Gateway | OpenZiti | Agents always connect via overlay, regardless of location (via Ziti sidecar) |
 | Agent → LLM Proxy | OpenZiti | LLM API calls via overlay, regardless of location (via Ziti sidecar) |
-| Channel → Gateway | OpenZiti | Channels always connect via overlay |
-| Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for internal and external runners |
+| App → Gateway | OpenZiti | Apps always connect via overlay |
+| Orchestrator → Runner | OpenZiti (SDK) | Uniform protocol for all runners |
 | Orchestrator → Threads, Agents, etc. | Istio | Standard internal service calls |
 | Gateway → internal services | Istio | Standard internal service calls |
 | LLM Proxy → internal services | Istio | LLM service, Users, Authorization, Ziti Management |
@@ -238,7 +217,7 @@ They operate on different connections:
 
 ## Authentication Boundary
 
-**External traffic**: Authenticated at the **Gateway** or the **[LLM Proxy](llm-proxy.md)**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Channels, Runners via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). The LLM Proxy authenticates agents via OpenZiti mTLS or API token for LLM API calls. Organization membership is not validated at the authentication boundary — it is enforced by the [authorization model](authz.md) at the service level.
+**External traffic**: Authenticated at the **Gateway** or the **[LLM Proxy](llm-proxy.md)**. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Runners, Apps via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). The LLM Proxy authenticates agents via OpenZiti mTLS or API token for LLM API calls. Organization membership is not validated at the authentication boundary — it is enforced by the [authorization model](authz.md) at the service level.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 

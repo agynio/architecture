@@ -22,7 +22,6 @@ graph TB
     subgraph Data Plane
         Gateway[Gateway]
         Chat[Chat]
-        Channels[Channels]
         Threads[Threads]
         Files[Files]
         TokenCounting[Token Counting]
@@ -41,6 +40,7 @@ graph TB
 
     subgraph Apps
         RemindersApp[Reminders]
+        SlackApp[Slack App]
     end
 
     subgraph Workloads
@@ -51,7 +51,7 @@ graph TB
     end
 
     WebApp & MobileApp -- "/api/" --> Gateway
-    ThirdParty <--> Channels
+    ThirdParty <--> SlackApp
 
     Gateway --> ZitiMgmt
     Gateway --> Users
@@ -70,7 +70,6 @@ graph TB
     Chat --> Threads
     Chat --> Identity
     Chat --> Users
-    Channels --> Threads
 
     Users --> Identity
     Agents --> Identity
@@ -99,6 +98,7 @@ graph TB
     AppsService --> Authorization
     Gateway --> AppsService
     RemindersApp -->|OpenZiti| Gateway
+    SlackApp -->|OpenZiti| Gateway
 
     Agents --> AgentsOrch
 ```
@@ -111,7 +111,6 @@ graph TB
 | **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
 | **Organizations** | Organization lifecycle (CRUD) and listing accessible organizations for an identity (queries Authorization for organization IDs, enriches with organization details) |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
-| **Channels** | Bidirectional interface connecting 3rd-party products (Slack, etc.) with Threads. Each channel creates and manages its own threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |
 | **Token Counting** | Per-message token counting for LLM messages |
@@ -128,7 +127,7 @@ graph TB
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
-| **[Reminders](apps/reminders.md)** | Platform-provided [app](apps.md). Delivers delayed messages to threads on behalf of agents |
+| **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products (Slack) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
 
 ## Data Concerns
 

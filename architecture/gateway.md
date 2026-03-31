@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Gateway exposes platform methods for external usage. It is the entry point for external clients (web app, mobile app, integrators, agents, channels) to interact with platform services.
+The Gateway exposes platform methods for external usage. It is the entry point for external clients (web app, mobile app, integrators, agents, apps) to interact with platform services.
 
 The gateway is accessible via two ingress paths:
 

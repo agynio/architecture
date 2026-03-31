@@ -15,10 +15,10 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 | Method | Description |
 |--------|-------------|
-| **RegisterRunner** | Register a new runner. Creates the runner record, registers an identity (type `runner`) in [Identity](identity.md), and generates a service token |
+| **RegisterRunner** | Register a new runner. Creates the runner record, creates a per-runner OpenZiti service via [Ziti Management](openziti.md), registers an identity (type `runner`) in [Identity](identity.md), writes authorization tuples, and generates a service token |
 | **GetRunner** | Get a runner by ID |
 | **ListRunners** | List registered runners. Supports filtering by organization |
-| **DeleteRunner** | Delete a runner registration. Revokes the runner's OpenZiti identity |
+| **DeleteRunner** | Delete a runner registration. Deletes the per-runner OpenZiti service and revokes the runner's OpenZiti identity via Ziti Management |
 
 ### Workload State
 
@@ -39,6 +39,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `organization_id` | string (UUID), nullable | Organization scope. Null for cluster-scoped runners |
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
+| `openziti_service_name` | string | Per-runner OpenZiti service name (`runner-{id}`) |
 | `status` | enum | `pending`, `enrolled`, `offline` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
@@ -77,10 +78,12 @@ Cluster-scoped runners (`organization_id: null`) are available to all organizati
 sequenceDiagram
     participant Admin as Admin
     participant RS as Runners Service
+    participant ZM as Ziti Management
     participant I as Identity
     participant Auth as Authorization
 
     Admin->>RS: RegisterRunner(name, organization_id?)
+    RS->>ZM: Create OpenZiti service "runner-{id}" (roleAttributes: ["runner-services"])
     RS->>I: RegisterIdentity(id, type: runner)
     RS->>Auth: Write(identity:runnerId, runner:bind, org/cluster scope)
     RS->>RS: Generate service token, store runner record
@@ -88,20 +91,32 @@ sequenceDiagram
 ```
 
 1. Admin calls `RegisterRunner` (via `agyn` CLI or Terraform).
-2. Runners service registers the runner's identity in the [Identity](identity.md) service with `identity_type: runner`.
-3. Runners service writes authorization tuples granting the runner its permissions.
-4. Runners service generates a service token, stores the runner record, and returns the token.
-5. The service token is provided to the runner deployment.
+2. Runners service creates a per-runner OpenZiti service `runner-{id}` with `roleAttributes: ["runner-services"]` via [Ziti Management](openziti.md). This service is what callers will dial to reach this specific runner.
+3. Runners service registers the runner's identity in the [Identity](identity.md) service with `identity_type: runner`.
+4. Runners service writes authorization tuples granting the runner its permissions.
+5. Runners service generates a service token, stores the runner record (including `openziti_service_name`), and returns the token.
+6. The service token is provided to the runner deployment.
+
+Static OpenZiti policies handle access — `runners-bind` allows identities with `#runners` to bind `#runner-services`, and `orchestrators-dial-runners` allows identities with `#orchestrators` to dial `#runner-services`. No per-runner policy creation is needed. See [OpenZiti Integration — Service Policies](openziti.md#static-policies).
 
 Cluster-scoped runners are registered by the cluster admin. Org-scoped runners are registered by an organization admin.
 
 ## Enrollment
 
-When a runner starts, it presents the service token to the platform enrollment endpoint. The platform validates the token against the Runners service, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key). This follows the same pattern as [app enrollment](apps-service.md#enrollment).
+When a runner starts, it presents the service token to the platform enrollment endpoint. The platform validates the token against the Runners service, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key) along with the service name (`runner-{runnerId}`). See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) for the full enrollment sequence.
 
-After enrollment, the runner binds the `runner` OpenZiti service and begins accepting workload commands.
+After enrollment, the runner binds its per-runner OpenZiti service (`runner-{runnerId}`) and begins accepting workload commands from the Orchestrator.
 
-Internal runners (deployed as platform infrastructure) use [self-enrollment](openziti.md#service-identity-self-enrollment) instead of service tokens. They are still registered as runner records — Terraform creates the runner resource at bootstrap and the runner self-enrolls at startup.
+The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC. All runners — whether deployed as platform infrastructure or by an enterprise admin — follow this same flow.
+
+## Deletion
+
+`DeleteRunner` cleans up all associated resources:
+
+1. Deletes the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management.
+2. Revokes the runner's current OpenZiti identity via Ziti Management.
+3. Removes authorization tuples.
+4. Removes the runner record from PostgreSQL.
 
 ## Workload State Management
 
@@ -130,9 +145,9 @@ The [Terminal Proxy](terminal-proxy.md) needs to reach the specific runner hosti
 1. UI calls `GetWorkload` (via Gateway) to get workload details including `runner_id`.
 2. UI opens a WebSocket to the Terminal Proxy with `workloadId` and `containerId`.
 3. Terminal Proxy calls `GetWorkload` on the Runners service to resolve `runner_id`.
-4. Terminal Proxy dials the specific runner via OpenZiti using the runner's identity.
+4. Terminal Proxy dials the specific runner via OpenZiti: `zitiContext.Dial("runner-{runnerId}")`.
 
-This requires per-runner OpenZiti addressing — see [Open Questions](../open-questions.md#per-runner-openziti-addressing) for the routing mechanism.
+Per-runner OpenZiti addressing is established at registration time — each runner has its own OpenZiti service. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 
 ## Data Store
 

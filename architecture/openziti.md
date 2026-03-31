@@ -4,7 +4,7 @@
 
 The platform uses [OpenZiti](https://openziti.io/) as its overlay network layer, providing:
 
-- **Network-level identity** — Every agent, channel, runner, and orchestrator has a unique x509 certificate issued by the OpenZiti Controller.
+- **Network-level identity** — Every agent, runner, app, and orchestrator has a unique x509 certificate issued by the OpenZiti Controller.
 - **mTLS transport** — All cross-boundary traffic uses mutual TLS. Identity is in the certificate, not in application-level tokens.
 - **Service-level access control** — OpenZiti service policies determine which identities can reach which services (ABAC model using role attributes).
 
@@ -20,14 +20,14 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 
 | Service | SDK Role | How |
 |---------|----------|-----|
-| **Runner** | Bind (server) | `zitiContext.Listen("runner")` → `grpcServer.Serve(listener)` |
-| **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner")` → gRPC client connection |
+| **Runner** | Bind (server) | `zitiContext.Listen("runner-{runnerId}")` → `grpcServer.Serve(listener)` |
+| **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner-{runnerId}")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 | **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
 
 Agent pods do not embed the OpenZiti SDK. Instead, a **Ziti sidecar** runs alongside the agent process within the same pod. See [Agent Access Scope](#agent-access-scope).
 
-Each of these services obtains its OpenZiti identity at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. The identity (x509 certificate and private key) is held on the pod's ephemeral disk for the lifetime of the process. If the pod restarts, it requests a new identity. See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
+The Orchestrator, Gateway, and LLM Proxy obtain their OpenZiti identities at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. Runners and Apps obtain their identities via the service token enrollment flow — see [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle). See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
 ## Ziti Management Service
 
@@ -36,7 +36,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
-| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Runner / Gateway (service identity self-enrollment) |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Enrollment endpoint (runner/app enrollment) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
@@ -47,7 +47,8 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 - The Orchestrator reconciles agent desired state. It calls Ziti Management as a side effect, same as it calls Runner. Isolating OpenZiti logic keeps the Orchestrator focused on lifecycle decisions.
 - The Gateway needs identity resolution on the request hot path. It calls Ziti Management, which reads from PostgreSQL — no dependency on the OpenZiti Controller for every request.
 - If OpenZiti's API changes, only one service changes.
-- Infrastructure services (Orchestrator, Runner, Gateway) self-enroll through Ziti Management at startup, keeping all OpenZiti Controller interactions in one place.
+- Infrastructure services (Orchestrator, Gateway) self-enroll through Ziti Management at startup, keeping all OpenZiti Controller interactions in one place.
+- The enrollment endpoint delegates identity creation to Ziti Management for runners and apps.
 - Future capabilities (user enrollment for CLI, agent-to-agent port sharing) will also route through this service.
 
 ### API Surface
@@ -55,22 +56,25 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | RPC | Caller | Description |
 |-----|--------|-------------|
 | `CreateAgentIdentity` | Orchestrator | Create an OpenZiti identity for an agent, return enrollment JWT |
+| `CreateRunnerIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for a runner, return enrolled identity (cert + key) and service name |
+| `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
-| `RequestServiceIdentity` | Orchestrator, Runner, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
-| `ExtendIdentityLease` | Orchestrator, Runner, Gateway | Extend the lease on a service identity |
+| `RequestServiceIdentity` | Orchestrator, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
+| `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity |
 
 ### OpenZiti Controller Operations
 
 | Operation | API Endpoint | When |
 |-----------|-------------|------|
-| Create identity | `POST /edge/management/v1/identities` | Agent start, service self-enrollment, runner/channel enrollment |
-| Enroll identity | Controller enrollment endpoint | Service identity self-enrollment (Ziti Management enrolls on behalf of the caller) |
+| Create identity | `POST /edge/management/v1/identities` | Agent start, service self-enrollment, runner/app enrollment |
+| Enroll identity | Controller enrollment endpoint | Service identity self-enrollment, runner/app enrollment (Ziti Management enrolls on behalf of the caller) |
 | Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC |
 | List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
-| Create service | `POST /edge/management/v1/services` | Future: agent-to-agent networking |
+| Create service | `POST /edge/management/v1/services` | Runner registration, app registration |
+| Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion |
 | Create service policy | `POST /edge/management/v1/service-policies` | Future: dynamic access grants |
 | Delete service / policy | `DELETE /edge/management/v1/{type}/{id}` | Future: revoke dynamic access |
 
@@ -82,7 +86,7 @@ Ziti Management runs a background loop that garbage-collects expired service ide
 2. Delete the expired OpenZiti identity on the Controller via `DELETE /edge/management/v1/identities/{id}`.
 3. Remove the identity record from PostgreSQL.
 
-This is a separate concern from the Orchestrator's agent identity reconciliation. The Orchestrator reconciles agent identities against running workloads. Ziti Management GC handles service identities (Orchestrator, Runner, Gateway) based purely on lease expiry — it does not query Runner or any other service.
+This is a separate concern from the Orchestrator's agent identity reconciliation. The Orchestrator reconciles agent identities against running workloads. Ziti Management GC handles service identities (Orchestrator, Gateway) based purely on lease expiry — it does not query Runner or any other service.
 
 Expired identities are inert — the pod that held the enrolled certificate has already stopped (otherwise it would have extended the lease). GC is important for hygiene and OpenZiti Controller resource limits.
 
@@ -90,10 +94,11 @@ Expired identities are inert — the pod that held the enrolled certificate has 
 
 ### Who Manages Identities
 
-Two identity lifecycle patterns coexist:
+Three identity lifecycle patterns coexist:
 
 - **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the agent pod's Ziti sidecar container.
-- **Service identities** — self-managed by each service (Orchestrator, Runner, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
+- **Service identities** — self-managed by each infrastructure service (Orchestrator, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
+- **Runner and App identities** — provisioned via the enrollment endpoint using a service token. Runners and Apps present their service token on startup, the enrollment endpoint creates the OpenZiti identity via Ziti Management, and returns the enrolled credentials. See [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle).
 
 The agent identity pattern follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification: the Orchestrator is control plane (decides what should exist), the Runner is data plane (executes what it is told).
 
@@ -162,7 +167,7 @@ This is the same reconciliation pattern used for agent workloads — no new mech
 
 ## Service Identity Self-Enrollment
 
-Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Runner, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
+Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
 
 ### Design
 
@@ -203,8 +208,7 @@ sequenceDiagram
 
 | Service | Role Attributes | After enrollment |
 |---------|----------------|-----------------|
-| **Internal Runner** | `["runners"]` | `zitiContext.Listen("runner")` — binds the `runner` service |
-| **Agents Orchestrator** | `["orchestrators"]` | `zitiContext.Dial("runner")` — dials runners |
+| **Agents Orchestrator** | `["orchestrators"]` | `zitiContext.Dial("runner-{runnerId}")` — dials runners |
 | **Gateway** | `["gateway-hosts"]` | `zitiContext.ListenWithOptions("gateway", ...)` — binds the `gateway` service |
 | **LLM Proxy** | `["llm-proxy-hosts"]` | `zitiContext.ListenWithOptions("llm-proxy", ...)` — binds the `llm-proxy` service |
 
@@ -217,9 +221,9 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 | Identity Type | Role Attributes |
 |---|---|
 | Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
-| Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
+| App | `["apps"]` |
 | LLM Proxy | `["llm-proxy-hosts"]` |
 
 The `agent-<agentId>` attribute is assigned at creation time for future use in per-agent policies. It has no effect until matching service policies are created.
@@ -231,16 +235,18 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | Policy | Type | Identity Roles | Service Roles | Purpose |
 |--------|------|---------------|---------------|---------|
 | `agents-dial-gateway` | Dial | `#agents` | `@gateway` | All agents can reach Gateway |
-| `channels-dial-gateway` | Dial | `#channels` | `@gateway` | All channels can reach Gateway |
-| `orchestrators-dial-runners` | Dial | `#orchestrators` | `@runner` | Orchestrator can reach Runners |
+| `orchestrators-dial-runners` | Dial | `#orchestrators` | `#runner-services` | Orchestrator can reach any runner |
 | `gateway-bind` | Bind | `#gateway-hosts` | `@gateway` | Gateway hosts the `gateway` service |
-| `runners-bind` | Bind | `#runners` | `@runner` | Runners host the `runner` service |
+| `runners-bind` | Bind | `#runners` | `#runner-services` | Runners host their own services |
 | `agents-dial-llm-proxy` | Dial | `#agents` | `@llm-proxy` | All agents can reach LLM Proxy |
 | `llm-proxy-bind` | Bind | `#llm-proxy-hosts` | `@llm-proxy` | LLM Proxy hosts the `llm-proxy` service |
+| `apps-dial-gateway` | Dial | `#apps` | `@gateway` | Apps can reach Gateway |
+| `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
+| `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
-Static policies, services, and edge router policies are provisioned by Terraform at bootstrap. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) — policies match identities by role attributes, not by specific identity references.
+Static policies, services, and edge router policies are provisioned by Terraform at bootstrap. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) or [service token enrollment](#runner-provisioning) — policies match identities by role attributes, not by specific identity references.
 
 ### Dynamic Policies (Future)
 
@@ -265,7 +271,7 @@ The Gateway binds an OpenZiti service and extracts the caller's identity from ea
 
 ```mermaid
 sequenceDiagram
-    participant A as Agent / Channel
+    participant A as Agent / App
     participant GW as Gateway
     participant ZM as Ziti Management
 
@@ -302,12 +308,12 @@ Organization context is not part of the OpenZiti identity. Services that need or
 
 ## Internal Identity Propagation
 
-After Gateway authenticates a request (OIDC for users, OpenZiti for agents/channels/runners), it injects the resolved identity into gRPC metadata:
+After Gateway authenticates a request (OIDC for users, OpenZiti for agents/runners/apps), it injects the resolved identity into gRPC metadata:
 
 | Metadata Key | Type | Description |
 |-------------|------|-------------|
 | `x-identity-id` | string (UUID) | Platform identity ID |
-| `x-identity-type` | string | `user`, `agent`, `channel`, `runner` |
+| `x-identity-type` | string | `user`, `agent`, `runner`, `app` |
 
 All internal services read these keys from incoming gRPC metadata. Services trust these values because:
 
@@ -317,62 +323,69 @@ All internal services read these keys from incoming gRPC metadata. Services trus
 
 ## Runner Provisioning
 
-Runners connect to the OpenZiti overlay to bind the `runner` service and receive work from the Orchestrator. Internal and external runners use the same protocol (OpenZiti mTLS) but differ in how their OpenZiti identity is provisioned.
+All runners use the same provisioning model: register via Terraform provider or CLI, receive a service token, enroll on startup. There is no internal/external distinction — the protocol is uniform regardless of where the runner is deployed.
 
-### Internal Runners
+### Registration
 
-Internal runners are deployed as part of the platform. Their OpenZiti identity is obtained at runtime via [self-enrollment](#service-identity-self-enrollment):
+When a runner is registered via `RegisterRunner` (Terraform provider or `agyn` CLI), the [Runners](runners.md) service:
+
+1. Creates the runner record with a UUID.
+2. Creates a per-runner OpenZiti service `runner-{runnerId}` with `roleAttributes: ["runner-services"]` via Ziti Management.
+3. Registers the runner's identity in the [Identity](identity.md) service with `identity_type: runner`.
+4. Writes authorization tuples granting the runner its permissions.
+5. Generates a service token, stores the runner record, and returns the token.
+
+The per-runner OpenZiti service enables callers (Orchestrator, Terminal Proxy) to dial a specific runner by service name. Static policies match the `#runner-services` role attribute — no per-runner policy creation is needed.
+
+### Enrollment
 
 ```mermaid
 sequenceDiagram
-    participant R as Runner Pod
+    participant R as Runner
+    participant EP as Enrollment Endpoint
+    participant RS as Runners Service
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
 
-    R->>ZM: RequestServiceIdentity(roleAttributes: ["runners"])
+    Note over R: Runner starts with service token
+    R->>EP: Present service token
+    EP->>RS: Validate token (hash lookup)
+    RS-->>EP: Runner record (runnerId, service name)
+    EP->>ZM: CreateRunnerIdentity(runnerId, roleAttributes: ["runners"])
     ZM->>ZC: POST /identities (type: Device, roleAttributes: ["runners"], enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
     ZC->>ZM: Certificate + private key
-    ZM->>ZM: Store identity + lease in PostgreSQL
-    ZM->>R: Enrolled identity (cert + key)
-    R->>R: Write identity to ephemeral disk
-    R->>R: Load identity, zitiContext.Listen("runner")
+    ZM->>ZM: Store mapping in PostgreSQL
+    ZM->>EP: Enrolled identity (cert + key)
+    EP->>R: Enrolled identity (cert + key) + service name (runner-{runnerId})
+    R->>R: Write identity to disk
+    R->>R: Load identity, zitiContext.Listen("runner-{runnerId}")
     Note over R: Accepting gRPC connections via OpenZiti
-
-    loop Every lease interval
-        R->>ZM: ExtendIdentityLease(identityId)
-        ZM->>ZM: Update lease timestamp in PostgreSQL
-    end
 ```
 
-1. On startup, the runner calls `ZitiManagement.RequestServiceIdentity()` with `roleAttributes: ["runners"]`.
-2. Ziti Management creates the identity on the Controller, enrolls it, stores the mapping and lease timestamp in PostgreSQL, and returns the enrolled identity (certificate + key).
-3. The runner writes the identity to ephemeral disk and loads it via the OpenZiti SDK.
-4. The runner binds the `runner` OpenZiti service.
-5. On a timer, the runner calls `ZitiManagement.ExtendIdentityLease()` to keep the identity alive.
-6. If the pod restarts, it requests a new identity. The old identity's lease expires and is cleaned up by Ziti Management's [GC loop](#identity-lease-gc).
+The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
 
-### External Runners
+The enrollment response includes the service name (`runner-{runnerId}`) that the runner must bind. The runner does not need any additional configuration to learn its service name.
 
-External runners are provisioned by an operator using a service token:
+### Deletion
 
-1. Admin registers a runner via the [Runners](runners.md) service. The system generates a service token.
-2. Operator configures the external runner with the service token.
-3. Runner presents the token to the platform enrollment endpoint.
-4. Platform validates the token → calls `ZitiManagement.CreateRunnerIdentity(runnerId)`.
-5. Ziti Management creates an OpenZiti identity with `roleAttributes: ["runners"]`, returns enrollment JWT.
-6. Platform returns the JWT to the Runner. Runner enrolls with the OpenZiti Controller.
-7. Runner stores the enrolled identity locally and loads it on subsequent starts.
-8. All subsequent communication uses mTLS. The service token is no longer needed.
+`DeleteRunner` cleans up all associated resources:
 
-### Uniform Protocol
+1. Deletes the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management.
+2. Revokes the runner's OpenZiti identity via Ziti Management.
+3. Removes the runner record from the Runners service database.
 
-Both internal and external runners bind the same `runner` OpenZiti service and are indistinguishable from the Orchestrator's perspective. The Orchestrator dials runners via `zitiContext.Dial("runner")` — it does not know or care whether the runner is in-cluster or remote. This eliminates protocol branching in the Orchestrator.
+### Addressing
+
+The Orchestrator and Terminal Proxy reach a specific runner by dialing its per-runner OpenZiti service:
+
+- Orchestrator: `zitiContext.Dial("runner-{runnerId}")` — selected during workload scheduling.
+- Terminal Proxy: resolves `runner_id` from the [Runners](runners.md) service workload record, then dials `runner-{runnerId}`.
 
 ## Agent Access Scope
 
-Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location (internal or external). The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
+Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location. The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
 
 Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and configures transparent access to OpenZiti services. The sidecar runs a DNS server on `127.0.0.1` that resolves OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`) to `100.64.0.0/10` addresses and installs iptables TPROXY rules that intercept those connections and tunnel them over OpenZiti. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway and LLM Proxy using standard hostnames and HTTP clients — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
 
@@ -390,10 +403,9 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
-| Internal Runner | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `runner` service) |
-| External Runner | Persistent (enrolled via service token) | Operator (service token) | — (binds `runner` service) |
+| Runner | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | — (binds `runner-{runnerId}` service) |
 | Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial) |
-| Channel | Persistent (enrolled via service token) | Operator (service token) | Gateway (dial) |
+| App | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | Gateway (dial) + own service (bind) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
@@ -433,7 +445,7 @@ sequenceDiagram
     App->>App: Dial Gateway for platform APIs
 ```
 
-This follows the same pattern as [external runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity.
+This follows the same pattern as [runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity.
 
 ### Identity Creation Request
 
@@ -456,7 +468,7 @@ This follows the same pattern as [external runner enrollment](#runner-provisioni
 |-----|--------|-------------|
 | `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
 
-This follows the same pattern as external runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
+This follows the same pattern as runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
 
 ### OpenZiti Service per App
 
@@ -467,22 +479,11 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | `POST /edge/management/v1/services` | App registration — creates the app's service (e.g., `app-reminders`) with `roleAttributes: ["app-services"]` |
 | `DELETE /edge/management/v1/services/{id}` | App deletion — removes the service |
 
-### Updated Static Policies
-
-Three new static policies are added at bootstrap:
-
-| Policy | Type | Identity Roles | Service Roles | Purpose |
-|--------|------|---------------|---------------|---------|
-| `apps-dial-gateway` | Dial | `#apps` | `@gateway` | Apps can reach Gateway |
-| `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
-| `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
-
 ### Updated Role Attributes Table
 
 | Identity Type | Role Attributes |
 |---|---|
 | Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
-| Channel | `["channels"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |
@@ -491,4 +492,4 @@ Three new static policies are added at bootstrap:
 
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
-| App | Persistent (enrolled via enrollment token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |
+| App | Persistent (enrolled via service token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |

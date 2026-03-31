@@ -37,7 +37,7 @@ The authorization model defines types, relations, and how permissions are comput
 
 ### Identities
 
-All platform identities (users, agents, channels, runners, apps) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
+All platform identities (users, agents, runners, apps) are represented as a single `identity` type in OpenFGA. Services do not need to know the identity type when constructing tuples or performing checks — they use `identity:<identity_id>` uniformly. The `identity_type` distinction (from [Authentication](authn.md)) is orthogonal to the authorization model.
 
 Any identity can hold any relationship that is modeled in OpenFGA. See [Identity](identity.md) for the identity registry.
 

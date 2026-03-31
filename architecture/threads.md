@@ -2,9 +2,9 @@
 
 ## Overview
 
-Threads is the messaging service for conversations between participants. It stores messages, tracks participants, and provides message acknowledgment. Threads is participant-type-agnostic — it identifies participants by ID and applies the same behavior regardless of whether the participant is a user, an agent, or a channel.
+Threads is the messaging service for conversations between participants. It stores messages, tracks participants, and provides message acknowledgment. Threads is participant-type-agnostic — it identifies participants by ID and applies the same behavior regardless of whether the participant is a user, an agent, or an app.
 
-Business logic (chat UX, agent processing, channel integration) is implemented by services built on top of Threads.
+Business logic (chat UX, agent processing, app integration) is implemented by services built on top of Threads.
 
 ## Interface
 
@@ -68,7 +68,7 @@ Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
 
 This separation handles crash recovery: a consumer can read messages, process them, and only acknowledge after successful processing. If the consumer crashes before acknowledging, the messages remain unacknowledged and are returned by the next `GetUnackedMessages` call.
 
-`GetUnackedMessages(participantId)` returns all unacknowledged messages for a participant across all threads. This enables consumers that participate in many threads (e.g., channels) to pull from a single endpoint.
+`GetUnackedMessages(participantId)` returns all unacknowledged messages for a participant across all threads. This enables consumers that participate in many threads (e.g., apps) to pull from a single endpoint.
 
 ## Notification Publishing
 

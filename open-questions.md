@@ -32,7 +32,7 @@ Unresolved architectural decisions requiring discussion.
 **Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, and organization roles. The full model needs to cover all resource types and access patterns.
 
 **Questions:**
-- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, channels, secrets)? How do org-scoped vs independent resources differ in their relation definitions?
+- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, secrets)? How do org-scoped vs independent resources differ in their relation definitions?
 - How are tracing data permissions modeled? (Organization-level visibility, or per-agent restriction?)
 - How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
 - What is the relationship tuple cleanup strategy when resources are deleted?
@@ -97,19 +97,6 @@ Unresolved architectural decisions requiring discussion.
 - What criteria determine runner selection? (Organization affinity? Agent resource definition? Labels/tags? Capacity?)
 - Can an agent resource definition specify a runner preference or requirement?
 - What is the fallback behavior if a preferred runner is unavailable?
-
----
-
-## Per-Runner OpenZiti Addressing
-
-**Context:** The [Runners](architecture/runners.md) service tracks which runner hosts each workload. The [Terminal Proxy](architecture/terminal-proxy.md) and [Agents Orchestrator](architecture/agents-orchestrator.md) need to reach a specific runner instance. Currently, all runners bind the same `runner` OpenZiti service — `Dial("runner")` load-balances across instances with no mechanism to target a specific one.
-
-**Questions:**
-- How does a caller dial a specific runner? Options: (a) per-runner OpenZiti services (e.g., `runner-{runnerId}`) created dynamically at registration, (b) OpenZiti `appdata` or terminator-level identity matching, (c) a different addressing mechanism.
-- If per-runner services, who creates them? The [Runners](architecture/runners.md) service during registration via [Ziti Management](architecture/openziti.md)?
-- How do static Dial policies work with dynamic per-runner services?
-
----
 
 ## Tracing AuthN/AuthZ
 

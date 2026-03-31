@@ -39,7 +39,6 @@ Target architecture of the platform. Describes how the system should work.
 | [Agent Init Container](architecture/agent-init.md) | Init container design for injecting platform binaries into agent pods |
 | [agn-cli](architecture/agn-cli.md) | Our agent loop implementation — LLM reasoning with tool use |
 | [Chat](architecture/chat.md) | Built-in web/mobile app chat on top of Threads |
-| [Channels](architecture/channels.md) | Bidirectional interface for 3rd-party and own apps |
 | [Apps](architecture/apps.md) | Apps concept — services that interact with threads (Reminders, Slack, GitHub) |
 | [Apps Service](architecture/apps-service.md) | App registration, profiles, and enrollment |
 | [Reminders](architecture/apps/reminders.md) | Platform-provided app — delayed messages to threads |
