@@ -132,3 +132,18 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 - Does `OPENAI_BASE_URL` work correctly with `codex app-server`, or only with the interactive CLI?
 - If Codex adds proper `OPENAI_BASE_URL` support for `app-server` (respecting `env_key` and disabling provider-specific behaviors), should we switch to it for simplicity?
 - Are there other Codex provider-specific behaviors beyond compaction and WebSocket that the custom provider avoids?
+
+---
+
+## Eliminating RUNNER_ID as a Manually-Configured Environment Variable
+
+**Context:** The k8s-runner currently requires a `RUNNER_ID` environment variable — a UUID that uniquely identifies the runner instance. The value is set in the Helm chart `values.yaml`, overridden by Bootstrap Terraform (`stacks/platform/main.tf`), and patched again by DevSpace for E2E. At startup, the runner reads `RUNNER_ID` from its environment and attaches it to every `StartWorkloadResponse.runner_id`. The Runners service stores this value as a foreign key in `workloads.runner_id`.
+
+The manual configuration is fragile: Bootstrap's `env` list overwrites Helm defaults silently, the value must be a valid UUID but was initially set to the string `"k8s-runner"`, and every deployment layer (Helm, Terraform, DevSpace) must be kept in sync. The Runners service already has a `RegisterRunner` RPC that generates runner UUIDs server-side and returns a service token — the infrastructure for automatic identity assignment exists but is not yet used by the k8s-runner startup flow.
+
+**Questions:**
+- Should the runner resolve its own ID from its service token at startup (e.g., via `ValidateServiceToken`) instead of reading an env var? What is the startup dependency if the Runners service is unavailable?
+- Should `RegisterRunner` and identity resolution be combined into a single idempotent enrollment RPC that the runner calls on every boot?
+- How does the runner persist its identity across restarts? (Mounted volume? Kubernetes Secret created at registration? Stateless re-derivation from the token?)
+- What is the migration path for existing deployments that already have `RUNNER_ID` configured? Can the env var be supported as an optional override during transition?
+- How does this interact with org-scoped runners, where registration is tied to an organization and the runner's identity must reflect that scope?
