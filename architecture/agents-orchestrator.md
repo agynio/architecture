@@ -178,7 +178,7 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 
 ## Runner Communication
 
-The Orchestrator communicates with runners over OpenZiti using the embedded [OpenZiti Go SDK](https://github.com/openziti/sdk-golang). It dials the `runner` OpenZiti service via `zitiContext.Dial("runner")` and issues gRPC calls over the resulting connection.
+The Orchestrator communicates with runners over OpenZiti using the embedded [OpenZiti Go SDK](https://github.com/openziti/sdk-golang). It dials a specific runner by its per-runner OpenZiti service name via `zitiContext.Dial("runner-{runnerId}")`  and issues gRPC calls over the resulting connection.
 
 This is the same protocol regardless of whether the runner is internal (in-cluster) or external (operator-managed, remote). The Orchestrator does not know or care about runner location — OpenZiti handles routing. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 

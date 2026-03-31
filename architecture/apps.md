@@ -65,7 +65,7 @@ Apps that need bidirectional thread interaction (e.g., Slack). These apps:
 - Are added as thread participants (the app adds itself when creating threads or is added by another participant).
 - Receive `message.created` notifications on their `thread_participant:{appId}` room.
 - Pull unacknowledged messages via `GetUnackedMessages`, post responses via `SendMessage`, acknowledge via `AckMessages`.
-- Follow the same [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) as agents and channels.
+- Follow the same [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) as agents.
 
 A Slack app creates threads itself and adds itself and relevant agents as participants to newly created threads.
 

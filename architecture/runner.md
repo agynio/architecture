@@ -83,10 +83,12 @@ A workload consists of:
 
 ## Authentication
 
-The Runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds the `runner` OpenZiti service. The Agents Orchestrator dials runners via OpenZiti — this is the same protocol for both internal and external runners, eliminating transport branching in the Orchestrator. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
+All runners use the same provisioning model: register via Terraform provider or CLI, receive a service token, enroll on startup. There is no internal/external distinction — the protocol is uniform regardless of where the runner is deployed.
 
-**Internal runners** (deployed as part of the platform) obtain their OpenZiti identity at runtime via self-enrollment — on startup, the runner calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment).
+The Runner embeds the [OpenZiti Go SDK](https://github.com/openziti/sdk-golang) and binds its per-runner OpenZiti service (`runner-{runnerId}`). The Agents Orchestrator dials runners by service name via OpenZiti — `zitiContext.Dial("runner-{runnerId}")`. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
 
-**External runners** (operator-managed, outside the cluster) use a service token flow to obtain their OpenZiti identity. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
+On startup, the runner presents its service token to the platform enrollment endpoint, which validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md), and returns the enrolled identity (certificate + key) along with the service name. The runner writes the identity to disk, loads it via the OpenZiti SDK, and binds its service. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) and [Runners — Enrollment](runners.md#enrollment).
+
+The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
 
 The Runner does not manage OpenZiti identities for agents. It receives the enrollment JWT from the Orchestrator as opaque configuration and passes it to the agent pod's Ziti sidecar container. Identity creation and deletion are managed by the Agents Orchestrator via the Ziti Management service. See [OpenZiti Integration](openziti.md).

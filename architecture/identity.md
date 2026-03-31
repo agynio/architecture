@@ -6,14 +6,14 @@ The Identity service is the platform's central registry of all identities. It ma
 
 ## Why
 
-The platform has five identity types (user, agent, channel, runner, app), each provisioned and profiled by a different service. Services like [Threads](threads.md) store only opaque identity UUIDs. Consumers that need to display identity information (e.g., [Chat](chat.md) showing sender name and photo) query the Identity service to determine the type, then fetch the profile from the appropriate source.
+The platform has four identity types (user, agent, runner, app), each provisioned and profiled by a different service. Services like [Threads](threads.md) store only opaque identity UUIDs. Consumers that need to display identity information (e.g., [Chat](chat.md) showing sender name and photo) query the Identity service to determine the type, then fetch the profile from the appropriate source.
 
 ## Identity Model
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier. Primary key |
-| `identity_type` | enum | `user`, `agent`, `channel`, `runner`, `app` |
+| `identity_type` | enum | `user`, `agent`, `runner`, `app` |
 | `created_at` | timestamp | Registration time |
 
 ## Interface
@@ -32,7 +32,6 @@ Every service that creates an identity registers it here:
 |---------------|-------------------|------|
 | **User** | [Users](users.md) | On first OIDC login (user provisioning) |
 | **Agent** | [Agents](agents-service.md) | On agent resource creation |
-| **Channel** | [Channels](channels.md) | On channel creation |
 | **Runner** | [Runners](runners.md) | On runner registration |
 | **App** | [Apps Service](apps-service.md) | On app registration |
 
