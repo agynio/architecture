@@ -18,6 +18,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **RegisterRunner** | Register a new runner. Creates the runner record, creates a per-runner OpenZiti service via [Ziti Management](openziti.md), registers an identity (type `runner`) in [Identity](identity.md), writes authorization tuples, and generates a service token |
 | **GetRunner** | Get a runner by ID |
 | **ListRunners** | List registered runners. Supports filtering by organization |
+| **UpdateRunner** | Update a runner's mutable fields (name, labels) |
 | **DeleteRunner** | Delete a runner registration. Deletes the per-runner OpenZiti service and revokes the runner's OpenZiti identity via Ziti Management |
 
 ### Workload State
@@ -37,6 +38,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `id` | string (UUID) | Unique runner identifier |
 | `name` | string | Display name |
 | `organization_id` | string (UUID), nullable | Organization scope. Null for cluster-scoped runners |
+| `labels` | map<string, string> | Key-value labels describing runner capabilities (e.g., `gpu: "true"`, `region: "eu-west-1"`). Used for [runner selection](#runner-selection). Set at registration time, mutable via `UpdateRunner` |
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
 | `openziti_service_name` | string | Per-runner OpenZiti service name (`runner-{id}`) |
@@ -46,7 +48,17 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 ### Organization Scoping
 
-Cluster-scoped runners (`organization_id: null`) are available to all organizations. Org-scoped runners are available only to the owning organization. Runner selection for a workload is determined by the [Agents Orchestrator](agents-orchestrator.md) based on the agent's organization and available runners.
+Cluster-scoped runners (`organization_id: null`) are available to all organizations. Org-scoped runners are available only to the owning organization. See [Runner Selection](#runner-selection) for how the orchestrator picks a runner.
+
+## Runner Selection
+
+The [Agents Orchestrator](agents-orchestrator.md) selects a runner for each agent workload using organization scoping and label matching:
+
+1. **Scope filtering** — collect eligible runners: org-scoped runners matching the agent's `organization_id`, plus all cluster-scoped runners. Only runners with status `enrolled` are eligible.
+2. **Label matching** — if the agent defines `runner_labels` (see [Agent — runner_labels](resource-definitions.md#agent)), filter eligible runners to those whose `labels` contain all key-value pairs from the agent's `runner_labels`. Exact string equality on both key and value. A runner may have additional labels beyond what the agent requires.
+3. **Random selection** — from the filtered set, pick one runner at random.
+
+If the agent defines no `runner_labels`, step 2 is skipped — any eligible runner matches. If no runners remain after filtering, the workload fails to schedule.
 
 ## Workload Resource
 
@@ -82,7 +94,7 @@ sequenceDiagram
     participant I as Identity
     participant Auth as Authorization
 
-    Admin->>RS: RegisterRunner(name, organization_id?)
+    Admin->>RS: RegisterRunner(name, organization_id?, labels?)
     RS->>ZM: Create OpenZiti service "runner-{id}" (roleAttributes: ["runner-services"])
     RS->>I: RegisterIdentity(id, type: runner)
     RS->>Auth: Write(identity:runnerId, runner:bind, org/cluster scope)

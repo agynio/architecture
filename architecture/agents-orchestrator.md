@@ -29,7 +29,7 @@ graph TB
 | **Notifications** | Subscribe to `message.created` events for fast reactivity |
 | **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
-| **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner) |
+| **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
 
@@ -94,15 +94,17 @@ sequenceDiagram
     participant O as Orchestrator
     participant T as Agents
     participant S as Secrets
+    participant RS as Runners Service
     participant ZM as Ziti Management
     participant R as Runner
-    participant RS as Runners Service
 
     O->>T: Get agent definition + sub-resources
     T-->>O: Agent, MCPs, Volumes, ENVs, InitScripts, Hooks, Skills
     O->>S: Resolve secret values for secret-backed ENVs
     S-->>O: Resolved secret values
     O->>O: Assemble workload spec
+    O->>RS: Select runner (org scope + label match)
+    RS-->>O: Runner
     O->>ZM: CreateAgentIdentity(agentId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
     O->>R: StartWorkload(spec, enrollmentJWT)
@@ -110,6 +112,10 @@ sequenceDiagram
     O->>RS: CreateWorkload(runnerId, workloadId, threadId, agentId, containers)
     RS-->>O: OK
 ```
+
+### Runner Selection
+
+Before starting a workload, the orchestrator selects a runner. See [Runners — Runner Selection](runners.md#runner-selection) for the full algorithm. In summary: filter enrolled runners by organization scope, then by label match against the agent's `runner_labels`, then pick one at random. If no runner matches, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
 
 ### Workload Spec Assembly
 
