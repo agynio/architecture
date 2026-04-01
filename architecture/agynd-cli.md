@@ -31,7 +31,7 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 |-------------|-------------|
 | **Skills** | Loads [skill](resource-definitions.md#skill) content and places it into the filesystem in the directory structure expected by the agent CLI |
 | **LLM endpoint** | Provides [LLM Proxy](llm-proxy.md) endpoint configuration so the agent CLI knows where to make model calls |
-| **MCP tools** | Exposes all configured [MCP](resource-definitions.md#mcp) tool servers as a single aggregated MCP server that proxies tool calls through `agynd` |
+| **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
@@ -111,14 +111,11 @@ graph TB
         subgraph "Agent Container"
             agynd[agynd]
             AgentCLI[Agent CLI<br/>agn / 3rd-party]
-            AggMCP[Aggregated MCP Proxy]
             TracingProxy[Tracing Proxy<br/>localhost:4317]
             Skills[Skills on filesystem]
 
             agynd -->|spawns via SDK| AgentCLI
-            agynd --> AggMCP
             agynd --> TracingProxy
-            AggMCP -->|proxies| AgentCLI
             Skills -->|read by| AgentCLI
             AgentCLI -->|OTLP spans| TracingProxy
         end
@@ -137,11 +134,11 @@ graph TB
 
     agynd -->|platform calls via OpenZiti hostname| Gateway
     AgentCLI -->|LLM calls via OpenZiti hostname| LLMProxy
+    AgentCLI -->|streamable HTTP<br/>localhost:port| MCP1 & MCP2
     TracingProxy -->|enriched spans via OpenZiti hostname| Tracing
     ZitiSidecar -.->|OpenZiti mTLS| Gateway
     ZitiSidecar -.->|OpenZiti mTLS| LLMProxy
     ZitiSidecar -.->|OpenZiti mTLS| Tracing
-    AggMCP -->|proxies tool calls| MCP1 & MCP2
 ```
 
 ## Lifecycle
@@ -157,7 +154,7 @@ sequenceDiagram
     Note over D: Ziti sidecar resolves OpenZiti hostnames and intercepts traffic (DNS + TPROXY)
     D->>D: Fetch agent configuration (via Gateway at gateway.ziti)
     D->>D: Prepare environment (skills, LLM Proxy config)
-    D->>D: Start aggregated MCP proxy
+    D->>D: Configure MCP endpoints for agent CLI
     D->>GW: Subscribe to thread_participant:{agentId}
     D->>A: Spawn agent CLI via SDK
 
