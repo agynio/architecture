@@ -99,3 +99,16 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 - Does `OPENAI_BASE_URL` work correctly with `codex app-server`, or only with the interactive CLI?
 - If Codex adds proper `OPENAI_BASE_URL` support for `app-server` (respecting `env_key` and disabling provider-specific behaviors), should we switch to it for simplicity?
 - Are there other Codex provider-specific behaviors beyond compaction and WebSocket that the custom provider avoids?
+
+---
+
+## Apps Installation Model
+
+**Context:** The current apps architecture registers apps at the cluster level with a unique slug. For org-scoped apps, this creates a namespace collision problem — a user in one organization can register a slug and prevent others from using it. The platform needs a two-tier model similar to GitHub Apps: cluster-wide app definitions with configurable visibility, and per-organization app installations with scoped permissions and slugs.
+
+**Questions:**
+- What is the app definition model? (Who can create apps — cluster admin only, or any org owner? What visibility levels exist — public, organization-only, cluster-wide?)
+- How does an app installation relate to the app definition? (What fields does an installation have — slug override, permissions, configuration?)
+- How does the Gateway resolve app routing when installations can have org-specific slugs? (Does the request include organization context, or is the slug globally unique per installation?)
+- How do permissions narrow from cluster-level to org-level on installation? (Can an installation restrict which threads the app can access?)
+- What is the migration path for existing cluster-scoped apps?

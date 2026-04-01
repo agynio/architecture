@@ -7,7 +7,8 @@ Agyn is a Kubernetes-native AI agent orchestrator. It manages the lifecycle of A
 ```mermaid
 graph TB
     subgraph External
-        WebApp[Web App]
+        WebApp[Chat App]
+        Console[Console]
         MobileApp[Mobile App]
         ThirdParty[3rd-party Apps<br/>Slack, etc.]
     end
@@ -50,7 +51,7 @@ graph TB
         MCP2[MCP Server]
     end
 
-    WebApp & MobileApp -- "/api/" --> Gateway
+    WebApp & Console & MobileApp -- "/api/" --> Gateway
     ThirdParty <--> SlackApp
 
     Gateway --> ZitiMgmt
@@ -177,4 +178,5 @@ See [Agent State](agent/state.md) for the persistence model.
 | `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
 | `agynio/apps` | Apps Service | Go | Planned |
 | `agynio/reminders` | Reminders app | Go | Planned |
+| `agynio/console` | Console — management UI SPA | TypeScript | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |
