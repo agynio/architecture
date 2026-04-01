@@ -94,16 +94,17 @@ sequenceDiagram
 
 ## Tools
 
-All tools are provided via **MCP protocol** (Model Context Protocol). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation.
+All tools are provided via **MCP protocol** (Model Context Protocol). The goal is to eliminate built-in tools entirely, making tools reusable across any agent implementation. See [MCP](../mcp.md) for the full MCP architecture.
 
 | Aspect | Details |
 |--------|---------|
-| Transport | stdio (newline-delimited JSON-RPC 2.0) |
-| Server location | Inside the workspace container (sidecar) |
-| Namespacing | `<namespace>:<toolName>` to prevent collisions |
-| Resilience | Heartbeat + restart with configurable backoff |
+| Transport | Streamable HTTP (agent CLI → MCP sidecar). stdio MCP servers are wrapped by a sidecar proxy |
+| Server location | Sidecar containers in the agent pod (shared network namespace) |
+| Connection | Agent CLI connects directly to each MCP server on `localhost:<port>` |
+| Namespacing | Owned by each agent CLI implementation |
+| Resilience | Health checks + restart with configurable backoff (managed by the sidecar) |
 
-MCP servers are defined as agent resources (see [Agents](../agents-service.md)) and mounted into the agent container as sidecars by the Runner.
+MCP servers are defined as agent resources (see [Agents](../agents-service.md)) and mounted into the agent pod as sidecars by the Runner.
 
 ## Wrapper Model
 

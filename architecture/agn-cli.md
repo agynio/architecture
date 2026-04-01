@@ -262,4 +262,4 @@ When running locally, the developer writes `~/.agyn/agn/config.yaml` manually an
 | [Agent State](agent/state.md) | Disk-based persistence model |
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
-| MCP Server | Configured by `agynd` (aggregated proxy) or manually; `agn` calls it for tool execution |
+| MCP Server | Configured by `agynd` (endpoint list) or manually; `agn` connects to each server over streamable HTTP for tool execution. See [MCP](mcp.md) |
