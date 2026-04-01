@@ -33,7 +33,7 @@ Unresolved product and architectural decisions requiring discussion.
 
 **Questions:**
 - What are the complete relation definitions for all resource types (models, workspaces, MCP servers, secrets)? How do org-scoped vs independent resources differ in their relation definitions?
-- How are tracing data permissions modeled? (Organization-level visibility, or per-agent restriction?)
+- How are tracing data permissions modeled beyond the initial design? See [Tracing — Query Authorization](architecture/tracing.md#query-authorization) for the current approach.
 - How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
 - What is the relationship tuple cleanup strategy when resources are deleted?
 
@@ -86,17 +86,6 @@ Unresolved product and architectural decisions requiring discussion.
 - How are org-scoped and cluster-scoped apps with the same slug resolved? (Org-scoped takes precedence? Cluster slugs are reserved?)
 - How does the enrollment flow differ for org-scoped apps? (Same service token flow, scoped to the org?)
 - Are org-scoped apps visible only within their organization, or can they be shared?
-
----
-
-## Tracing AuthN/AuthZ
-
-**Context:** The Tracing service exposes two gRPC interfaces: the standard OTLP `TraceService/Export` for ingestion and the custom `TracingService` for queries. Ingestion is accessed directly by producers (agents) without going through the Gateway. The query API is proxied through the Gateway via `TracingGateway`. Neither interface currently has authentication or authorization.
-
-**Questions:**
-- How is the ingestion endpoint authenticated? (Istio mTLS for internal producers? Service tokens for external producers? Unauthenticated within the cluster?)
-- How is the ingestion endpoint authorized? (Any authenticated producer can export spans? Scoped to specific agents or organizations?)
-- How are query results scoped? (Organization-level visibility, per-agent restriction, or full access for any authenticated user?)
 
 ---
 
