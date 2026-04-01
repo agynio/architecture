@@ -192,18 +192,169 @@ The [Gateway](gateway.md) exposes the Tracing query API via `TracingGateway`:
 | `GetSpan` | `TracingService.GetSpan` |
 | `GetTrace` | `TracingService.GetTrace` |
 
-The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. Producers (agents) connect directly to the Tracing service's gRPC endpoint using the standard OTLP exporter configuration.
+The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. Producers (agents) connect to the Tracing service via its own [OpenZiti service](#ingestion-authentication) (`tracing.ziti`). The [`agynd` tracing proxy](#agynd-tracing-proxy) inside the agent container enriches spans with platform context before forwarding to the Tracing service.
 
-## Authorization
+## Authentication and Authorization
 
-Access control for tracing data will be handled via ReBAC. The specific relationships and permissions are not yet defined — traces are independent resources not directly associated with an organization. The authorization model will be determined as the broader [ReBAC migration](authz.md) progresses. See [open question: Tracing AuthN/AuthZ](../open-questions.md#tracing-authnz).
+### Ingestion Authentication
+
+The Tracing service participates in the OpenZiti overlay. It obtains its identity at runtime via [self-enrollment](openziti.md#service-identity-self-enrollment) through [Ziti Management](openziti.md#ziti-management-service), the same pattern as the Gateway and LLM Proxy.
+
+| Aspect | Detail |
+|--------|--------|
+| Role attributes | `["tracing-hosts"]` |
+| Service name | `tracing` |
+| Enrollment | Self-enrollment via Ziti Management at pod startup |
+| SDK usage | `zitiContext.ListenWithOptions("tracing", ...)` — binds the `tracing` service |
+
+Agents connect to the Tracing service via the `tracing.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar. Authentication is mTLS — the Tracing service extracts the caller's OpenZiti identity from the connection via `conn.SourceIdentifier()` and resolves it to a platform identity via [Ziti Management](openziti.md) `ResolveIdentity`, the same mechanism as the [Gateway](gateway.md) and [LLM Proxy](llm-proxy.md).
+
+Any authenticated agent can export spans. There is no authorization check on the ingestion path — if the agent has a valid OpenZiti identity, it can export. Per-span attribute verification is described in [Attribute Injection and Verification](#attribute-injection-and-verification).
+
+#### Static Policies
+
+Two new static policies at bootstrap:
+
+| Policy | Type | Identity Roles | Service Roles | Purpose |
+|--------|------|---------------|---------------|---------|
+| `agents-dial-tracing` | Dial | `#agents` | `@tracing` | Agents can reach Tracing service |
+| `tracing-bind` | Bind | `#tracing-hosts` | `@tracing` | Tracing service hosts the `tracing` service |
+
+### Query Authorization
+
+The query API is proxied through the [Gateway](gateway.md) via `TracingGateway`. The Gateway authenticates the caller (OIDC, API token, or OpenZiti). Query results are scoped by organization — a caller must be a member of an organization to view traces attributed to that organization:
+
+```
+Check(identity:<callerId>, member, organization:<orgId>) → allowed: bool
+```
+
+The `organization_id` filter is a required parameter on `ListSpans`. `GetTrace` and `GetSpan` check the caller's membership in the organization associated with the returned trace data.
+
+### Attribute Injection and Verification
+
+Producers (agent CLIs) do not set platform-specific resource attributes. The Tracing service derives and injects identity-based attributes from the authenticated connection, and verifies the one self-asserted attribute (`agyn.thread.id`).
+
+#### Injected by the Tracing service (from connection identity)
+
+On each `Export` request, the Tracing service resolves the caller's identity chain and **overwrites** the following resource attributes on every `ResourceSpans` in the request:
+
+| Resource Attribute | Source | Description |
+|--------------------|--------|-------------|
+| `agyn.identity.id` | OpenZiti mTLS → `ZitiManagement.ResolveIdentity` | Platform identity UUID |
+| `agyn.agent.id` | `Agents.ResolveAgentIdentity(identity_id)` | Agent resource UUID |
+| `agyn.organization.id` | `Agents.ResolveAgentIdentity(identity_id)` | Organization UUID |
+
+These attributes are never trusted from the producer. The Tracing service always overwrites them with values derived from the verified network identity. This prevents a compromised agent pod from misattributing spans to a different agent or organization.
+
+#### Verified by the Tracing service (from producer)
+
+The `agynd` tracing proxy (see [agynd Tracing Proxy](#agynd-tracing-proxy)) injects `agyn.thread.id` as a resource attribute on all exported spans. The Tracing service verifies this attribute against the [Authorization](authz.md) service:
+
+```
+Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
+```
+
+If the check fails, the Tracing service rejects the entire `Export` request. If `agyn.thread.id` is absent, spans are stored without thread attribution.
+
+#### Resolution Caching
+
+The identity chain resolution (`identity_id → agent_id, organization_id`) and thread authorization checks are cached in an LRU cache.
+
+| Aspect | Detail |
+|--------|--------|
+| Cache type | LRU |
+| Cache keys | `identity_id` (for identity chain), `(identity_id, thread_id)` (for thread authorization) |
+| Max entries | Configurable, default `1000` |
+| Invalidation | TTL-based. Agent pod identities are ephemeral — entries expire naturally |
+
+### Agents Service: ResolveAgentIdentity
+
+The [Agents](agents-service.md) service provides a new method for resolving an agent's identity to its resource metadata:
+
+| Method | Description |
+|--------|-------------|
+| `ResolveAgentIdentity` | Given an `identity_id`, return the agent's resource ID and organization ID |
+
+**Request:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `identity_id` | string (UUID) | Platform identity UUID |
+
+**Response:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent_id` | string (UUID) | Agent resource UUID |
+| `organization_id` | string (UUID) | Organization the agent belongs to |
+
+Returns `NOT_FOUND` if the identity does not correspond to an agent. This method is internal — not exposed through the Gateway.
+
+## agynd Tracing Proxy
+
+`agynd` runs a local OTLP gRPC proxy inside the agent container. Agent CLIs export spans to this local endpoint instead of connecting to the Tracing service directly.
+
+### Why
+
+Agent CLIs (Codex, Claude Code, `agn`) are the OTel span producers, but they have no knowledge of platform-specific resource attributes (`agyn.thread.id`). `agynd` is the only process in the agent container that has the full platform context (agent ID, thread ID). Rather than requiring each agent CLI to inject platform attributes — which is impossible for third-party binaries — `agynd` intercepts span exports and enriches them.
+
+### Design
+
+```mermaid
+graph LR
+    subgraph "Agent Container"
+        AgentCLI[Agent CLI<br/>OTel SDK] -->|OTLP gRPC<br/>localhost:4317| agynd[agynd<br/>Tracing Proxy]
+    end
+    agynd -->|OTLP gRPC<br/>tracing.ziti| Tracing[Tracing Service]
+```
+
+1. `agynd` starts a gRPC server on `localhost:4317` implementing `TraceService/Export` (standard OTLP Collector interface).
+2. Agent CLI's OTel SDK is configured to export to `http://localhost:4317` (the default OTLP gRPC endpoint).
+3. On each `Export` request, `agynd` injects `agyn.thread.id` as a resource attribute on every `ResourceSpans` in the request. The value comes from the `THREAD_ID` environment variable.
+4. `agynd` forwards the enriched request to the Tracing service at `tracing.ziti` using a standard OTLP gRPC exporter. The Ziti sidecar transparently intercepts this connection.
+
+### What agynd injects
+
+| Resource Attribute | Source | Description |
+|--------------------|--------|-------------|
+| `agyn.thread.id` | `THREAD_ID` environment variable | Thread UUID this workload serves |
+
+`agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only thread attribution, which is independently verified by the Tracing service.
+
+### Agent CLI Configuration
+
+`agynd` configures the agent CLI's OTel exporter endpoint as part of its [environment preparation](agynd-cli.md#responsibilities). The mechanism is agent-specific:
+
+| Agent CLI | Configuration |
+|-----------|--------------|
+| **Codex** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
+| **Claude Code** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
+| **agn** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
+
+Standard OTel SDK environment variables are supported by all three agent CLIs. No agent-specific tracing configuration is needed.
+
+### Proxy Behavior
+
+- The proxy is **pass-through** — it does not interpret span content beyond injecting the `agyn.thread.id` resource attribute.
+- If `THREAD_ID` is not set (should not happen in normal operation), the proxy forwards spans without injecting `agyn.thread.id`. The Tracing service stores them without thread attribution.
+- If the Tracing service is unreachable, the proxy returns the standard OTLP error response. Agent CLIs handle export failures according to their OTel SDK retry configuration. Tracing is an optional dependency — export failures do not affect agent operation.
+
+## Configuration
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `ZITI_MANAGEMENT_ADDRESS` | Deployment config | gRPC address of the [Ziti Management](openziti.md) service |
+| `AGENTS_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Agents](agents-service.md) service |
+| `AUTHORIZATION_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Authorization](authz.md) service |
+| `IDENTITY_RESOLUTION_CACHE_SIZE` | Deployment config | Max LRU cache entries for identity chain resolution (default: `1000`) |
+| `THREAD_AUTH_CACHE_SIZE` | Deployment config | Max LRU cache entries for thread authorization checks (default: `1000`) |
 
 ## Classification
 
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data |
-| **API** | gRPC — OTLP `TraceService/Export` (ingestion) + `TracingService` (query) |
+| **API** | gRPC — OTLP `TraceService/Export` (ingestion via OpenZiti) + `TracingService` (query) |
 | **State** | PostgreSQL |
 | **Scaling** | Scales with ingestion volume and query traffic |
 | **Failure impact** | Temporary loss drops incoming spans; existing data remains queryable after recovery |
