@@ -89,15 +89,6 @@ Unresolved architectural decisions requiring discussion.
 
 ---
 
-## Runner Selection Strategy
-
-**Context:** With multiple runners (cluster-scoped and org-scoped) registered in the [Runners](architecture/runners.md) service, the [Agents Orchestrator](architecture/agents-orchestrator.md) needs to choose which runner handles a given agent workload.
-
-**Questions:**
-- What criteria determine runner selection? (Organization affinity? Agent resource definition? Labels/tags? Capacity?)
-- Can an agent resource definition specify a runner preference or requirement?
-- What is the fallback behavior if a preferred runner is unavailable?
-
 ## Tracing AuthN/AuthZ
 
 **Context:** The Tracing service exposes two gRPC interfaces: the standard OTLP `TraceService/Export` for ingestion and the custom `TracingService` for queries. Ingestion is accessed directly by producers (agents) without going through the Gateway. The query API is proxied through the Gateway via `TracingGateway`. Neither interface currently has authentication or authorization.
