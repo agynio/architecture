@@ -1,24 +1,41 @@
-# Agyn Architecture
+# Agyn
 
-Architecture documentation for the Agyn AI agent orchestrator platform.
+Product and architecture documentation for the Agyn AI agent orchestrator platform.
 
 ## How to Use This Documentation
 
-### `/architecture` — Source of Truth
+### `/product` — Product Source of Truth
+
+The desired state of the product. Declarative descriptions of capabilities, behaviors, and user experiences. No references to current implementation state, no transitional statements, no legacy caveats. When the product changes, this directory is updated to reflect the new target — not annotated with "currently X, will become Y."
+
+### `/architecture` — Architecture Source of Truth
 
 The desired state of the system. Declarative descriptions of all services, patterns, protocols, and contracts. No references to current implementation state, no transitional statements, no legacy caveats. When the architecture changes, this directory is updated to reflect the new target — not annotated with "currently X, will become Y."
 
 ### `/changes` — Pending Deltas
 
-Gaps between the desired architecture described in `/architecture` and current implementation. Each file represents a single delta. When the implementation matches the desired state, the file is deleted. Git history preserves the full record.
+Gaps between the desired state described in `/product` or `/architecture` and current reality. Each file represents a single delta. When reality matches the desired state, the file is deleted. Git history preserves the full record.
 
-### `/open-questions` — Unresolved Decisions
+### `/open-questions.md` — Unresolved Decisions
 
-Topics that require further investigation and a decision from a supervisor. Implementation of system parts that are not clearly described in the architecture should be avoided. Raise an open question or wait for a decision instead of building on assumptions that may change.
+Topics that require further investigation and a decision. Specifications for areas with unresolved questions should be avoided. Raise an open question or wait for a decision instead of specifying behavior that may change.
 
 ## Structure
 
-### [Architecture](architecture/) — Desired State
+### [Product](product/) — Desired Product State
+
+Target product definition. Describes how the product should work from the user's perspective.
+
+| Document | Description |
+|----------|-------------|
+| [Overview](product/overview.md) | Product vision, value proposition, target users, principles |
+| [Concepts](product/concepts.md) | Domain glossary — canonical definitions of product terms |
+| **Chat** | |
+| [Chat](product/chat/chat.md) | Conversations with users and agents |
+| **Tracing** | |
+| [Run Timeline](product/tracing/run-timeline.md) | Observability view for a single agent run |
+
+### [Architecture](architecture/) — Desired Architecture State
 
 Target architecture of the platform. Describes how the system should work.
 
@@ -72,8 +89,8 @@ How services are built, deployed, run locally, and configured.
 
 ### [Changes](changes/) — Pending Deltas
 
-Gaps between desired architecture and current implementation. See [Changes README](changes/README.md) for lifecycle rules.
+Gaps between desired state and current reality. See [Changes README](changes/README.md) for lifecycle rules.
 
 ### [Open Questions](open-questions.md)
 
-Unresolved architectural decisions requiring discussion.
+Unresolved product and architectural decisions requiring discussion.
