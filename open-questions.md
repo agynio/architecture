@@ -1,6 +1,6 @@
 # Open Questions
 
-Unresolved architectural decisions requiring discussion.
+Unresolved product and architectural decisions requiring discussion.
 
 ---
 
