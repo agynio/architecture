@@ -27,6 +27,29 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 All list endpoints use cursor-based pagination.
 
+## Internal API
+
+| Method | Description |
+|--------|-------------|
+| `ResolveAgentIdentity` | Resolves an OpenZiti platform `identity_id` to the corresponding `agent_id` and `organization_id` |
+
+This method is used by the [Tracing](tracing.md) service to derive agent and organization attribution from the authenticated OpenZiti connection identity. It is not exposed through the [Gateway](gateway.md).
+
+**Request:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `identity_id` | string (UUID) | Platform identity UUID (from OpenZiti) |
+
+**Response:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent_id` | string (UUID) | Agent resource UUID |
+| `organization_id` | string (UUID) | Organization the agent belongs to |
+
+Returns `NOT_FOUND` if the identity does not correspond to an agent.
+
 ## Entity Model
 
 All resources share a common `EntityMeta` base:

@@ -24,6 +24,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Agents Orchestrator** | Dial (client) | `zitiContext.Dial("runner-{runnerId}")` → gRPC client connection |
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 | **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
+| **Tracing** | Bind (server) | `zitiContext.ListenWithOptions("tracing", ...)` → accept connections |
 
 Agent pods do not embed the OpenZiti SDK. Instead, a **Ziti sidecar** runs alongside the agent process within the same pod. See [Agent Access Scope](#agent-access-scope).
 
@@ -211,6 +212,7 @@ sequenceDiagram
 | **Agents Orchestrator** | `["orchestrators"]` | `zitiContext.Dial("runner-{runnerId}")` — dials runners |
 | **Gateway** | `["gateway-hosts"]` | `zitiContext.ListenWithOptions("gateway", ...)` — binds the `gateway` service |
 | **LLM Proxy** | `["llm-proxy-hosts"]` | `zitiContext.ListenWithOptions("llm-proxy", ...)` — binds the `llm-proxy` service |
+| **Tracing** | `["tracing-hosts"]` | `zitiContext.ListenWithOptions("tracing", ...)` — binds the `tracing` service |
 
 ## Service Policies
 
@@ -225,6 +227,7 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |
 | LLM Proxy | `["llm-proxy-hosts"]` |
+| Tracing | `["tracing-hosts"]` |
 
 The `agent-<agentId>` attribute is assigned at creation time for future use in per-agent policies. It has no effect until matching service policies are created.
 
@@ -240,6 +243,8 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `runners-bind` | Bind | `#runners` | `#runner-services` | Runners host their own services |
 | `agents-dial-llm-proxy` | Dial | `#agents` | `@llm-proxy` | All agents can reach LLM Proxy |
 | `llm-proxy-bind` | Bind | `#llm-proxy-hosts` | `@llm-proxy` | LLM Proxy hosts the `llm-proxy` service |
+| `agents-dial-tracing` | Dial | `#agents` | `@tracing` | All agents can reach Tracing service |
+| `tracing-bind` | Bind | `#tracing-hosts` | `@tracing` | Tracing service hosts the `tracing` service |
 | `apps-dial-gateway` | Dial | `#apps` | `@gateway` | Apps can reach Gateway |
 | `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
 | `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
@@ -385,18 +390,20 @@ The Orchestrator and Terminal Proxy reach a specific runner by dialing its per-r
 
 ## Agent Access Scope
 
-Agents connect to the **Gateway** and the **[LLM Proxy](llm-proxy.md)**, regardless of runner location. The static service policies `agents-dial-gateway` and `agents-dial-llm-proxy` grant all agents Dial access to the `gateway` and `llm-proxy` services respectively. No other OpenZiti services are dialable by agents.
+Agents connect to the **Gateway**, the **[LLM Proxy](llm-proxy.md)**, and the **[Tracing](tracing.md)** service, regardless of runner location. The static service policies `agents-dial-gateway`, `agents-dial-llm-proxy`, and `agents-dial-tracing` grant all agents Dial access to the `gateway`, `llm-proxy`, and `tracing` services respectively. No other OpenZiti services are dialable by agents.
 
-Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and configures transparent access to OpenZiti services. The sidecar runs a DNS server on `127.0.0.1` that resolves OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`) to `100.64.0.0/10` addresses and installs iptables TPROXY rules that intercept those connections and tunnel them over OpenZiti. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway and LLM Proxy using standard hostnames and HTTP clients — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
+Agent pods run a **Ziti sidecar container** that enrolls the agent's OpenZiti identity and configures transparent access to OpenZiti services. The sidecar runs a DNS server on `127.0.0.1` that resolves OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`, `tracing.ziti`) to `100.64.0.0/10` addresses and installs iptables TPROXY rules that intercept those connections and tunnel them over OpenZiti. This means `agynd`, agent CLI subprocesses (Codex CLI, Claude Code, `agn`), and any other process in the pod can reach Gateway, LLM Proxy, and Tracing using standard hostnames and HTTP clients — no embedded SDK required. The sidecar handles enrollment, mTLS termination, and identity lifecycle within the pod.
 
 | Connection | Layer |
 |------------|-------|
 | Agent → Gateway | OpenZiti |
 | Agent → LLM Proxy | OpenZiti |
+| Agent → Tracing | OpenZiti |
 | Gateway → internal services | Istio |
 | LLM Proxy → internal services | Istio |
+| Tracing → internal services | Istio |
 
-The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. The LLM Proxy handles LLM API calls — it resolves models via the LLM service and forwards requests to external providers. Agents never connect directly to other internal services.
+The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. The LLM Proxy handles LLM API calls — it resolves models via the LLM service and forwards requests to external providers. The Tracing service receives span data from agents — the [`agynd` tracing proxy](tracing.md#agynd-tracing-proxy) enriches spans with platform context before forwarding.
 
 ## OpenZiti Identities Summary
 
@@ -404,11 +411,12 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 |----------|-----------|--------------|--------------------|
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
 | Runner | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | — (binds `runner-{runnerId}` service) |
-| Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial) |
+| Agent pod (Ziti sidecar) | Ephemeral (per pod) | Orchestrator via Ziti Management | Gateway (dial), LLM Proxy (dial), Tracing (dial) |
 | App | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | Gateway (dial) + own service (bind) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
+| Tracing | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `tracing` service) |
 
 ## App Identity Lifecycle
 
@@ -487,6 +495,7 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |
+| Tracing | `["tracing-hosts"]` |
 
 ### Updated Identities Summary
 
