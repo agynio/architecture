@@ -171,9 +171,3 @@ Aggregated usage data for the organization.
 Time range selector for historical views (24h, 7d, 30d).
 
 Cluster admins see platform-wide aggregates in addition to per-organization views.
-
-## Constraints
-
-- The Console does not manage conversations or messages — that is the Chat application's domain.
-- The Console does not display tracing data — that is the Tracing application's domain.
-- The Console does not replace Terraform or CLI for infrastructure-as-code workflows. It provides a UI for the same operations.
