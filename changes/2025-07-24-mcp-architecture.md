@@ -11,10 +11,10 @@
 
 ## Delta
 
-- The MCP sidecar proxy (stdio-to-streamable-HTTP bridge) does not exist. Needs to be implemented as a standalone binary that MCP sidecar containers use as their entrypoint for stdio-only MCP servers.
-- `agynd` still contains the aggregated MCP proxy implementation. It should be replaced with MCP endpoint configuration — parsing `AGENT_MCP_SERVERS` env var and writing MCP server entries into the agent CLI config.
-- The MCP resource in the Agents service does not have a `name` field. Needs to be added to the proto definition and stored in PostgreSQL (unique within agent).
-- The Orchestrator does not assign MCP ports or set the `MCP_PORT` / `AGENT_MCP_SERVERS` environment variables. Port allocation logic needs to be added to workload spec assembly.
+- The MCP sidecar proxy (stdio-to-streamable-HTTP bridge) does not exist. Required as a standalone binary — MCP sidecar containers use it as their entrypoint for stdio-only MCP servers.
+- `agynd` uses an aggregated MCP proxy instead of endpoint configuration. Expected behavior: parse `AGENT_MCP_SERVERS` env var and write MCP server entries into the agent CLI config.
+- The MCP resource lacks a `name` field. Required on the proto definition, stored in PostgreSQL (unique within agent).
+- The Orchestrator does not assign MCP ports or set the `MCP_PORT` / `AGENT_MCP_SERVERS` environment variables. Required in workload spec assembly.
 
 ## Acceptance Signal
 
