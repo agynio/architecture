@@ -12,7 +12,7 @@
 ## Delta
 
 - The MCP sidecar proxy (stdio-to-streamable-HTTP bridge) does not exist. Required as a standalone binary — MCP sidecar containers use it as their entrypoint for stdio-only MCP servers.
-- `agynd` uses an aggregated MCP proxy instead of endpoint configuration. Expected behavior: parse `AGENT_MCP_SERVERS` env var and write MCP server entries into the agent CLI config.
+- `agynd` does not parse `AGENT_MCP_SERVERS` or write MCP server entries into the agent CLI config.
 - The MCP resource lacks a `name` field. Required on the proto definition, stored in PostgreSQL (unique within agent).
 - The Orchestrator does not assign MCP ports or set the `MCP_PORT` / `AGENT_MCP_SERVERS` environment variables. Required in workload spec assembly.
 
@@ -21,7 +21,7 @@
 - MCP proto has a `name` field; Agents service enforces uniqueness within agent.
 - A sidecar proxy binary exists that bridges stdio MCP servers to streamable HTTP, reading `MCP_PORT` for its listen port.
 - The Orchestrator assigns ports to MCP sidecars and sets `MCP_PORT` on each sidecar and `AGENT_MCP_SERVERS` on the agent container.
-- `agynd` parses `AGENT_MCP_SERVERS` and configures agent CLIs with MCP endpoint lists (no aggregation proxy).
+- `agynd` parses `AGENT_MCP_SERVERS` and configures agent CLIs with MCP endpoint lists.
 - Agent CLIs connect directly to MCP sidecars over streamable HTTP on localhost.
 - Both stdio and streamable HTTP MCP servers work end-to-end in agent pods.
 
