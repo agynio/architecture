@@ -18,7 +18,7 @@ Organization members do not have Console access. A user can be an organization o
 ### Self-Hosted Bootstrap
 
 1. Administrator deploys the cluster. Bootstrap Terraform provisions the OIDC configuration, a synthetic admin identity with an API token, and uses that token to create the real admin user (with their OIDC subject) via the platform API.
-2. Administrator opens `console.agyn.dev` and authenticates via OIDC. The platform resolves the existing user record with `cluster:global admin`.
+2. Administrator opens `console.agyn.dev` and authenticates via OIDC. The platform resolves the user record — the administrator has `cluster:global admin`.
 3. The Console displays cluster administration. The administrator registers runners, creates organizations, configures LLM providers, and invites users.
 
 ### Cloud Onboarding
@@ -109,11 +109,11 @@ Visible to organization owners within their organization and to cluster admins f
 
 ### Members (Organization Owner)
 
-Organization owners manage membership within their organization. They select from existing platform users or invite by OIDC subject (which triggers user creation if the user doesn't exist yet).
+Organization owners manage membership within their organization. They select from platform users or invite by OIDC subject (which triggers user creation if no matching user record exists).
 
 **Member list** — users in the organization. Columns: name, role (owner or member).
 
-**Add member** — search existing users or enter OIDC subject for a new user. Assign role.
+**Add member** — search platform users or enter OIDC subject. Assign role.
 
 **Change role / Remove** — inline actions on the member list.
 
