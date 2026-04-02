@@ -99,3 +99,37 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 - Does `OPENAI_BASE_URL` work correctly with `codex app-server`, or only with the interactive CLI?
 - If Codex adds proper `OPENAI_BASE_URL` support for `app-server` (respecting `env_key` and disabling provider-specific behaviors), should we switch to it for simplicity?
 - Are there other Codex provider-specific behaviors beyond compaction and WebSocket that the custom provider avoids?
+
+---
+
+## Apps Installation Model
+
+**Context:** The current apps architecture registers apps at the cluster level with a unique slug. For org-scoped apps, this creates a namespace collision problem — a user in one organization can register a slug and prevent others from using it. The platform needs a two-tier model similar to GitHub Apps: cluster-wide app definitions with configurable visibility, and per-organization app installations with scoped permissions and slugs.
+
+**Questions:**
+- What is the app definition model? (Who can create apps — cluster admin only, or any org owner? What visibility levels exist — public, organization-only, cluster-wide?)
+- How does an app installation relate to the app definition? (What fields does an installation have — slug override, permissions, configuration?)
+- How does the Gateway resolve app routing when installations can have org-specific slugs? (Does the request include organization context, or is the slug globally unique per installation?)
+- How do permissions narrow from cluster-level to org-level on installation? (Can an installation restrict which threads the app can access?)
+- What is the migration path for existing cluster-scoped apps?
+
+---
+
+## Console Cluster Admin Resolution
+
+**Context:** The [Console](product/console/console.md) needs to determine whether the current user is a cluster admin to decide whether to display cluster-level sections (Users, Cluster Runners, Cluster Apps). Organization role is resolved via `Organizations.ListOrganizations()` which returns the user's role per organization. Cluster admin status (`identity:<id>, admin, cluster:global` in OpenFGA) has no equivalent high-level query endpoint.
+
+**Questions:**
+- Which service should expose the cluster admin check for the current user? (Users service returns it as part of the user profile? Organizations service includes it in its response? A dedicated session/context endpoint?)
+- Should this be a property returned alongside existing data (e.g., a `cluster_admin` field on the user profile response), or a separate call?
+
+---
+
+## Console Monitoring
+
+**Context:** The [Console](product/console/console.md) product spec defines a monitoring section with active workloads, storage, token consumption, and compute hours. The platform does not have usage statistics or aggregation services designed for this purpose. The [Token Counting](architecture/token-counting.md) service tracks per-request token counts for billing/metering but is not designed for Console consumption.
+
+**Questions:**
+- What services and methods provide the data for Console monitoring (active workloads, storage, token usage, compute hours)?
+- Does this require a dedicated usage/metering service, or should monitoring queries be added to Runners, Token Counting, and Agents services?
+- What aggregation granularity and time ranges are needed?

@@ -32,6 +32,8 @@ Target product definition. Describes how the product should work from the user's
 | [Concepts](product/concepts.md) | Domain glossary — canonical definitions of product terms |
 | **Chat** | |
 | [Chat](product/chat/chat.md) | Conversations with users and agents |
+| **Console** | |
+| [Console](product/console/console.md) | Management UI — organizations, users, agents, providers, runners, monitoring |
 | **Tracing** | |
 | [Run Timeline](product/tracing/run-timeline.md) | Observability view for a single agent run |
 
@@ -56,6 +58,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Agent Init Container](architecture/agent-init.md) | Init container design for injecting platform binaries into agent pods |
 | [agn-cli](architecture/agn-cli.md) | Our agent loop implementation — LLM reasoning with tool use |
 | [Chat](architecture/chat.md) | Built-in web/mobile app chat on top of Threads |
+| [Console](architecture/console.md) | Management UI — separate SPA at `console.agyn.dev`, role-based visibility, Gateway API consumer |
 | [Apps](architecture/apps.md) | Apps concept — services that interact with threads (Reminders, Slack, GitHub) |
 | [Apps Service](architecture/apps-service.md) | App registration, profiles, and enrollment |
 | [Reminders](architecture/apps/reminders.md) | Platform-provided app — delayed messages to threads |

@@ -30,13 +30,13 @@ The `identity_type` indicates the authentication mechanism and profile source (e
 
 ## User Authentication (OIDC)
 
-Users authenticate via a system-wide OIDC-compliant identity provider. The web app (chat-app) is a single-page application (SPA) that implements the OIDC Authorization Code flow with PKCE. The [Users](users.md) service manages user identity records and profiles.
+Users authenticate via a system-wide OIDC-compliant identity provider. The web apps (Chat, [Console](console.md)) are single-page applications (SPAs) that implement the OIDC Authorization Code flow with PKCE. The [Users](users.md) service manages user identity records and profiles.
 
 ### Flow
 
 ```mermaid
 sequenceDiagram
-    participant App as chat-app (SPA)
+    participant App as SPA (Chat / Console)
     participant IdP as External IdP
     participant GW as Gateway
     participant US as Users
@@ -53,7 +53,7 @@ sequenceDiagram
     alt User not found (first login)
         GW->>IdP: GET /userinfo (Bearer access_token)
         IdP-->>GW: User claims (name, email, picture)
-        GW->>US: CreateUser(oidc_subject, profile from claims)
+        GW->>US: ProvisionUser(oidc_subject, profile from claims)
         US->>IS: RegisterIdentity(identity_id, "user")
         US-->>GW: identity_id
     end
@@ -64,7 +64,7 @@ The SPA performs the full OIDC flow in the browser. The Gateway receives the res
 
 **On every request:** The Gateway validates the `access_token` JWT signature against the IdP's JWKS endpoint and extracts the `sub` claim. It then calls `Users.ResolveUser(sub)` to map the OIDC subject to a platform `identity_id`.
 
-**On first login (user not found):** The Gateway calls the IdP's standard [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) with the `access_token` to retrieve profile claims (name, email, picture). It then calls `Users.CreateUser(sub, profile)` to provision a new user record. The Users service registers the identity in the [Identity](identity.md) service. The UserInfo endpoint is called **once per user lifetime** — only during provisioning.
+**On first login (user not found):** The Gateway calls the IdP's standard [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) with the `access_token` to retrieve profile claims (name, email, picture). It then calls `Users.ProvisionUser(sub, profile)` to provision a new user record. The Users service registers the identity in the [Identity](identity.md) service. The UserInfo endpoint is called **once per user lifetime** — only during provisioning.
 
 Organization context is not validated at the Gateway level. Services that need organization context accept `organization_id` as a request parameter, and the [authorization model](authz.md) enforces access. See [Organizations — Request Flow](organizations.md#request-flow).
 
