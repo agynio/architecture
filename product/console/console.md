@@ -2,49 +2,42 @@
 
 ## Purpose
 
-The Console is the platform's management interface. It is the single place where administrators configure the platform — organizations, users, agents, LLM providers, models, secrets, runners, and apps — and monitor active workloads and resource usage.
-
-Two entry points lead to the Console:
-
-- **Self-hosted setup.** An administrator who deployed the cluster opens the Console to complete cluster configuration — register runners, create organizations, invite users, set up LLM providers.
-- **Cloud onboarding.** A new user signs up, lands in the Console, creates an organization, invites teammates, and configures agents before starting conversations.
+The Console is the platform's management interface for organizations, users, agents, LLM providers, models, secrets, runners, apps, and operational monitoring.
 
 ## Roles
 
-The Console is accessible to two roles. Organization members do not have Console access.
-
 | Role | Scope | What they see |
 |------|-------|---------------|
-| **Cluster admin** | Platform-wide | Everything: cluster-level configuration (users, cluster-scoped runners, cluster-scoped apps) + all organization-level sections |
-| **Organization owner** | Per-organization | Organization-level sections only: agents, LLM providers, models, secret providers, secrets, org-scoped runners, members, monitoring |
+| **Cluster admin** | Platform-wide | Cluster-level configuration (users, cluster-scoped runners, cluster-scoped apps) + all organization-level sections |
+| **Organization owner** | Per-organization | Organization-level sections: agents, LLM providers, models, secret providers, secrets, org-scoped runners, members, monitoring |
 
-A user can be an organization owner in one organization and have no Console access in another (if they are a regular member there). The Console resolves the user's role per organization and displays only the organizations where they are an owner.
+Organization members do not have Console access. A user can be an organization owner in one organization and a regular member (no Console access) in another. The Console displays only the organizations where the user is an owner.
 
 ## Entry Flows
 
 ### Self-Hosted Bootstrap
 
 1. Administrator deploys the cluster. Bootstrap Terraform provisions the OIDC configuration, a synthetic admin identity with an API token, and uses that token to create the real admin user (with their OIDC subject) via the platform API.
-2. Administrator opens `console.agyn.dev` and authenticates via OIDC. The platform resolves the existing user record — the administrator has `cluster:global admin`.
-3. The Console displays the cluster administration view. The administrator registers runners, creates organizations, configures LLM providers, and invites users.
+2. Administrator opens `console.agyn.dev` and authenticates via OIDC. The platform resolves the existing user record with `cluster:global admin`.
+3. The Console displays cluster administration. The administrator registers runners, creates organizations, configures LLM providers, and invites users.
 
 ### Cloud Onboarding
 
-1. New user signs up and authenticates via OIDC. The platform auto-provisions the user record on first login.
-2. User opens the Console. They have no organizations yet — the Console displays the organization creation flow.
+1. User signs up and authenticates via OIDC. The platform provisions the user record on first login.
+2. User opens the Console. No organizations exist — the Console displays the organization creation flow.
 3. User creates an organization, configures LLM providers and models, creates agents, and invites teammates.
 
 ## Navigation
 
 ### Layout
 
-- **Top bar** — organization switcher (for users with access to multiple organizations), user profile, links to other platform applications (Chat, Tracing).
+- **Top bar** — organization switcher, user profile, links to other platform applications (Chat, Tracing).
 - **Sidebar** — navigation within the current scope. Sections change based on role.
-- **Main area** — content for the selected section. List-detail pattern: resource list → resource detail/edit.
+- **Main area** — list-detail pattern: resource list → resource detail/edit.
 
 ### Cluster Admin Sections
 
-Visible only to users with `cluster:global admin`. These sections are hidden entirely for non-cluster-admins.
+Visible only to users with `cluster:global admin`.
 
 | Section | Description |
 |---------|-------------|
@@ -54,7 +47,7 @@ Visible only to users with `cluster:global admin`. These sections are hidden ent
 
 ### Organization Sections
 
-Visible to organization owners within their organization. Also visible to cluster admins for any organization.
+Visible to organization owners within their organization and to cluster admins for any organization.
 
 | Section | Description |
 |---------|-------------|
@@ -74,8 +67,6 @@ Visible to organization owners within their organization. Also visible to cluste
 
 ### Agents
 
-The agent management section is the most complex resource view. An agent has multiple sub-resource types, each managed as a nested list within the agent detail view.
-
 **Agent list** — table of agents in the organization. Columns: name, role, model (resolved name), status (has active workloads or not), created date.
 
 **Agent detail** — full agent configuration with inline sub-resource management:
@@ -84,7 +75,7 @@ The agent management section is the most complex resource view. An agent has mul
 - **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
 - **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts.
-- **ENVs** — environment variables attached directly to the agent (as opposed to those on MCPs or hooks). Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
+- **ENVs** — environment variables attached directly to the agent. Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
 - **Init Scripts** — shell scripts attached directly to the agent.
 - **Volume Attachments** — volumes mounted on the agent container. Select from organization's volumes.
 
@@ -118,7 +109,7 @@ The agent management section is the most complex resource view. An agent has mul
 
 ### Members (Organization Owner)
 
-Organization owners manage membership within their organization. They cannot create users — they select from existing platform users (or invite by OIDC subject, which triggers user creation if the user doesn't exist yet).
+Organization owners manage membership within their organization. They select from existing platform users or invite by OIDC subject (which triggers user creation if the user doesn't exist yet).
 
 **Member list** — users in the organization. Columns: name, role (owner or member).
 
@@ -127,8 +118,6 @@ Organization owners manage membership within their organization. They cannot cre
 **Change role / Remove** — inline actions on the member list.
 
 ## Monitoring
-
-The monitoring section provides operational visibility into running workloads and resource consumption.
 
 ### Active Workloads
 
