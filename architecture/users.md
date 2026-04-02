@@ -96,6 +96,34 @@ Updates profile fields and/or role assignments. Role changes are additive or sub
 
 Deletes the user record, the identity registration in the [Identity](identity.md) service, and all OpenFGA relationship tuples for the user (cluster admin, organization memberships). This is a hard delete — the user must be re-created to regain access.
 
+### Bootstrap Flow
+
+The first cluster admin is provisioned during Terraform bootstrap via `CreateUser`:
+
+```mermaid
+sequenceDiagram
+    participant TF as Terraform
+    participant GW as Gateway
+    participant US as Users
+    participant IS as Identity
+    participant Auth as Authorization
+
+    Note over TF: Phase 1 — synthetic admin
+    TF->>US: Create synthetic admin (direct DB)
+    TF->>IS: Register identity (direct DB)
+    TF->>Auth: Write tuple: identity:synth, admin, cluster:global
+    TF->>US: Create API token for synthetic admin
+    Note over TF: Phase 2 — real admin user
+    TF->>GW: CreateUser(oidc_subject, cluster_admin: true)<br/>Bearer: agyn_<synthetic_admin_token>
+    GW->>US: CreateUser(oidc_subject, profile, cluster_admin: true)
+    US->>IS: RegisterIdentity(id, user)
+    US->>Auth: Write(identity:id, admin, cluster:global)
+    US-->>GW: User created
+    GW-->>TF: User created
+    Note over TF: Admin logs in via OIDC → ResolveUser finds record
+```
+
+
 ## Resolution and Provisioning Flow
 
 The Gateway calls the Users service on every authenticated user request. Resolution and provisioning are separate operations:

@@ -64,42 +64,6 @@ The Console displays:
 | `AppsGateway` | `RegisterApp`, `DeleteApp` | Cluster admin | Cluster Apps |
 | `TokenCountingGateway` | `GetUsageSummary` | Org owner or cluster admin | Monitoring |
 
-## Users Service
-
-The [Users](users.md) service has two interfaces for user creation:
-
-| Method | Description | Caller | Authorization |
-|--------|-------------|--------|---------------|
-| `ProvisionUser` | Create user record from OIDC subject and profile. Register identity. No role assignments | Gateway (during OIDC auto-provisioning) | None (internal, Istio-only) |
-| `CreateUser` | Create user with OIDC subject, profile fields, and role assignments. Register identity, write OpenFGA tuples | Gateway (admin request) | Cluster admin |
-
-See [Users — Admin User Management](users.md#admin-user-management) for the full `CreateUser` spec.
-
-### Bootstrap Flow
-
-```mermaid
-sequenceDiagram
-    participant TF as Terraform
-    participant GW as Gateway
-    participant US as Users
-    participant IS as Identity
-    participant Auth as Authorization
-
-    Note over TF: Phase 1 — synthetic admin
-    TF->>US: Create synthetic admin (direct DB)
-    TF->>IS: Register identity (direct DB)
-    TF->>Auth: Write tuple: identity:synth, admin, cluster:global
-    TF->>US: Create API token for synthetic admin
-    Note over TF: Phase 2 — real admin user
-    TF->>GW: CreateUser(oidc_subject, cluster_admin: true)<br/>Bearer: agyn_<synthetic_admin_token>
-    GW->>US: CreateUser(oidc_subject, profile, cluster_admin: true)
-    US->>IS: RegisterIdentity(id, user)
-    US->>Auth: Write(identity:id, admin, cluster:global)
-    US-->>GW: User created
-    GW-->>TF: User created
-    Note over TF: Admin logs in via OIDC → ResolveUser finds record
-```
-
 ## Monitoring Data Sources
 
 | Data | Source Service | Method |
