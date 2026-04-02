@@ -105,7 +105,7 @@ Visible to organization owners within their organization and to cluster admins f
 - Remove the user from an organization.
 - Change the user's role within an organization.
 
-**Create user** — OIDC subject (required), profile fields (name, nickname, photo URL — optional), role assignments (cluster admin flag, organization memberships with roles).
+**Create user** — OIDC subject (required), profile fields (name, nickname, photo URL — optional), role assignments (cluster admin, organization memberships).
 
 ### Members (Organization Owner)
 

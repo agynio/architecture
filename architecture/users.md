@@ -58,8 +58,6 @@ The Users service provides CRUD methods for cluster administrators to manage pla
 
 ### CreateUser
 
-Creates a user record, registers the identity, and optionally assigns roles — all in one call.
-
 **Request:**
 
 | Field | Type | Required | Description |
@@ -68,29 +66,27 @@ Creates a user record, registers the identity, and optionally assigns roles — 
 | `name` | string | No | Display name |
 | `nickname` | string | No | Short name or handle |
 | `photo_url` | string | No | Profile photo URL |
-| `cluster_admin` | bool | No | Grant `cluster:global admin` |
-| `organization_roles` | repeated OrganizationRole | No | Organization memberships to assign |
+| `role_assignments` | repeated RoleAssignment | No | Authorization tuples to write for this user |
 
-**OrganizationRole:**
+**RoleAssignment:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `organization_id` | string (UUID) | Target organization |
-| `role` | enum | `owner`, `member` |
+| `relation` | string | OpenFGA relation: `admin`, `owner`, `member` |
+| `object` | string | OpenFGA object: `cluster:global`, `organization:<uuid>` |
 
 **Behavior:**
 
 1. Create user record with `oidc_subject` and profile fields.
 2. Register identity in the [Identity](identity.md) service (`identity_type: user`).
-3. If `cluster_admin` is true, write OpenFGA tuple: `identity:<id>, admin, cluster:global`.
-4. For each organization role, write OpenFGA tuple: `identity:<id>, <role>, organization:<orgId>`.
-5. Return the created user with `identity_id`.
+3. For each role assignment, write OpenFGA tuple: `identity:<id>, <relation>, <object>`.
+4. Return the created user with `identity_id`.
 
-If the user later logs in via OIDC, the Gateway's `ResolveUser` finds the existing record — `ProvisionUser` is not called.
+When the user logs in via OIDC, `ResolveUser` finds the record — `ProvisionUser` is not called.
 
 ### UpdateUser
 
-Updates profile fields and/or role assignments. Role changes are additive or subtractive — the caller provides the full desired set of `organization_roles` and `cluster_admin`, and the Users service diffs against the current state and writes/deletes OpenFGA tuples accordingly.
+Updates profile fields and/or role assignments. The caller provides the full desired set of `role_assignments`. The Users service diffs against the current state and writes/deletes OpenFGA tuples accordingly.
 
 ### DeleteUser
 
@@ -114,8 +110,8 @@ sequenceDiagram
     TF->>Auth: Write tuple: identity:synth, admin, cluster:global
     TF->>US: Create API token for synthetic admin
     Note over TF: Phase 2 — real admin user
-    TF->>GW: CreateUser(oidc_subject, cluster_admin: true)<br/>Bearer: agyn_<synthetic_admin_token>
-    GW->>US: CreateUser(oidc_subject, profile, cluster_admin: true)
+    TF->>GW: CreateUser(oidc_subject, role_assignments: [{admin, cluster:global}])<br/>Bearer: agyn_<synthetic_admin_token>
+    GW->>US: CreateUser(oidc_subject, profile, role_assignments)
     US->>IS: RegisterIdentity(id, user)
     US->>Auth: Write(identity:id, admin, cluster:global)
     US-->>GW: User created
