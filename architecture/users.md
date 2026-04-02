@@ -44,6 +44,14 @@ Internal methods are called over Istio by other platform services. They are not 
 | **RevokeAPIToken** | Delete an API token by ID. Caller must own the token |
 | **ResolveAPIToken** | Look up an API token by hash. Returns `identity_id` if valid. Called by the Gateway |
 
+## Current User
+
+The Users service exposes a method for the calling user to retrieve their own profile and cluster role. Exposed through the [Gateway](gateway.md) via `UsersGateway`. Requires only that the caller is authenticated — no additional authorization.
+
+| Method | Description |
+|--------|-------------|
+| **GetMe** | Return the calling user's profile and cluster role. Identity is resolved from the request context — no `identity_id` parameter. Returns the same shape as admin `GetUser`: profile fields and `cluster_role` |
+
 ## Admin User Management
 
 The Users service provides CRUD methods for cluster administrators to manage platform users. These methods are exposed through the [Gateway](gateway.md) via `UsersGateway`. All require `cluster:global admin` authorization — the Users service checks `Authorization.Check(identity:<callerId>, admin, cluster:global)` before proceeding.
@@ -155,7 +163,7 @@ Initial profile fields (name, email, picture) are populated from the IdP UserInf
 |----------|-------|
 | **Gateway** | Resolve OIDC subject → `identity_id` on every request (`ResolveUser`). Provision new users on first login (`ProvisionUser`). Resolve [API tokens](api-tokens.md) → `identity_id` (`ResolveAPIToken`) |
 | **Chat** | Resolve user profiles for message display (sender name, photo) |
-| **[Console](console.md)** | User management (CRUD), profile display. Cluster admin only |
+| **[Console](console.md)** | Current user context via `GetMe` (profile, cluster admin status). User management (CRUD) for cluster admins |
 | **[Terraform Provider](operations/terraform-provider.md)** | `agyn_user` resource — create and manage users as code |
 
 ## Data Store

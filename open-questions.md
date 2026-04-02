@@ -115,16 +115,6 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 
 ---
 
-## Console Cluster Admin Resolution
-
-**Context:** The [Console](product/console/console.md) needs to determine whether the current user is a cluster admin to decide whether to display cluster-level sections (Users, Cluster Runners, Cluster Apps). Organization role is resolved via `Organizations.ListOrganizations()` which returns the user's role per organization. Cluster admin status (`identity:<id>, admin, cluster:global` in OpenFGA) has no equivalent high-level query endpoint.
-
-**Questions:**
-- Which service should expose the cluster admin check for the current user? (Users service returns it as part of the user profile? Organizations service includes it in its response? A dedicated session/context endpoint?)
-- Should this be a property returned alongside existing data (e.g., a `cluster_admin` field on the user profile response), or a separate call?
-
----
-
 ## Console Monitoring
 
 **Context:** The [Console](product/console/console.md) product spec defines a monitoring section with active workloads, storage, token consumption, and compute hours. The platform does not have usage statistics or aggregation services designed for this purpose. The [Token Counting](architecture/token-counting.md) service tracks per-request token counts for billing/metering but is not designed for Console consumption.
