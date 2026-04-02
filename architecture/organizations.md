@@ -23,7 +23,7 @@ The Organizations service is a **control plane** service.
 | Concern | Description |
 |---------|-------------|
 | **Organization CRUD** | Create, read, update, delete organizations |
-| **List accessible organizations** | Return organizations an identity can access. Queries [Authorization](authz.md) for the list of organization IDs, then enriches with organization details from its own database |
+| **List accessible organizations** | Return organizations an identity can access, based on active memberships in the `memberships` table |
 | **Members management** | Add, remove, list members, update member roles, and manage membership invites. See [Members Management](#members-management) |
 
 ### Data Store
@@ -36,7 +36,7 @@ Organization access is managed through memberships. Each active membership corre
 
 ### Organization Listing
 
-When the UI needs to display an organization switcher, it calls the Organizations service `ListMyMemberships` (with `status: active`). The Organizations service queries Authorization (`ListObjects`) for accessible organization IDs, then returns full membership details (organization, role) from its own database.
+When the UI needs to display an organization switcher, it calls the Organizations service `ListMyMemberships` (with `status: active`). The Organizations service queries its own `memberships` table for the caller's active memberships and returns full membership details (organization, role).
 
 ## Identities and Organizations
 
