@@ -78,7 +78,7 @@ The Console displays:
 
 | Aspect | Detail |
 |--------|--------|
-| **Repository** | `agynio/console` |
+| **Repository** | `agynio/console-app` |
 | **Language** | TypeScript (React SPA) |
 | **Build** | Static assets (HTML, JS, CSS) |
 | **Serving** | Nginx or static file server in a container |

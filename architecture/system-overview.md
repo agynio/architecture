@@ -178,5 +178,5 @@ See [Agent State](agent/state.md) for the persistence model.
 | `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
 | `agynio/apps` | Apps Service | Go | Planned |
 | `agynio/reminders` | Reminders app | Go | Planned |
-| `agynio/console` | Console — management UI SPA | TypeScript | Planned |
+| `agynio/console-app` | Console — management UI SPA | TypeScript | Planned |
 | `agynio/architecture` | This documentation | Markdown | — |
