@@ -34,10 +34,6 @@ PostgreSQL — `organizations` and `memberships` tables.
 
 Organization access is managed through memberships. Each active membership corresponds to an [Authorization](authz.md) (OpenFGA) relationship tuple. See [Authorization — Organization Permissions](authz.md#organization-permissions) for the permission model and [Members Management](#members-management) for the membership lifecycle.
 
-### Organization Listing
-
-When the UI needs to display an organization switcher, it calls the Organizations service `ListMyMemberships` (with `status: active`). The Organizations service queries its own `memberships` table for the caller's active memberships and returns full membership details (organization, role).
-
 ## Identities and Organizations
 
 Any identity — user, agent, runner, or app — can have access to an organization. What an identity can do within an organization is determined by its [authorization relationships](authz.md), not by its type.
