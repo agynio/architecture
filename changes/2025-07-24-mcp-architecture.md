@@ -8,13 +8,6 @@
 - [Agent Init — Environment Variable Contract](../architecture/agent-init.md#environment-variable-contract)
 - [Agents Orchestrator — Workload Spec Assembly](../architecture/agents-orchestrator.md#workload-spec-assembly)
 
-## Delta
-
-- MCP sidecar proxy binary (stdio-to-streamable-HTTP bridge) missing.
-- MCP resource `name` field missing from proto and PostgreSQL.
-- Orchestrator MCP port allocation (`MCP_PORT`, `AGENT_MCP_SERVERS`) missing from workload spec assembly.
-- `agynd` MCP endpoint configuration (`AGENT_MCP_SERVERS` parsing, agent CLI config writing) missing.
-
 ## Acceptance Signal
 
 - MCP proto has a `name` field; Agents service enforces uniqueness within agent.
