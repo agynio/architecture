@@ -2,9 +2,9 @@
 
 ## Overview
 
-The Console is a single-page application (SPA) for platform administration. It is a separate application from [Chat](chat.md), hosted at `console.agyn.dev`. See the [product spec](../product/console/console.md) for the full feature description.
+The Console is a single-page application (SPA) for platform administration, hosted at `console.agyn.dev`. See the [product spec](../product/console/console.md) for the full feature description.
 
-The Console communicates with platform services exclusively through the [Gateway](gateway.md) API. It uses the same OIDC authentication flow as Chat — the SPA performs Authorization Code + PKCE in the browser, then attaches the `access_token` as a Bearer token on all Gateway requests.
+The Console communicates with platform services through the [Gateway](gateway.md) API. The SPA performs OIDC Authorization Code + PKCE in the browser and attaches the `access_token` as a Bearer token on all Gateway requests.
 
 ## Architecture
 
