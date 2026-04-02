@@ -95,11 +95,12 @@ Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Volume attachments are
 
 ## MCP
 
-An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the agent pod, sharing the network namespace. See [Agent Overview — Tools](agent/overview.md#tools) for protocol details.
+An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the agent pod, sharing the network namespace. See [MCP](mcp.md) for the full MCP architecture.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this MCP server belongs to |
+| `name` | string | | MCP server name. Unique within agent. Max 63 characters, pattern: `^[a-z][a-z0-9_]{0,62}$`. Used as the server key in agent CLI MCP configuration and as the tool namespace prefix |
 | `image` | string | | Container image for the MCP sidecar (e.g., `ghcr.io/agynio/mcp-filesystem:latest`) |
 | `command` | string | | Startup command executed inside the container |
 | `resources` | object | | Compute resources for the sidecar container (see [Compute Resources](#compute-resources)) |

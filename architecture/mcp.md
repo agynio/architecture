@@ -77,6 +77,30 @@ The agent CLI connects to each MCP server independently over streamable HTTP. `a
 
 Tool namespacing is owned by each agent CLI implementation. The platform does not enforce a namespacing convention.
 
+## Port Allocation
+
+All MCP sidecars share the agent pod's network namespace (localhost). Each sidecar needs a unique port. The [Agents Orchestrator](agents-orchestrator.md) assigns ports at workload assembly time.
+
+### How it works
+
+1. The Orchestrator fetches all MCP servers for the agent from the [Agents](agents-service.md) service.
+2. It sorts them by a stable key (`id`) and assigns ports starting from a base port (e.g., `8100`), incrementing by one per MCP server.
+3. Each MCP sidecar receives its assigned port via the `MCP_PORT` environment variable.
+4. The Orchestrator passes the full name-to-port mapping to `agynd` via the `AGENT_MCP_SERVERS` environment variable on the agent container.
+
+### Environment variables
+
+| Variable | Set on | Format | Example |
+|----------|--------|--------|---------|
+| `MCP_PORT` | Each MCP sidecar container | Single integer | `8101` |
+| `AGENT_MCP_SERVERS` | Agent container (read by `agynd`) | Comma-separated `name:port` pairs | `filesystem:8100,github:8101` |
+
+The sidecar proxy (for stdio servers) or the MCP server itself (for streamable HTTP servers) reads `MCP_PORT` and listens on that port. `agynd` parses `AGENT_MCP_SERVERS` and writes the corresponding MCP endpoint entries into the agent CLI configuration.
+
+### Port range
+
+Ports are assigned starting from a configurable base port (default: `8100`). The range is internal to the pod — it does not conflict with host ports since all containers share the pod's network namespace, not the host network.
+
 ## Configuration Flow
 
 ```mermaid
@@ -88,22 +112,25 @@ sequenceDiagram
     participant S1 as MCP Sidecar (stdio)
     participant S2 as MCP Sidecar (HTTP)
 
-    O->>R: StartWorkload (MCP sidecars with port assignments)
-    R->>S1: Start sidecar (proxy + stdio MCP server)
-    R->>S2: Start sidecar (HTTP MCP server)
-    D->>D: Read MCP config (server names + ports)
-    D->>A: Configure MCP endpoints (localhost:port per server)
+    O->>O: Assign ports (filesystem:8100, github:8101)
+    O->>R: StartWorkload (sidecars with MCP_PORT, agent with AGENT_MCP_SERVERS)
+    R->>S1: Start sidecar (MCP_PORT=8100)
+    R->>S2: Start sidecar (MCP_PORT=8101)
+    S1->>S1: Listen on :8100
+    S2->>S2: Listen on :8101
+    D->>D: Parse AGENT_MCP_SERVERS
+    D->>A: Configure MCP endpoints (filesystem→localhost:8100, github→localhost:8101)
     D->>A: Spawn agent CLI
-    A->>S1: tools/list (streamable HTTP)
-    A->>S2: tools/list (streamable HTTP)
+    A->>S1: tools/list (streamable HTTP, localhost:8100)
+    A->>S2: tools/list (streamable HTTP, localhost:8101)
     A->>A: Discover and namespace tools
 ```
 
-1. The [Agents Orchestrator](agents-orchestrator.md) assembles the workload spec with MCP sidecar definitions and port assignments.
-2. The [Runner](runner.md) starts sidecar containers — each exposes streamable HTTP on its assigned port.
-3. `agynd` reads the MCP configuration (server names and ports) and configures the agent CLI with the endpoint list.
+1. The [Agents Orchestrator](agents-orchestrator.md) assigns ports and assembles the workload spec.
+2. The [Runner](runner.md) starts sidecar containers — each reads `MCP_PORT` and listens on its assigned port.
+3. `agynd` parses `AGENT_MCP_SERVERS` and writes MCP endpoint entries into the agent CLI configuration.
 4. The agent CLI connects to each endpoint, discovers tools, and begins using them.
 
 ## Resource Definition
 
-MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource specifies the container image and startup command. Environment variables, init scripts, and volumes are attached via their respective sub-resources.
+MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource specifies the container image, startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and volumes are attached via their respective sub-resources.

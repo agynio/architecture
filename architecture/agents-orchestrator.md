@@ -122,7 +122,7 @@ Before starting a workload, the orchestrator selects a runner. See [Runners — 
 The orchestrator assembles the full workload specification from multiple sources:
 
 1. **Agent definition** (from Agents): image, compute resources, configuration.
-2. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace.
+2. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
 3. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
 4. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
 5. **Environment variables** (from Agents + Secrets): plain-text values from Agents, secret-backed values resolved via Secrets service at start time.
