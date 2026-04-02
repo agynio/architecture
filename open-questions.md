@@ -112,3 +112,13 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 - How does the Gateway resolve app routing when installations can have org-specific slugs? (Does the request include organization context, or is the slug globally unique per installation?)
 - How do permissions narrow from cluster-level to org-level on installation? (Can an installation restrict which threads the app can access?)
 - What is the migration path for existing cluster-scoped apps?
+
+---
+
+## Console Cluster Admin Resolution
+
+**Context:** The [Console](product/console/console.md) needs to determine whether the current user is a cluster admin to decide whether to display cluster-level sections (Users, Cluster Runners, Cluster Apps). Organization role is resolved via `Organizations.ListOrganizations()` which returns the user's role per organization. Cluster admin status (`identity:<id>, admin, cluster:global` in OpenFGA) has no equivalent high-level query endpoint.
+
+**Questions:**
+- Which service should expose the cluster admin check for the current user? (Users service returns it as part of the user profile? Organizations service includes it in its response? A dedicated session/context endpoint?)
+- Should this be a property returned alongside existing data (e.g., a `cluster_admin` field on the user profile response), or a separate call?

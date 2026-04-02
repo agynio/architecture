@@ -45,17 +45,15 @@ Same OIDC flow as [Chat](chat.md) — see [Authentication — User Authenticatio
 
 ## Role Resolution
 
-On load, the Console determines the user's role to decide which sections to display. This requires two checks:
+On load, the Console determines the user's role to decide which sections to display:
 
-1. **Cluster admin check** — `Authorization.Check(identity:<userId>, admin, cluster:global)`. If true, the user sees cluster-level sections (Users, Cluster Runners, Cluster Apps) and all organizations.
-2. **Organization listing** — `Organizations.ListOrganizations()` returns organizations the user can access. For each organization, the Console checks `Authorization.Check(identity:<userId>, owner, organization:<orgId>)` to determine if the user is an owner.
+1. **Organization listing** — `Organizations.ListOrganizations()` returns organizations the user can access, including the user's role in each. The Console displays organization sections only for organizations where the user is an owner.
+2. **Cluster admin** — how the Console resolves cluster admin status is an [open question](../open-questions.md#console-cluster-admin-resolution).
 
 The Console displays:
 - Cluster sections → only if cluster admin.
 - Organization sections → only for organizations where the user is an owner.
 - No Console access → if the user is not a cluster admin and not an owner of any organization, the Console shows an empty state (no organizations to manage).
-
-These checks are performed via the Gateway. The Gateway exposes the Authorization `Check` method through `AuthorizationGateway` (new — see [Gateway API Surface](#gateway-api-surface)).
 
 ## Ingress
 
@@ -87,15 +85,10 @@ The Console consumes existing Gateway services and requires new ones. All new me
 |----------------|---------|---------------|-----------------|
 | `UsersGateway` (extended) | `CreateUser`, `GetUser`, `ListUsers`, `UpdateUser`, `DeleteUser` | Cluster admin | Users |
 | `OrganizationsGateway` (new) | `CreateOrganization`, `GetOrganization`, `ListOrganizations`, `UpdateOrganization`, `DeleteOrganization` | `CreateOrganization`: any authenticated user. Others: org owner or cluster admin | Organizations |
-| `AuthorizationGateway` (new) | `Check`, `ListObjects` | Any authenticated user (checks are scoped to caller's own identity) | Role resolution, membership checks |
 | `RunnersGateway` (extended) | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner` | Cluster-scoped: cluster admin. Org-scoped: org owner | Runners |
 | `LLMGateway` (new) | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
 | `SecretsGateway` (extended) | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
 | `AppsGateway` (extended) | `RegisterApp`, `DeleteApp` | Cluster admin | Cluster Apps |
-
-### Authorization Check Exposure
-
-The `AuthorizationGateway` exposes `Check` and `ListObjects` for the Console to perform role resolution in the browser. These methods are scoped: the Gateway restricts the `user` field in the request to the caller's own `identity_id`. A user cannot check permissions for other users through this endpoint.
 
 ## Users Service Changes
 

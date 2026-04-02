@@ -70,10 +70,6 @@ If denied, the service returns a permission error. The identity is available in 
 
 When state changes, the owning service writes relationship tuples through the Authorization service's `Write` method. `Write` supports atomic multi-tuple writes (adds and deletes in a single call).
 
-### Gateway Exposure
-
-The [Gateway](gateway.md) exposes `Check` and `ListObjects` through `AuthorizationGateway` for client applications (e.g., the [Console](console.md)) that need to resolve the current user's permissions. The Gateway restricts the `user` field in these requests to the caller's own `identity_id` — a user cannot check permissions for other identities through this endpoint.
-
 ## Model Deployment
 
 The authorization model is managed as infrastructure-as-code in the Authorization service repo (`agynio/authorization`), under `terraform/`:
