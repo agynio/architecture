@@ -37,7 +37,7 @@ The Console is a static SPA served by its own Kubernetes deployment with no back
 On load, the Console determines the user's role to decide which sections to display:
 
 1. **Organization listing** — `Organizations.ListMyMemberships(status: active)` returns the user's active memberships across all organizations, including role. The Console displays organization sections only for organizations where the user is an owner.
-2. **Cluster admin** — how the Console resolves cluster admin status is an [open question](../open-questions.md#console-cluster-admin-resolution).
+2. **Cluster admin** — `Users.GetMe()` returns the current user's profile and `cluster_role`. The Console displays cluster sections if `cluster_role` is `admin`.
 
 The Console displays:
 - Cluster sections → only if cluster admin.
@@ -56,7 +56,7 @@ The Console displays:
 | Gateway Service | Methods | Authorization | Console Section |
 |----------------|---------|---------------|-----------------|
 | `AgentsGateway` | All CRUD for agents and sub-resources | Org owner or cluster admin | Agents, MCPs, Skills, Hooks, ENVs, Init Scripts, Volume Attachments |
-| `UsersGateway` | `CreateUser`, `GetUser`, `ListUsers`, `UpdateUser`, `DeleteUser`, `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | Cluster admin (user CRUD), self (API tokens) | Users |
+| `UsersGateway` | `GetMe`, `CreateUser`, `GetUser`, `ListUsers`, `UpdateUser`, `DeleteUser`, `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | `GetMe`: any authenticated user. Cluster admin (user CRUD), self (API tokens) | Users |
 | `OrganizationsGateway` | `CreateOrganization`, `GetOrganization`, `ListOrganizations`, `UpdateOrganization`, `DeleteOrganization`, `CreateMembership`, `AcceptMembership`, `DeclineMembership`, `RemoveMembership`, `UpdateMembershipRole`, `ListMembers`, `ListMyMemberships` | `CreateOrganization`: any authenticated user. Org CRUD: org owner or cluster admin. Membership: see [Organizations — Membership Authorization](organizations.md#membership-authorization) | Organizations, Members |
 | `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner` | Cluster-scoped: cluster admin. Org-scoped: org owner | Runners |
 | `LLMGateway` | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
