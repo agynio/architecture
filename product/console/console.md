@@ -101,11 +101,8 @@ Visible to organization owners within their organization and to cluster admins f
 
 **User detail** — profile (name, nickname, photo URL, OIDC subject), role assignments. Cluster admin can:
 - Grant or revoke `cluster:global admin`.
-- Add the user to an organization with a specific role (owner or member).
-- Remove the user from an organization.
-- Change the user's role within an organization.
 
-**Create user** — OIDC subject (required), profile fields (name, nickname, photo URL — optional), role assignments (cluster admin, organization memberships).
+**Create user** — OIDC subject (required), profile fields (name, nickname, photo URL — optional), cluster role (admin or none).
 
 ### Members (Organization Owner)
 
