@@ -122,3 +122,14 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 **Questions:**
 - Which service should expose the cluster admin check for the current user? (Users service returns it as part of the user profile? Organizations service includes it in its response? A dedicated session/context endpoint?)
 - Should this be a property returned alongside existing data (e.g., a `cluster_admin` field on the user profile response), or a separate call?
+
+---
+
+## Console Monitoring
+
+**Context:** The [Console](product/console/console.md) product spec defines a monitoring section with active workloads, storage, token consumption, and compute hours. The platform does not have usage statistics or aggregation services designed for this purpose. The [Token Counting](architecture/token-counting.md) service tracks per-request token counts for billing/metering but is not designed for Console consumption.
+
+**Questions:**
+- What services and methods provide the data for Console monitoring (active workloads, storage, token usage, compute hours)?
+- Does this require a dedicated usage/metering service, or should monitoring queries be added to Runners, Token Counting, and Agents services?
+- What aggregation granularity and time ranges are needed?

@@ -58,21 +58,10 @@ The Console displays:
 | `AgentsGateway` | All CRUD for agents and sub-resources | Org owner or cluster admin | Agents, MCPs, Skills, Hooks, ENVs, Init Scripts, Volume Attachments |
 | `UsersGateway` | `CreateUser`, `GetUser`, `ListUsers`, `UpdateUser`, `DeleteUser`, `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | Cluster admin (user CRUD), self (API tokens) | Users |
 | `OrganizationsGateway` | `CreateOrganization`, `GetOrganization`, `ListOrganizations`, `UpdateOrganization`, `DeleteOrganization` | `CreateOrganization`: any authenticated user. Others: org owner or cluster admin | Organizations |
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `ListWorkloads`, `GetWorkload`, `GetComputeUsage` | Cluster-scoped: cluster admin. Org-scoped: org owner | Runners, Monitoring |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner` | Cluster-scoped: cluster admin. Org-scoped: org owner | Runners |
 | `LLMGateway` | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
 | `SecretsGateway` | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
 | `AppsGateway` | `RegisterApp`, `DeleteApp` | Cluster admin | Cluster Apps |
-| `TokenCountingGateway` | `GetUsageSummary` | Org owner or cluster admin | Monitoring |
-
-## Monitoring Data Sources
-
-| Data | Source Service | Method |
-|------|---------------|--------|
-| Active workloads | [Runners](runners.md) | `ListWorkloads` — filterable by organization, runner, agent, status. Paginated |
-| Workload containers | [Runners](runners.md) | `GetWorkload` — container names, images, states |
-| Persistent volumes | [Agents](agents-service.md) | `ListVolumes` |
-| Token consumption | [Token Counting](token-counting.md) | `GetUsageSummary(organization_id, time_range)` — aggregated by model and agent |
-| Compute hours | [Runners](runners.md) | `GetComputeUsage(organization_id, time_range)` — aggregated by agent |
 
 ## Deployment
 
