@@ -19,13 +19,13 @@ Organization members do not have Console access. A user can be an organization o
 
 1. Administrator deploys the cluster. Bootstrap Terraform provisions the OIDC configuration, a synthetic admin identity with an API token, and uses that token to create the real admin user (with their OIDC subject) via the platform API.
 2. Administrator opens `console.agyn.dev` and authenticates via OIDC. The platform resolves the user record — the administrator has `cluster:global admin`.
-3. The Console displays cluster administration. The administrator registers runners, creates organizations, configures LLM providers, and invites users.
+3. The Console displays cluster administration. The administrator registers runners, creates organizations, configures LLM providers, and adds members.
 
 ### Cloud Onboarding
 
 1. User signs up and authenticates via OIDC. The platform provisions the user record on first login.
 2. User opens the Console. No organizations exist — the Console displays the organization creation flow.
-3. User creates an organization, configures LLM providers and models, creates agents, and invites teammates.
+3. User creates an organization, configures LLM providers and models, creates agents, and invites teammates (existing platform users).
 
 ## Navigation
 
@@ -41,7 +41,7 @@ Visible only to users with `cluster:global admin`.
 
 | Section | Description |
 |---------|-------------|
-| **Users** | List, create, and manage platform users. Assign cluster admin role. Assign users to organizations with a role (owner or member) |
+| **Users** | List, create, and manage platform users. Assign cluster admin role |
 | **Cluster Runners** | List, register, and manage cluster-scoped runners. View enrollment status, labels, and connected workloads |
 | **Cluster Apps** | List, register, and manage cluster-scoped apps. View enrollment status |
 
@@ -106,13 +106,13 @@ Visible to organization owners within their organization and to cluster admins f
 
 ### Members (Organization Owner)
 
-Organization owners manage membership within their organization. They select from platform users or invite by OIDC subject (which triggers user creation if no matching user record exists).
+Organization owners manage membership within their organization.
 
-**Member list** — users in the organization. Columns: name, role (owner or member).
+**Member list** — members in the organization (active and pending). Columns: name, role (owner or member), status (active or pending).
 
-**Add member** — search platform users or enter OIDC subject. Assign role.
+**Invite member** — search existing platform users. Assign role. Creates a pending membership (invite). The invited user must accept the invite before gaining access. Cluster admins can add members directly (active immediately).
 
-**Change role / Remove** — inline actions on the member list.
+**Change role / Remove** — inline actions on the member list. Available to organization owners.
 
 ## Monitoring
 

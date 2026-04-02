@@ -110,7 +110,7 @@ graph TB
 |-----------|---------------|
 | **Identity** | Central identity registry. Maps `identity_id` to `identity_type` for all identity types |
 | **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
-| **Organizations** | Organization lifecycle (CRUD) and listing accessible organizations for an identity (queries Authorization for organization IDs, enriches with organization details) |
+| **Organizations** | Organization lifecycle (CRUD), membership management (invites, direct membership, role assignment), and listing accessible organizations for an identity |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage |

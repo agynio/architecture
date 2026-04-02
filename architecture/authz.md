@@ -45,14 +45,24 @@ Any identity can hold any relationship that is modeled in OpenFGA. See [Identity
 
 Identities have permissions within an organization via OpenFGA relationship tuples. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
 
-| Permission | Capabilities |
-|------------|-------------|
-| **owner** | Full access. Manage organization settings, membership, all resources. Delete organization |
-| **member** | Chat. View tracing. View resources (read-only) |
+| Relation | Type | Capabilities |
+|----------|------|-------------|
+| **owner** | role (assignable) | Full access. Manage organization settings, membership, all resources. Delete organization |
+| **member** | role (assignable) | Chat. View tracing. View resources (read-only) |
+| **can_invite** | computed | Create pending memberships (invites) for the organization |
+| **can_manage_members** | computed | Remove members, update member roles, list members |
+| **can_add_member** | computed | Create active memberships directly (skip invite) |
 
-`owner` implies `member`. Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `organization` type without changing the model structure.
+#### Computed Relations
+
+- `owner` implies `member`, `can_invite`, and `can_manage_members`.
+- `can_add_member` is computed from `cluster:global admin` — any identity with the `admin` relation on `cluster:global` has `can_add_member` on all organizations. This is modeled in OpenFGA as a cross-type computed relation (e.g., `define can_add_member: admin from cluster`), not as explicit per-organization tuples.
+
+Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `organization` type without changing the model structure.
 
 Any identity type can hold organization permissions. For example, an agent that creates an organization becomes its owner.
+
+See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
 
 ## How Services Use Authorization
 

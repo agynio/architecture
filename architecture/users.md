@@ -85,7 +85,7 @@ Updates profile fields and/or `cluster_role`. Organization membership is managed
 
 ### DeleteUser
 
-Deletes the user record, the identity registration in the [Identity](identity.md) service, and all OpenFGA relationship tuples for the user (cluster admin, organization memberships). This is a hard delete — the user must be re-created to regain access.
+Deletes the user record, the identity registration in the [Identity](identity.md) service, the cluster admin OpenFGA tuple (if any), and all organization memberships via the [Organizations](organizations.md) service. This is a hard delete — the user must be re-created to regain access.
 
 ### Bootstrap Flow
 
