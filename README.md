@@ -44,7 +44,7 @@ Target architecture of the platform. Describes how the system should work.
 | Document | Description |
 |----------|-------------|
 | [System Overview](architecture/system-overview.md) | Components, responsibilities, data stores, repository map |
-| [Organizations](architecture/organizations.md) | Organization model, Organizations service, resource scoping (org-scoped vs independent), ReBAC access control |
+| [Organizations](architecture/organizations.md) | Organization model, Organizations service, members management (invites, direct membership, roles), resource scoping (org-scoped vs independent), ReBAC access control |
 | [Identity](architecture/identity.md) | Central identity type registry |
 | [Users](architecture/users.md) | User identity records, profiles, OIDC provisioning |
 | [Authentication](architecture/authn.md) | Identity types, OIDC, agent network auth, service tokens |

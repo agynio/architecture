@@ -18,6 +18,7 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_hook` | Hook | Hook definition (event, function, image, compute resources) |
 | `agyn_env` | ENV | Environment variable (name, plain value or secret reference) |
 | `agyn_init_script` | InitScript | Initialization script (shell script content) |
+| `agyn_membership` | Membership | Organization membership (identity, organization, role). See [Organizations — Members Management](../organizations.md#members-management) |
 
 ## Resource Structure
 

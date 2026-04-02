@@ -24,26 +24,131 @@ The Organizations service is a **control plane** service.
 |---------|-------------|
 | **Organization CRUD** | Create, read, update, delete organizations |
 | **List accessible organizations** | Return organizations an identity can access. Queries [Authorization](authz.md) for the list of organization IDs, then enriches with organization details from its own database |
+| **Members management** | Add, remove, list members, update member roles, and manage membership invites. See [Members Management](#members-management) |
 
 ### Data Store
 
-PostgreSQL — `organizations` table.
+PostgreSQL — `organizations` and `memberships` tables.
 
 ## Organization Access
 
-Organization access is managed through [Authorization](authz.md) (OpenFGA relationship tuples). See [Authorization — Organization Permissions](authz.md#organization-permissions) for the permission model.
+Organization access is managed through memberships. Each active membership corresponds to an [Authorization](authz.md) (OpenFGA) relationship tuple. See [Authorization — Organization Permissions](authz.md#organization-permissions) for the permission model and [Members Management](#members-management) for the membership lifecycle.
 
 ### Organization Listing
 
-When the UI needs to display an organization switcher, it calls the Organizations service `ListOrganizations`. The Organizations service queries Authorization (`ListObjects`) for accessible organization IDs, then returns full organization details from its own database.
+When the UI needs to display an organization switcher, it calls the Organizations service `ListMyMemberships` (with `status: active`). The Organizations service queries Authorization (`ListObjects`) for accessible organization IDs, then returns full membership details (organization, role) from its own database.
 
 ## Identities and Organizations
 
 Any identity — user, agent, runner, or app — can have access to an organization. What an identity can do within an organization is determined by its [authorization relationships](authz.md), not by its type.
 
-An identity can have access to multiple organizations. User-to-organization membership is managed entirely through OpenFGA relationship tuples — the [Users](users.md) service has no organization association.
+An identity can have access to multiple organizations. Membership is managed by the Organizations service — the [Users](users.md) service has no organization association.
 
 See [Identity](identity.md) for the identity registry and [Authentication](authn.md) for how identity context is propagated.
+
+## Members Management
+
+The Organizations service manages organization membership. A **membership** is the relationship between an identity and an organization, with a role (`owner` or `member`).
+
+### Membership Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique membership identifier |
+| `organization_id` | string (UUID) | Organization |
+| `identity_id` | string (UUID) | Identity being granted membership |
+| `role` | enum | `owner`, `member` |
+| `status` | enum | `pending`, `active` |
+| `expires_at` | timestamp, nullable | Optional expiration date. Null means no expiration |
+| `created_at` | timestamp | Creation time |
+| `updated_at` | timestamp | Last modification time |
+
+### Status Lifecycle
+
+| Status | Description |
+|--------|-------------|
+| **pending** | Invite — the target identity has not yet accepted. No OpenFGA tuple exists. The identity has no access to the organization |
+| **active** | Effective membership — an OpenFGA relationship tuple exists (`identity:<identity_id>, <role>, organization:<organization_id>`). The identity has access to the organization |
+
+A membership transitions from `pending` to `active` in two ways:
+- **Invite acceptance** — the target identity calls `AcceptMembership`.
+- **Direct creation** — a caller with `can_add_member` permission creates a membership that is immediately `active` (no invite step). See [Membership Authorization](#membership-authorization).
+
+### Membership Authorization
+
+Who can do what is governed by the [authorization model](authz.md):
+
+| Action | Required Permission | Who Has It | Behavior |
+|--------|-------------------|------------|----------|
+| **Create membership (direct)** | `can_add_member` on the organization | Cluster admins (via computed relation from `cluster:global admin`) | Creates membership with `status: active`. Writes OpenFGA tuple immediately |
+| **Create membership (invite)** | `can_invite` on the organization | Organization owners (via `owner` implies `can_invite`) | Creates membership with `status: pending`. No OpenFGA tuple until accepted |
+| **Accept membership** | Target identity matches the caller | The invited identity itself | Transitions `pending` → `active`. Writes OpenFGA tuple |
+| **Decline membership** | Target identity matches the caller | The invited identity itself | Deletes the `pending` membership |
+| **Remove member** | `can_manage_members` on the organization | Organization owners (via `owner` implies `can_manage_members`) | Deletes the membership (any status). Deletes OpenFGA tuple if `active` |
+| **Update member role** | `can_manage_members` on the organization | Organization owners (via `owner` implies `can_manage_members`) | Updates the role. If `active`, deletes old OpenFGA tuple and writes new one |
+| **List members** | `can_manage_members` on the organization | Organization owners | Returns memberships for the organization |
+| **List my memberships** | Caller is the identity | Any identity | Returns the caller's own memberships across all organizations |
+
+The Organizations service does not perform explicit identity type checks (e.g., "is the caller a cluster admin?"). All access decisions flow through [Authorization](authz.md) `Check` calls. See [Authorization — Organization Permissions](authz.md#organization-permissions) for how `can_add_member`, `can_invite`, and `can_manage_members` are defined.
+
+### Interface
+
+| Method | Description |
+|--------|-------------|
+| **CreateMembership** | Create a membership for an identity in an organization. Caller must have `can_add_member` (direct → `active`) or `can_invite` (invite → `pending`) on the organization. The identity must already exist in the [Identity](identity.md) registry |
+| **AcceptMembership** | Accept a pending membership. Caller must be the target identity. Transitions `pending` → `active` and writes the OpenFGA tuple |
+| **DeclineMembership** | Decline a pending membership. Caller must be the target identity. Deletes the membership |
+| **RemoveMembership** | Remove a membership (any status). Caller must have `can_manage_members`. Deletes the OpenFGA tuple if `active` |
+| **UpdateMembershipRole** | Update the role of a membership. Caller must have `can_manage_members`. If `active`, updates the OpenFGA tuple |
+| **ListMembers** | List memberships for an organization. Supports filtering by `status` (`pending`, `active`, or all). Caller must have `can_manage_members` |
+| **ListMyMemberships** | List the calling identity's own memberships across all organizations. Supports filtering by `status`. Used by Chat for the organization switcher and by Console for pending invite display |
+
+### CreateMembership Flow
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Orgs as Organizations
+    participant Auth as Authorization
+    participant I as Identity
+
+    Caller->>Orgs: CreateMembership(organization_id, identity_id, role)
+    Orgs->>I: GetIdentityType(identity_id)
+    I-->>Orgs: identity exists
+    Orgs->>Auth: Check(caller, can_add_member, organization:orgId)
+    alt can_add_member → allowed
+        Orgs->>Orgs: Store membership (status: active)
+        Orgs->>Auth: Write(identity:id, role, organization:orgId)
+        Orgs-->>Caller: Membership (active)
+    else can_add_member → denied
+        Orgs->>Auth: Check(caller, can_invite, organization:orgId)
+        alt can_invite → allowed
+            Orgs->>Orgs: Store membership (status: pending)
+            Orgs-->>Caller: Membership (pending)
+        else can_invite → denied
+            Orgs-->>Caller: Permission denied
+        end
+    end
+```
+
+### AcceptMembership Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Orgs as Organizations
+    participant Auth as Authorization
+
+    User->>Orgs: AcceptMembership(membership_id)
+    Orgs->>Orgs: Load membership, verify caller = target identity
+    Orgs->>Orgs: Update status: pending → active
+    Orgs->>Auth: Write(identity:id, role, organization:orgId)
+    Orgs-->>User: Membership (active)
+```
+
+### Expiration
+
+Memberships can optionally carry an `expires_at` timestamp. The platform does not automatically remove expired memberships — expiration is informational and can be used by consumers (Console, Terraform) to display or enforce time-limited access. Enforcement of expiration (e.g., revoking access after the date passes) is a future extension.
 
 ## Resource Scoping
 
