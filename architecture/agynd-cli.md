@@ -27,14 +27,14 @@
 
 `agynd` translates thread messages into the format expected by the agent CLI before feeding them via the SDK. Thread messages contain structured data (`body`, `files[]`), but agent CLIs receive plain text.
 
-When a thread message has file attachments, `agynd` appends `agynfile://` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm).
+When a thread message has file attachments, `agynd` appends `agyn://file/` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm).
 
 ```
 What's in this image?
-agynfile://file-uuid-1
+agyn://file/file-uuid-1
 ```
 
-Messages without file attachments are sent as the `body` field only. The `agynfile://` scheme is only appended when the `files` array is non-empty.
+Messages without file attachments are sent as the `body` field only. The `agyn://file/` scheme is only appended when the `files` array is non-empty.
 
 The agent CLI has no knowledge of thread messages, file IDs, or the `files` array — it receives pre-formatted plain text.
 

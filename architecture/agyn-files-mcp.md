@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agyn-files-mcp` is a platform-provided MCP server that gives agents access to files uploaded to the platform. It exposes a single `read_file` tool that fetches file content from the [Files](media.md) service and returns it in the appropriate MCP content type. The LLM calls this tool when it encounters `agynfile://<id>` references in the conversation context.
+`agyn-files-mcp` is a platform-provided MCP server that gives agents access to files uploaded to the platform. It exposes a single `read_file` tool that fetches file content from the [Files](media.md) service and returns it in the appropriate MCP content type. The LLM calls this tool when it encounters `agyn://file/<id>` references in the conversation context.
 
 | Aspect | Details |
 |--------|---------|
@@ -53,13 +53,13 @@ Reads a file from the platform's Files service and returns its content.
 ```json
 {
   "name": "read_file",
-  "description": "Read a file from the platform. Use this tool to access file content when you see agynfile:// references in the conversation.",
+  "description": "Read a file from the platform. Use this tool to access file content when you see agyn://file/ references in the conversation.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "file_id": {
         "type": "string",
-        "description": "The file ID from an agynfile:// URI (the part after agynfile://)"
+        "description": "The file ID from an agyn://file/ URI (the part after agyn://file/)"
       }
     },
     "required": ["file_id"]
@@ -104,7 +104,7 @@ The MCP server selects the response content type based on the file's MIME type:
 |----------------|-----------------|--------|
 | `image/*` | `image` | `{ "type": "image", "data": "<base64>", "mimeType": "<content_type>" }` |
 | `text/*`, `application/json`, `application/xml`, `application/yaml` | `text` | `{ "type": "text", "text": "<decoded file content>" }` |
-| All other types | `resource` (binary) | `{ "type": "resource", "resource": { "uri": "agynfile://<file_id>", "mimeType": "<content_type>", "blob": "<base64>" } }` |
+| All other types | `resource` (binary) | `{ "type": "resource", "resource": { "uri": "agyn://file/<file_id>", "mimeType": "<content_type>", "blob": "<base64>" } }` |
 
 **Examples:**
 
@@ -140,7 +140,7 @@ Binary file (`application/pdf`):
     {
       "type": "resource",
       "resource": {
-        "uri": "agynfile://file-uuid",
+        "uri": "agyn://file/file-uuid",
         "mimeType": "application/pdf",
         "blob": "JVBERi0xLjQ..."
       }

@@ -10,17 +10,17 @@
 
 ## Delta
 
-The `agyn-files-mcp` MCP server (`agynio/agyn-files-mcp`) does not exist. `agynd` does not yet format thread messages with `agynfile://` URIs. The agent implementation does not yet translate MCP tool results to OpenAI Responses API format. The following are needed:
+The `agyn-files-mcp` MCP server (`agynio/agyn-files-mcp`) does not exist. `agynd` does not yet format thread messages with `agyn://file/` URIs. The agent implementation does not yet translate MCP tool results to OpenAI Responses API format. The following are needed:
 
 - **agyn-files-mcp service**: new Go MCP server (streamable HTTP) exposing a `read_file` tool. Reads file metadata and content from the Files service via Gateway, returns appropriate MCP content types (text, image, resource) based on MIME type. Runs as a sidecar in agent pods.
-- **Message formatting in `agynd`**: when translating thread messages for the agent CLI, `agynd` appends `agynfile://<id>` URIs to the message text for messages with file attachments. The agent CLI receives pre-formatted plain text with no knowledge of the underlying thread message structure.
+- **Message formatting in `agynd`**: when translating thread messages for the agent CLI, `agynd` appends `agyn://file/<id>` URIs to the message text for messages with file attachments. The agent CLI receives pre-formatted plain text with no knowledge of the underlying thread message structure.
 - **MCP-to-LLM translation in `agn`**: CallTools stage must translate MCP tool result content types (text, image, audio, resource) to OpenAI Responses API function_call_output content types (input_text, input_image, input_file).
 - **Agents Orchestrator**: automatically include `agyn-files-mcp` as a sidecar for agents with file access enabled.
 
 ## Acceptance Signal
 
-- `agynd` translates thread messages with file attachments into plain text with `agynfile://` URIs before feeding them to the agent CLI.
-- An agent can receive a message with file references, the LLM sees `agynfile://` references, calls `read_file`, and receives file content in the correct format for its provider API.
+- `agynd` translates thread messages with file attachments into plain text with `agyn://file/` URIs before feeding them to the agent CLI.
+- An agent can receive a message with file references, the LLM sees `agyn://file/` references, calls `read_file`, and receives file content in the correct format for its provider API.
 - The MCP-to-LLM translation handles all MCP content types (text, image, audio, resource with text, resource with blob).
 - `agyn-files-mcp` authenticates via Ziti sidecar in production and via API token in development/testing.
 
