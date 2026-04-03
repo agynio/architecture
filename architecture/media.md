@@ -2,7 +2,7 @@
 
 ## Overview
 
-Users can attach files to messages in thread conversations. Media files are stored in object storage by a dedicated **Files** service and referenced in messages by ID. The agent receives file references as part of the conversation context. The LLM can request file content on demand via an MCP tool provided by the [agyn-files-mcp](agyn-files-mcp.md) server.
+Users can attach files to messages in thread conversations. Media files are stored in object storage by a dedicated **Files** service and referenced in messages by ID. The agent receives file references as part of the conversation context. The LLM can request file content on demand via an MCP tool provided by the [files-mcp](files-mcp.md) server.
 
 ## File Lifecycle
 
@@ -15,7 +15,7 @@ sequenceDiagram
     participant Th as Threads (gRPC)
     participant D as agynd
     participant Ag as Agent CLI
-    participant MCP as agyn-files-mcp
+    participant MCP as files-mcp
     participant LLM as LLM Provider
 
     C->>GW: Upload file (multipart REST)
@@ -70,7 +70,7 @@ agyn://file/file-uuid-1
 agyn://file/file-uuid-2
 ```
 
-The `agyn://` URI is a platform-internal scheme used for referencing platform resources (files, chats, etc.). It is not resolvable outside the agent's MCP environment. The agent CLI receives these as plain text — it has no knowledge of the underlying thread message structure or file IDs. The LLM sees the references and can decide whether to read the file content by calling the `read_file` tool provided by [agyn-files-mcp](agyn-files-mcp.md).
+The `agyn://` URI is a platform-internal scheme used for referencing platform resources (files, chats, etc.). It is not resolvable outside the agent's MCP environment. The agent CLI receives these as plain text — it has no knowledge of the underlying thread message structure or file IDs. The LLM sees the references and can decide whether to read the file content by calling the `read_file` tool provided by [files-mcp](files-mcp.md).
 
 This is a **lazy, on-demand** approach — file content is only fetched when the LLM explicitly requests it. The LLM may choose not to read a file if the text context is sufficient, or may read multiple files selectively.
 
@@ -124,13 +124,13 @@ All other metadata (filename, content type, team, thread association) is stored 
 
 ### Access Control
 
-No direct public access to the bucket. External clients access files via pre-signed download URLs. Internal consumers ([agyn-files-mcp](agyn-files-mcp.md)) use the `GetFileContent` RPC to stream content directly from the Files service.
+No direct public access to the bucket. External clients access files via pre-signed download URLs. Internal consumers ([files-mcp](files-mcp.md)) use the `GetFileContent` RPC to stream content directly from the Files service.
 
 | Operation | Access |
 |-----------|--------|
 | Upload | Files service writes to object storage directly |
 | Download | Pre-signed GET URL with expiration |
-| MCP read | [agyn-files-mcp](agyn-files-mcp.md) calls `GetFileContent` on the Files service; content returned to agent via MCP tool result |
+| MCP read | [files-mcp](files-mcp.md) calls `GetFileContent` on the Files service; content returned to agent via MCP tool result |
 
 Pre-signed URL expiration for external download URLs: recommended 1 hour.
 
@@ -284,7 +284,7 @@ The Message model gains an optional `files` field:
 | `files` | list of string (UUID) | Referenced file IDs (may be empty) |
 | `created_at` | timestamp | When the message was sent |
 
-Consumers (Gateway, [agyn-files-mcp](agyn-files-mcp.md)) resolve file IDs to metadata and download URLs by calling the Files service.
+Consumers (Gateway, [files-mcp](files-mcp.md)) resolve file IDs to metadata and download URLs by calling the Files service.
 
 ## Context Size and Summarization
 
@@ -292,6 +292,6 @@ Media files consume tokens that cannot be estimated from text length. When file 
 
 ## Related Documents
 
-- [agyn-files-mcp](agyn-files-mcp.md) — MCP server for file access
+- [files-mcp](files-mcp.md) — MCP server for file access
 - [agynd](agynd-cli.md#message-formatting) — Thread message translation (body + `agyn://file/` URIs)
 - [Agent Implementation — MCP-to-LLM Translation](agent/implementation.md#mcp-to-llm-translation) — How `agn` converts MCP tool results to OpenAI Responses API format

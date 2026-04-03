@@ -113,7 +113,7 @@ graph TB
 | **Organizations** | Organization lifecycle (CRUD), membership management (invites, direct membership, role assignment), and listing accessible organizations for an identity |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
-| **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage. File content is accessed by agents via [agyn-files-mcp](agyn-files-mcp.md) |
+| **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage. File content is accessed by agents via [files-mcp](files-mcp.md) |
 | **Token Counting** | Per-message token counting for LLM messages |
 | **LLM** | Manages LLM providers and models. Provides model resolution (model ID → provider endpoint, token, remote name) for the LLM Proxy |
 | **[LLM Proxy](llm-proxy.md)** | Exposes an OpenAI-compatible Responses API endpoint for agents. Authenticates callers, resolves models via LLM service, forwards requests to external providers |
@@ -170,7 +170,7 @@ See [Agent State](agent/state.md) for the persistence model.
 | `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
 | `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |
 | `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
-| `agynio/agyn-files-mcp` | MCP server for file access — reads from Files service, returns content to agents | Go | Planned |
+| `agynio/files-mcp` | MCP server for file access — reads from Files service, returns content to agents | Go | Planned |
 | `agynio/llm-proxy` | LLM Proxy — OpenAI-compatible Responses API endpoint for agents | Go | Planned |
 | `agynio/agent-init-codex` | Init container image: agynd + Codex CLI | Dockerfile | Active |
 | `agynio/agent-init-claude` | Init container image: agynd + Claude Code CLI | Dockerfile | Active |

@@ -1,12 +1,12 @@
-# agyn-files-mcp
+# files-mcp
 
 ## Overview
 
-`agyn-files-mcp` is a platform-provided MCP server that gives agents access to files uploaded to the platform. It exposes a single `read_file` tool that fetches file content from the [Files](media.md) service and returns it in the appropriate MCP content type. The LLM calls this tool when it encounters `agyn://file/<id>` references in the conversation context.
+`files-mcp` is a platform-provided MCP server that gives agents access to files uploaded to the platform. It exposes a single `read_file` tool that fetches file content from the [Files](media.md) service and returns it in the appropriate MCP content type. The LLM calls this tool when it encounters `agyn://file/<id>` references in the conversation context.
 
 | Aspect | Details |
 |--------|---------|
-| Repository | `agynio/agyn-files-mcp` |
+| Repository | `agynio/files-mcp` |
 | Language | Go |
 | Transport | Streamable HTTP |
 | Role | MCP server — file access for agents |
@@ -20,8 +20,8 @@ graph TB
             AgentCLI[Agent CLI]
         end
 
-        subgraph "MCP Sidecar: agyn-files-mcp"
-            FilesMCP[agyn-files-mcp<br/>streamable HTTP]
+        subgraph "MCP Sidecar: files-mcp"
+            FilesMCP[files-mcp<br/>streamable HTTP]
         end
 
         subgraph "Ziti Sidecar"
@@ -40,7 +40,7 @@ graph TB
     Ziti -.->|OpenZiti mTLS| Gateway
 ```
 
-`agyn-files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.ziti` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `GetFileContent` RPC — the MCP server does not access object storage directly.
+`files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.ziti` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `GetFileContent` RPC — the MCP server does not access object storage directly.
 
 ## Tool
 
@@ -72,7 +72,7 @@ Reads a file from the platform's Files service and returns its content.
 ```mermaid
 sequenceDiagram
     participant A as Agent CLI
-    participant MCP as agyn-files-mcp
+    participant MCP as files-mcp
     participant GW as Gateway (via Ziti)
     participant F as Files Service
 
@@ -162,14 +162,14 @@ Errors are reported as MCP tool execution errors (`isError: true`), not protocol
 
 ## Authentication
 
-`agyn-files-mcp` authenticates to the Gateway using the same mechanisms available to all components in the agent pod:
+`files-mcp` authenticates to the Gateway using the same mechanisms available to all components in the agent pod:
 
 | Method | Mechanism | Use Case |
 |--------|-----------|----------|
 | **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](authn.md#network-identity-openziti) mTLS via the Ziti sidecar — automatic when the sidecar is present | Primary. Inside agent pods on the platform |
 | **API token** | `AGYN_API_TOKEN` environment variable, sent as `Authorization: Bearer` to the Gateway | Local development, testing, CI |
 
-The API token fallback allows running `agyn-files-mcp` outside the platform for testing. When `AGYN_API_TOKEN` is set, the MCP server uses it for Gateway authentication instead of relying on the Ziti sidecar.
+The API token fallback allows running `files-mcp` outside the platform for testing. When `AGYN_API_TOKEN` is set, the MCP server uses it for Gateway authentication instead of relying on the Ziti sidecar.
 
 ## Configuration
 
@@ -182,13 +182,13 @@ The API token fallback allows running `agyn-files-mcp` outside the platform for 
 
 ## Deployment
 
-`agyn-files-mcp` is deployed as an MCP sidecar container in the agent pod, following the standard [MCP sidecar pattern](mcp.md). It is a streamable HTTP server — no sidecar proxy is needed.
+`files-mcp` is deployed as an MCP sidecar container in the agent pod, following the standard [MCP sidecar pattern](mcp.md). It is a streamable HTTP server — no sidecar proxy is needed.
 
-To add file access to an agent, create an [MCP resource](resource-definitions.md#mcp) on the agent definition pointing to the `agyn-files-mcp` image. The [Agents Orchestrator](agents-orchestrator.md) assembles it into the agent pod as a sidecar, the same as any other MCP server.
+To add file access to an agent, create an [MCP resource](resource-definitions.md#mcp) on the agent definition pointing to the `files-mcp` image. The [Agents Orchestrator](agents-orchestrator.md) assembles it into the agent pod as a sidecar, the same as any other MCP server.
 
 | Aspect | Detail |
 |--------|--------|
-| Image | `ghcr.io/agynio/agyn-files-mcp:latest` |
+| Image | `ghcr.io/agynio/files-mcp:latest` |
 | Transport | Streamable HTTP (native) |
 | Port | Assigned by Orchestrator via `MCP_PORT` |
 | Proxy | Not needed — native streamable HTTP |

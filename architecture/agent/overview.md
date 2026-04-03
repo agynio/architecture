@@ -36,7 +36,7 @@ graph TB
 |---------------|-------------|
 | **Read messages** | Pull unacknowledged messages via `GetUnackedMessages` |
 | **Acknowledge messages** | Call `AckMessages` after successful processing |
-| **Access files via MCP** | File content is accessed on demand by the LLM through the [agyn-files-mcp](../agyn-files-mcp.md) MCP server, which reads from the Files service |
+| **Access files via MCP** | File content is accessed on demand by the LLM through the [files-mcp](../files-mcp.md) MCP server, which reads from the Files service |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |

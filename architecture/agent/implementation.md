@@ -121,7 +121,7 @@ MCP tool results contain a `content` array with typed items. Each MCP content it
 
 ### Example: File Read Tool Result Translation
 
-When the LLM calls `read_file` on an image file, the [agyn-files-mcp](../agyn-files-mcp.md) server returns:
+When the LLM calls `read_file` on an image file, the [files-mcp](../files-mcp.md) server returns:
 
 **MCP tool result:**
 ```json
