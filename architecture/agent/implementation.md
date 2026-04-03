@@ -91,26 +91,6 @@ Message types sent to the provider:
 | `ToolCallOutputMessage` | Tool execution result |
 | `ResponseMessage` | Raw response envelope from the provider |
 
-## Message Formatting
-
-When `agn` loads thread messages into the LLM context (during the **Load** stage), messages with file attachments are formatted as plain text with `agynfile://` URIs appended after the body. See [Media — Message Formatting for LLM](../media.md#message-formatting-for-llm).
-
-**Thread message:**
-```json
-{
-  "body": "What's in this image?",
-  "files": ["file-uuid-1"]
-}
-```
-
-**HumanMessage sent to LLM:**
-```
-What's in this image?
-agynfile://file-uuid-1
-```
-
-Messages without file attachments are sent as plain text (the `body` field only). The `agynfile://` scheme is only appended when the `files` array is non-empty.
-
 ## MCP-to-LLM Translation
 
 The **CallTools** stage executes MCP tool calls and converts the results into OpenAI Responses API format before feeding them back to the LLM. MCP and OpenAI use different content type systems — `agn` translates between them.

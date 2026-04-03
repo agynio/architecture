@@ -23,7 +23,22 @@
 - Acknowledges processed messages via `AckMessages`.
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable message delivery.
 
-### 2. Environment Preparation
+### 2. Message Formatting
+
+`agynd` translates thread messages into the format expected by the agent CLI before feeding them via the SDK. Thread messages contain structured data (`body`, `files[]`), but agent CLIs receive plain text.
+
+When a thread message has file attachments, `agynd` appends `agynfile://` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm).
+
+```
+What's in this image?
+agynfile://file-uuid-1
+```
+
+Messages without file attachments are sent as the `body` field only. The `agynfile://` scheme is only appended when the `files` array is non-empty.
+
+The agent CLI has no knowledge of thread messages, file IDs, or the `files` array — it receives pre-formatted plain text.
+
+### 3. Environment Preparation
 
 Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform and prepares the runtime environment. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
@@ -38,7 +53,7 @@ This approach mirrors how tools like Claude Code and Codex CLI receive their con
 
 The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the init image's `config.json` specifies which SDK module `agynd` uses.
 
-### 3. Agent Process Management
+### 4. Agent Process Management
 
 `agynd` spawns the configured agent CLI as a child process and communicates with it through an SDK specific to each agent type.
 

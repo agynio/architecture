@@ -13,7 +13,8 @@ sequenceDiagram
     participant F as Files (gRPC)
     participant OS as Object Storage
     participant Th as Threads (gRPC)
-    participant Ag as Agent
+    participant D as agynd
+    participant Ag as Agent CLI
     participant MCP as agyn-files-mcp
     participant LLM as LLM Provider
 
@@ -27,10 +28,11 @@ sequenceDiagram
     GW->>Th: SendMessage (gRPC)
     Th-->>GW: Message stored
 
-    Note over Ag: Agent picks up message
-    Ag->>Th: GetMessages (gRPC)
-    Th-->>Ag: Messages with file IDs
-    Ag->>Ag: Convert message to LLM format (body + agynfile:// links)
+    Note over D: agynd picks up message
+    D->>Th: GetMessages (gRPC)
+    Th-->>D: Messages with file IDs
+    D->>D: Format message (body + agynfile:// URIs)
+    D->>Ag: Plain text message via SDK
     Ag->>LLM: Message text with agynfile:// references
     LLM->>Ag: Tool call: read_file(file_id)
     Ag->>MCP: tools/call read_file
@@ -43,12 +45,13 @@ sequenceDiagram
     MCP-->>Ag: MCP tool result (text / image / resource)
     Ag->>LLM: Tool result (input_text / input_image / input_file)
     LLM-->>Ag: Response
-    Ag->>Th: SendMessage (gRPC)
+    Ag-->>D: Response via SDK
+    D->>Th: SendMessage (gRPC)
 ```
 
 ## Message Formatting for LLM
 
-When the agent builds the LLM context, each thread message with file attachments is converted to a single text block. The message body is followed by file references using the `agynfile://` URI scheme:
+[`agynd`](agynd-cli.md) translates each thread message before feeding it to the agent CLI. When a message has file attachments, `agynd` appends `agynfile://` URIs after the message body:
 
 **Thread message (as stored):**
 ```json
@@ -65,7 +68,7 @@ agynfile://file-uuid-1
 agynfile://file-uuid-2
 ```
 
-The `agynfile://` URI is a platform-internal scheme. It is not resolvable outside the agent's MCP environment. The LLM sees these references and can decide whether to read the file content by calling the `read_file` tool provided by [agyn-files-mcp](agyn-files-mcp.md).
+The `agynfile://` URI is a platform-internal scheme. It is not resolvable outside the agent's MCP environment. The agent CLI receives these as plain text — it has no knowledge of the underlying thread message structure or file IDs. The LLM sees the references and can decide whether to read the file content by calling the `read_file` tool provided by [agyn-files-mcp](agyn-files-mcp.md).
 
 This is a **lazy, on-demand** approach — file content is only fetched when the LLM explicitly requests it. The LLM may choose not to read a file if the text context is sufficient, or may read multiple files selectively.
 
@@ -265,4 +268,5 @@ Media files consume tokens that cannot be estimated from text length. When file 
 ## Related Documents
 
 - [agyn-files-mcp](agyn-files-mcp.md) — MCP server for file access
+- [agynd](agynd-cli.md#message-formatting) — Thread message translation (body + `agynfile://` URIs)
 - [Agent Implementation — MCP-to-LLM Translation](agent/implementation.md#mcp-to-llm-translation) — How `agn` converts MCP tool results to OpenAI Responses API format
