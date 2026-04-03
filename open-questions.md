@@ -115,11 +115,13 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 
 ---
 
-## Console Monitoring
+## Console Monitoring: Storage and Usage Metrics
 
-**Context:** The [Console](product/console/console.md) product spec defines a monitoring section with active workloads, storage, token consumption, and compute hours. The platform does not have usage statistics or aggregation services designed for this purpose. The [Token Counting](architecture/token-counting.md) service tracks per-request token counts for billing/metering but is not designed for Console consumption.
+**Context:** The Console monitoring dashboard shows active workloads via `Runners.ListWorkloads(organization_id)` — resolved. The remaining Console monitoring features (storage view, token consumption, compute hours) are not yet designed.
+
+**Resolved:**
+- Active workloads — `ListWorkloads` on the [Runners](architecture/runners.md) service, exposed via Gateway. The workload record already contains organization, agent, runner, thread, status, containers, and timestamps.
 
 **Questions:**
-- What services and methods provide the data for Console monitoring (active workloads, storage, token usage, compute hours)?
-- Does this require a dedicated usage/metering service, or should monitoring queries be added to Runners, Token Counting, and Agents services?
-- What aggregation granularity and time ranges are needed?
+- How should persistent volume (PVC) state be tracked and exposed? The [Runner](architecture/runner.md) creates PVCs, but the [Runners](architecture/runners.md) service does not track them. Without tracking, GC/TTL of orphaned PVCs is not possible. This needs a design decision: should the Runners service track PVCs as a first-class resource, or is there a simpler approach?
+- How should historical usage metrics (token consumption, compute hours) be aggregated and served? A dedicated metering/analytics service, per-service summary tables, or deferred until billing is prioritized?
