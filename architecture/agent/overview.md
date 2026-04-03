@@ -27,7 +27,7 @@ graph TB
 
     Impl -->|read/ack messages| Threads
     Impl -->|post responses| Threads
-    Impl -->|resolve files| Files
+    MCP -->|resolve files| Files
     Impl -->|subscribe| Notifications
     Impl -.->|optional| Tracing
 ```
@@ -36,7 +36,7 @@ graph TB
 |---------------|-------------|
 | **Read messages** | Pull unacknowledged messages via `GetUnackedMessages` |
 | **Acknowledge messages** | Call `AckMessages` after successful processing |
-| **Resolve file URLs** | Request pre-signed download URLs for file references via Files API |
+| **Access files via MCP** | File content is accessed on demand by the LLM through the [files-mcp](../files-mcp.md) MCP server, which reads from the Files service |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
 | **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
