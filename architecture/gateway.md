@@ -69,7 +69,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `ThreadsGateway` | [Threads](threads.md) | All methods |
 | `ChatGateway` | [Chat](chat.md) | All methods |
 | `NotificationsGateway` | [Notifications](notifications.md) | Subscribe (server-streaming) |
-| `FilesGateway` | [Files](media.md) | UploadFile (client-streaming), GetFileMetadata, GetDownloadURL |
+| `FilesGateway` | [Files](media.md) | UploadFile (client-streaming), GetFileMetadata, GetDownloadURL, DownloadFile (server-streaming) |
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue, CreateSecretProvider, GetSecretProvider, ListSecretProviders, UpdateSecretProvider, DeleteSecretProvider, CreateSecret, GetSecret, ListSecrets, UpdateSecret, DeleteSecret |
 | `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, ListUsers, UpdateUser, DeleteUser |
