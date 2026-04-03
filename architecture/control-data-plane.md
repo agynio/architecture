@@ -63,7 +63,7 @@ graph LR
 | **Gateway** | Data | Routes external API requests to internal services |
 | **Apps** | Data | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products (Slack) and platform-provided capabilities (Reminders) |
 | **Tracing** | Data | Ingests and serves tracing data |
-| **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs |
+| **Files** | Data | Stores files in object storage, serves metadata and pre-signed download URLs. Agents access file content via [agyn-files-mcp](agyn-files-mcp.md) MCP server |
 | **Token Counting** | Data | Counts tokens per message on the hot path during agent execution |
 | **LLM** | Data | Manages LLM providers and models. Provides model resolution for the LLM Proxy |
 | **LLM Proxy** | Data | Exposes OpenAI-compatible Responses API for agents. Forwards LLM requests to providers on the hot path during agent execution |

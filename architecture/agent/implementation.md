@@ -91,6 +91,117 @@ Message types sent to the provider:
 | `ToolCallOutputMessage` | Tool execution result |
 | `ResponseMessage` | Raw response envelope from the provider |
 
+## Message Formatting
+
+When `agn` loads thread messages into the LLM context (during the **Load** stage), messages with file attachments are formatted as plain text with `agynfile://` URIs appended after the body. See [Media — Message Formatting for LLM](../media.md#message-formatting-for-llm).
+
+**Thread message:**
+```json
+{
+  "body": "What's in this image?",
+  "files": ["file-uuid-1"]
+}
+```
+
+**HumanMessage sent to LLM:**
+```
+What's in this image?
+agynfile://file-uuid-1
+```
+
+Messages without file attachments are sent as plain text (the `body` field only). The `agynfile://` scheme is only appended when the `files` array is non-empty.
+
+## MCP-to-LLM Translation
+
+The **CallTools** stage executes MCP tool calls and converts the results into OpenAI Responses API format before feeding them back to the LLM. MCP and OpenAI use different content type systems — `agn` translates between them.
+
+### MCP Content Types → OpenAI Responses API
+
+MCP tool results contain a `content` array with typed items. Each MCP content item is translated to the corresponding OpenAI Responses API `function_call_output` content item:
+
+| MCP content type | MCP format | OpenAI output type | OpenAI format |
+|-----------------|------------|-------------------|---------------|
+| `text` | `{ "type": "text", "text": "..." }` | `input_text` | `{ "type": "input_text", "text": "..." }` |
+| `image` | `{ "type": "image", "data": "<base64>", "mimeType": "image/png" }` | `input_image` | `{ "type": "input_image", "image_url": "data:<mimeType>;base64,<data>" }` |
+| `resource` (text) | `{ "type": "resource", "resource": { "uri": "...", "mimeType": "text/*", "text": "..." } }` | `input_text` | `{ "type": "input_text", "text": "..." }` |
+| `resource` (binary) | `{ "type": "resource", "resource": { "uri": "...", "mimeType": "...", "blob": "<base64>" } }` | `input_file` | `{ "type": "input_file", "file_data": "<base64>", "filename": "<extracted from uri>" }` |
+| `audio` | `{ "type": "audio", "data": "<base64>", "mimeType": "audio/*" }` | `input_file` | `{ "type": "input_file", "file_data": "<base64>" }` |
+
+### Translation Rules
+
+1. **`text`** → `input_text`: Direct mapping. The `text` field is copied as-is.
+
+2. **`image`** → `input_image`: The base64 data and MIME type are combined into a [data URL](https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data): `data:<mimeType>;base64,<data>`. This is the format OpenAI expects for inline images.
+
+3. **`resource` with `text`** → `input_text`: Text resources are unwrapped — the `text` field from the resource is sent as `input_text`.
+
+4. **`resource` with `blob`** → `input_file`: Binary resources are sent as `input_file` with the base64 data in `file_data`. The `filename` is extracted from the resource `uri` if available.
+
+5. **`audio`** → `input_file`: Audio content is sent as `input_file` since the OpenAI Responses API does not have a dedicated audio input type for tool outputs.
+
+### Example: File Read Tool Result Translation
+
+When the LLM calls `read_file` on an image file, the [agyn-files-mcp](../agyn-files-mcp.md) server returns:
+
+**MCP tool result:**
+```json
+{
+  "content": [
+    {
+      "type": "image",
+      "data": "iVBORw0KGgo...",
+      "mimeType": "image/png"
+    }
+  ]
+}
+```
+
+**`agn` translates to OpenAI `function_call_output`:**
+```json
+{
+  "type": "function_call_output",
+  "call_id": "call_abc123",
+  "output": [
+    {
+      "type": "input_image",
+      "image_url": "data:image/png;base64,iVBORw0KGgo..."
+    }
+  ]
+}
+```
+
+For a text file:
+
+**MCP tool result:**
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "def hello():\n    print('world')"
+    }
+  ]
+}
+```
+
+**`agn` translates to OpenAI `function_call_output`:**
+```json
+{
+  "type": "function_call_output",
+  "call_id": "call_def456",
+  "output": [
+    {
+      "type": "input_text",
+      "text": "def hello():\n    print('world')"
+    }
+  ]
+}
+```
+
+### Scope
+
+This translation applies to **all** MCP tool results, not just `read_file`. Any MCP server that returns `image`, `text`, `resource`, or `audio` content types is translated the same way. The translation is a generic layer in the CallTools stage, not specific to any particular MCP server.
+
 ## Summarization
 
 Rolling summarization keeps the LLM context within a token budget. When context exceeds the budget, older messages are folded into a compact summary.

@@ -64,6 +64,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Reminders](architecture/apps/reminders.md) | Platform-provided app — delayed messages to threads |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
 | [Media](architecture/media.md) | File attachments in thread messages |
+| [agyn-files-mcp](architecture/agyn-files-mcp.md) | MCP server for agent file access |
 | [Token Counting](architecture/token-counting.md) | Per-message token counting service |
 | [Providers, Models, and Secrets](architecture/providers.md) | LLM provider / model and secret provider / secret resource ownership |
 | [LLM](architecture/llm.md) | LLM provider/model management and LLM call proxy |
