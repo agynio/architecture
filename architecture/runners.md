@@ -130,30 +130,6 @@ The [Terraform provider](operations/terraform-provider.md) exposes the `agyn_run
 
 `name` and `labels` can be updated in place via `UpdateRunner`. Changing `organization_id` forces replacement (destroy + create).
 
-#### Example
-
-```hcl
-# Cluster-scoped runner — available to all organizations
-resource "agyn_runner" "default" {
-  name = "k8s-default"
-
-  labels = {
-    region = "us-east-1"
-  }
-}
-
-# Org-scoped runner with GPU capability
-resource "agyn_runner" "gpu" {
-  name            = "k8s-gpu"
-  organization_id = agyn_organization.acme.id
-
-  labels = {
-    gpu    = "true"
-    region = "us-east-1"
-  }
-}
-```
-
 The `service_token` output is provided to the runner deployment (e.g., as a Kubernetes Secret) so the runner can enroll at startup.
 
 ## Enrollment

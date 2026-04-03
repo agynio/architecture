@@ -22,4 +22,4 @@ Specifically missing:
 
 ## Notes
 
-The proto API is already defined — `RunnersGateway` in `agynio/api/proto/agynio/api/gateway/v1/runners.proto` exposes all required RPCs. The implementation follows the same pattern as `agyn_app`.
+The proto API is already defined — `RunnersGateway` in `agynio/api/proto/agynio/api/gateway/v1/runners.proto` exposes all required RPCs. The implementation follows the same pattern as `agyn_app`. See [agynio/terraform-provider-agyn#40](https://github.com/agynio/terraform-provider-agyn/issues/40) for the implementation spec.
