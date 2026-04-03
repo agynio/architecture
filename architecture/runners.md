@@ -113,6 +113,49 @@ Static OpenZiti policies handle access — `runners-bind` allows identities with
 
 Cluster-scoped runners are registered by the cluster admin. Org-scoped runners are registered by an organization admin.
 
+### Terraform Provisioning
+
+The [Terraform provider](operations/terraform-provider.md) exposes the `agyn_runner` resource for runner provisioning as code. The resource maps to the `RegisterRunner`, `GetRunner`, `UpdateRunner`, and `DeleteRunner` RPCs on the `RunnersGateway`.
+
+#### Schema
+
+| Attribute | Type | Required | Computed | Mutable | Description |
+|-----------|------|----------|----------|---------|-------------|
+| `id` | string | | ✓ | | UUID, assigned by the Runners service |
+| `name` | string | ✓ | | ✓ | Display name |
+| `organization_id` | string | | | | Organization scope. Omit for cluster-scoped runners. Immutable after creation |
+| `labels` | map(string) | | | ✓ | Key-value labels describing runner capabilities. Used for [runner selection](#runner-selection) |
+| `identity_id` | string | | ✓ | | Runner's identity in the [Identity](identity.md) service |
+| `service_token` | string (sensitive) | | ✓ | | Service token returned on creation. Stored in Terraform state. Used by the runner to [enroll](#enrollment) |
+
+`name` and `labels` can be updated in place via `UpdateRunner`. Changing `organization_id` forces replacement (destroy + create).
+
+#### Example
+
+```hcl
+# Cluster-scoped runner — available to all organizations
+resource "agyn_runner" "default" {
+  name = "k8s-default"
+
+  labels = {
+    region = "us-east-1"
+  }
+}
+
+# Org-scoped runner with GPU capability
+resource "agyn_runner" "gpu" {
+  name            = "k8s-gpu"
+  organization_id = agyn_organization.acme.id
+
+  labels = {
+    gpu    = "true"
+    region = "us-east-1"
+  }
+}
+```
+
+The `service_token` output is provided to the runner deployment (e.g., as a Kubernetes Secret) so the runner can enroll at startup.
+
 ## Enrollment
 
 When a runner starts, it presents the service token to the platform enrollment endpoint. The platform validates the token against the Runners service, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key) along with the service name (`runner-{runnerId}`). See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) for the full enrollment sequence.
@@ -142,13 +185,15 @@ The Runners service is a passive store — it does not interact with runners dir
 
 ## Gateway Exposure
 
-The following methods are exposed through the [Gateway](gateway.md) for the UI:
+The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `ListWorkloadsByThread`, `GetWorkload` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloadsByThread`, `GetWorkload` |
 
-The UI calls `ListWorkloadsByThread` to populate the container popover in the conversation header. It calls `GetWorkload` to get container details before opening a terminal session.
+Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used by the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md) for runner provisioning. `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
+
+Workload query methods (`ListWorkloadsByThread`, `GetWorkload`) are used by the UI. The UI calls `ListWorkloadsByThread` to populate the container popover in the conversation header. It calls `GetWorkload` to get container details before opening a terminal session.
 
 ## Terminal Proxy Integration
 

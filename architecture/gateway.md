@@ -73,7 +73,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue, CreateSecretProvider, GetSecretProvider, ListSecretProviders, UpdateSecretProvider, DeleteSecretProvider, CreateSecret, GetSecret, ListSecrets, UpdateSecret, DeleteSecret |
 | `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, ListUsers, UpdateUser, DeleteUser |
-| `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, ListWorkloadsByThread, GetWorkload |
+| `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, EnrollRunner, ListWorkloadsByThread, GetWorkload |
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
 | `TokenCountingGateway` | [Token Counting](token-counting.md) | All methods |
