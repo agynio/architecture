@@ -10,6 +10,8 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 
 | Terraform Resource | API Resource | Description |
 |-------------------|-------------|-------------|
+| `agyn_app` | App | App registration (slug, name, icon). Returns service token for enrollment |
+| `agyn_runner` | Runner | Runner registration (name, organization scope, labels). Returns service token for enrollment |
 | `agyn_agent` | Agent | Agent definition (identity, model, image, compute resources, configuration) |
 | `agyn_volume` | Volume | Volume definition (persistent/ephemeral, mount path, size) |
 | `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent, MCP, or hook) |
@@ -20,9 +22,18 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_init_script` | InitScript | Initialization script (shell script content) |
 | `agyn_membership` | Membership | Organization membership (identity, organization, role). See [Organizations — Members Management](../organizations.md#members-management) |
 
-## Resource Structure
+## Provisioning Resources
 
-All resources (except `agyn_volume_attachment`) share a common envelope:
+Some resources produce a **service token** on creation. The token is returned only once (on `terraform apply`) and stored in Terraform state. It is used to enroll the service at startup. See [Authentication — Service Tokens](../authn.md#service-tokens).
+
+| Resource | Token Output | Enrollment |
+|----------|-------------|------------|
+| `agyn_app` | `service_token` | App presents token at startup → receives OpenZiti identity |
+| `agyn_runner` | `service_token` | Runner presents token at startup → receives OpenZiti identity |
+
+## Agent Resource Structure
+
+Agent resources (everything except `agyn_app`, `agyn_runner`, and `agyn_membership`) share a common envelope:
 
 | Field | Type | Description |
 |-------|------|-------------|
