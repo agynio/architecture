@@ -35,12 +35,12 @@ graph TB
     end
 
     AgentCLI -->|streamable HTTP<br/>localhost:port| FilesMCP
-    FilesMCP -->|GetFileMetadata, DownloadFile<br/>via gateway.ziti| Gateway
+    FilesMCP -->|GetFileMetadata, GetFileContent<br/>via gateway.ziti| Gateway
     Gateway --> Files
     Ziti -.->|OpenZiti mTLS| Gateway
 ```
 
-`agyn-files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.ziti` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `DownloadFile` RPC — the MCP server does not access object storage directly.
+`agyn-files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.ziti` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `GetFileContent` RPC — the MCP server does not access object storage directly.
 
 ## Tool
 
@@ -81,8 +81,8 @@ sequenceDiagram
     GW->>F: GetFileMetadata(file_id)
     F-->>GW: {id, filename, content_type, size_bytes}
     GW-->>MCP: File metadata
-    MCP->>GW: DownloadFile(file_id)
-    GW->>F: DownloadFile(file_id)
+    MCP->>GW: GetFileContent(file_id)
+    GW->>F: GetFileContent(file_id)
     F-->>GW: stream of chunks
     GW-->>MCP: File bytes
     MCP->>MCP: Build MCP content based on content_type
@@ -92,7 +92,7 @@ sequenceDiagram
 1. Agent CLI sends `tools/call` with `read_file` and a `file_id`.
 2. MCP server fetches file metadata from the Files service (via Gateway) to determine `content_type`, `filename`, and `size_bytes`.
 3. MCP server checks `size_bytes` against `MAX_FILE_SIZE`. If exceeded, returns an error without downloading.
-4. MCP server calls `DownloadFile` on the Files service (via Gateway) to stream the file content.
+4. MCP server calls `GetFileContent` on the Files service (via Gateway) to stream the file content.
 5. MCP server builds the appropriate MCP tool result content based on the file's MIME type.
 6. MCP server returns the tool result to the agent CLI.
 

@@ -40,8 +40,8 @@ sequenceDiagram
     GW->>F: GetFileMetadata(file_id)
     F-->>GW: {content_type, size_bytes}
     GW-->>MCP: File metadata
-    MCP->>GW: DownloadFile(file_id)
-    GW->>F: DownloadFile(file_id)
+    MCP->>GW: GetFileContent(file_id)
+    GW->>F: GetFileContent(file_id)
     F-->>GW: Stream of chunks
     GW-->>MCP: File bytes
     MCP-->>Ag: MCP tool result (text / image / resource)
@@ -124,13 +124,13 @@ All other metadata (filename, content type, team, thread association) is stored 
 
 ### Access Control
 
-No direct public access to the bucket. External clients access files via pre-signed download URLs. Internal consumers ([agyn-files-mcp](agyn-files-mcp.md)) use the `DownloadFile` RPC to stream content directly from the Files service.
+No direct public access to the bucket. External clients access files via pre-signed download URLs. Internal consumers ([agyn-files-mcp](agyn-files-mcp.md)) use the `GetFileContent` RPC to stream content directly from the Files service.
 
 | Operation | Access |
 |-----------|--------|
 | Upload | Files service writes to object storage directly |
 | Download | Pre-signed GET URL with expiration |
-| MCP read | [agyn-files-mcp](agyn-files-mcp.md) calls `DownloadFile` on the Files service; content returned to agent via MCP tool result |
+| MCP read | [agyn-files-mcp](agyn-files-mcp.md) calls `GetFileContent` on the Files service; content returned to agent via MCP tool result |
 
 Pre-signed URL expiration for external download URLs: recommended 1 hour.
 
@@ -153,7 +153,7 @@ service FilesService {
   rpc GetDownloadUrl(GetDownloadUrlRequest) returns (GetDownloadUrlResponse);
   rpc GetFileMetadata(GetFileMetadataRequest) returns (GetFileMetadataResponse);
   // Server-side streaming download. Returns file content in chunks.
-  rpc DownloadFile(DownloadFileRequest) returns (stream DownloadFileResponse);
+  rpc GetFileContent(GetFileContentRequest) returns (stream GetFileContentResponse);
 }
 ```
 
@@ -200,11 +200,11 @@ message GetFileMetadataResponse {
   google.protobuf.Timestamp created_at = 5;
 }
 
-message DownloadFileRequest {
+message GetFileContentRequest {
   string file_id = 1;
 }
 
-message DownloadFileResponse {
+message GetFileContentResponse {
   bytes chunk_data = 1;
 }
 ```
@@ -227,8 +227,8 @@ message DownloadFileResponse {
 
 ### Download Streaming Protocol
 
-1. Client sends `DownloadFileRequest` with `file_id`.
-2. Server reads the file from object storage and streams `DownloadFileResponse` messages, each containing a `chunk_data` bytes field (64 KiB chunks).
+1. Client sends `GetFileContentRequest` with `file_id`.
+2. Server reads the file from object storage and streams `GetFileContentResponse` messages, each containing a `chunk_data` bytes field (64 KiB chunks).
 3. Server closes the stream when the file is fully sent.
 
 **Error codes:**
