@@ -29,6 +29,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **UpdateWorkloadStatus** | Update workload status and container states |
 | **DeleteWorkload** | Remove a workload record |
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
+| **ListWorkloads** | List workloads for an organization. Used by the Console monitoring dashboard |
 | **ListWorkloadsByThread** | List workloads for a thread. Used by the UI to populate the container popover |
 
 ## Runner Resource
@@ -165,11 +166,11 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloadsByThread`, `GetWorkload` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload` |
 
 Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used by the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md) for runner provisioning. `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
 
-Workload query methods (`ListWorkloadsByThread`, `GetWorkload`) are used by the UI. The UI calls `ListWorkloadsByThread` to populate the container popover in the conversation header. It calls `GetWorkload` to get container details before opening a terminal session.
+Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`) are used by the UI. The Console calls `ListWorkloads` to populate the monitoring dashboard with active workloads for an organization. The Chat UI calls `ListWorkloadsByThread` to populate the container popover in the conversation header. It calls `GetWorkload` to get container details before opening a terminal session.
 
 ## Terminal Proxy Integration
 
