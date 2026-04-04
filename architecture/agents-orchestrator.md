@@ -133,7 +133,7 @@ The orchestrator assembles the full workload specification from multiple sources
 7. **Hooks** (from Agents): event-driven sidecar containers.
 8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
 9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
-10. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Private Registry Support](private-registry-support.md).
+10. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
 
 The orchestrator also wires the init container flow:
 

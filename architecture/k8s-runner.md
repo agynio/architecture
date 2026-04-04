@@ -78,7 +78,6 @@ When `StartWorkload` includes `image_pull_credentials`, the k8s-runner:
 
 Kubernetes Secrets are created per-workload. They are not shared across workloads.
 
-See [Private Registry Support](private-registry-support.md) for the full end-to-end flow.
 
 ## RPC Implementation
 

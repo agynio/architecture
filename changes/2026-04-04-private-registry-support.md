@@ -2,7 +2,6 @@
 
 ## Target
 
-- [Private Registry Support](../architecture/private-registry-support.md)
 - [Providers, Models, and Secrets — Image Pull Secret](../architecture/providers.md#image-pull-secret)
 - [Providers, Models, and Secrets — Secret](../architecture/providers.md#secret)
 - [Secrets Service — Image Pull Secret Resolution](../architecture/secrets.md#image-pull-secret-resolution)

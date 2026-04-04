@@ -113,7 +113,7 @@ A relationship between an [Image Pull Secret](providers.md#image-pull-secret) an
 
 Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Image pull secret attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same image_pull_secret_id + target) are rejected.
 
-At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the agent and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error. See [Private Registry Support](private-registry-support.md#conflict-detection).
+At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the agent and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error.
 
 ---
 
