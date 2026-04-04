@@ -4,8 +4,6 @@
 
 Apps are services that interact with threads on behalf of external systems or platform capabilities. Each app has its own [identity](identity.md) (type `app`), connects to the platform via [OpenZiti](openziti.md), and accesses platform APIs through the [Gateway](gateway.md). Apps are defined by organizations and made available to other organizations through [installations](#app-installation).
 
-Apps unify what was previously split between "channels" (bidirectional bridges to external products) and platform-provided capabilities (reminders, event subscriptions). The difference between a Telegram integration and a Reminders service is not architectural — both are apps with different capability sets.
-
 ## Examples
 
 | App | Description | Thread Interaction |
