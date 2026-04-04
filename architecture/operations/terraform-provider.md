@@ -48,4 +48,4 @@ Resource-specific fields are exposed as typed HCL attributes. The canonical sche
 
 Most sub-resources (MCP, Skill, Hook, ENV, InitScript) have an ownership field (`agent_id`, `mcp_id`, or `hook_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.
 
-Volume and Image Pull Secret are the exceptions: both are standalone resources connected to containers (agents, MCPs, or hooks) via attachment resources (`agyn_volume_attachment` and `agyn_image_pull_secret_attachment`), because they are reusable infrastructure that may be shared across agents.
+Volume is the exception within the Agents service: volumes are standalone resources connected to containers (agents, MCPs, or hooks) via `agyn_volume_attachment`, because volumes are reusable infrastructure that may outlive individual agents. Image pull secret attachments (`agyn_image_pull_secret_attachment`) follow the same attachment pattern, but the image pull secret itself is managed by the [Secrets](../secrets.md) service — not the Agents service.
