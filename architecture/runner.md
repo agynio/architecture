@@ -14,7 +14,7 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 
 | RPC | Description |
 |-----|-------------|
-| `StartWorkload` | Start a workload (init containers + main container + optional sidecars with shared network) |
+| `StartWorkload` | Start a workload (init containers + main container + optional sidecars with shared network + optional image pull credentials) |
 | `StopWorkload` | Stop a running workload |
 | `RemoveWorkload` | Remove a workload and optionally its volumes |
 | `InspectWorkload` | Inspect workload state (id, image, labels, mounts, status) |
@@ -80,6 +80,7 @@ A workload consists of:
 - **Main container** — the primary process.
 - **Sidecars** — optional containers sharing the same network namespace.
 - **Volumes** — ephemeral or named (persistent), mounted into containers.
+- **Image pull credentials** — optional registry credentials for pulling container images from private registries. The Runner receives resolved credentials (registry, username, password) from the Orchestrator.
 
 ## Authentication
 

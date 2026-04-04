@@ -6,7 +6,7 @@ The Agents service manages agent resources — the configuration entities that d
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
-Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments, Image Pull Secret Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 ## API
 
@@ -19,6 +19,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 | **Agents** | Agent definitions: identity, model, image, init image, compute resources, behavioral configuration | ✓ |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
 | **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
+| **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and containers (agents, MCPs, hooks). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
 | **MCPs** | MCP server definitions: image, command, compute resources. Belong to an agent | ✓ |
 | **Skills** | Reusable prompt fragments: name, body. Belong to an agent | ✓ |
 | **Hooks** | Event-driven functions: event, entrypoint, image, compute resources. Belong to an agent | ✓ |

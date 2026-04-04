@@ -15,6 +15,8 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_agent` | Agent | Agent definition (identity, model, image, compute resources, configuration) |
 | `agyn_volume` | Volume | Volume definition (persistent/ephemeral, mount path, size) |
 | `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent, MCP, or hook) |
+| `agyn_image_pull_secret` | Image Pull Secret | Registry credential (registry hostname, username, password/token). Managed by the Secrets service |
+| `agyn_image_pull_secret_attachment` | Image Pull Secret Attachment | Relationship between an image pull secret and a container (agent, MCP, or hook) |
 | `agyn_mcp` | MCP | MCP server definition (image, command, compute resources) |
 | `agyn_skill` | Skill | Skill definition (name, body) |
 | `agyn_hook` | Hook | Hook definition (event, function, image, compute resources) |
@@ -46,4 +48,3 @@ Resource-specific fields are exposed as typed HCL attributes. The canonical sche
 
 Most sub-resources (MCP, Skill, Hook, ENV, InitScript) have an ownership field (`agent_id`, `mcp_id`, or `hook_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.
 
-Volume is the exception: volumes are standalone resources connected to containers (agents, MCPs, or hooks) via `agyn_volume_attachment`, because volumes are reusable infrastructure that may outlive individual agents.

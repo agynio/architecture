@@ -17,7 +17,7 @@ graph TB
     Threads -->|unacked messages query| Reconciler
     Notifications -->|message.created events| Reconciler
     Agents -->|agent definitions + sub-resources| Reconciler
-    Secrets -->|secret resolution for ENVs| Reconciler
+    Secrets -->|secret + image pull secret resolution| Reconciler
     Runners[Runners] -->|workload state| Reconciler
     Reconciler -->|start/stop workloads| Runner
     Reconciler -->|create/delete identities| ZitiMgmt[Ziti Management]
@@ -27,8 +27,8 @@ graph TB
 |-----------|-------|
 | **Threads** | Query for unacknowledged messages by agent participants |
 | **Notifications** | Subscribe to `message.created` events for fast reactivity |
-| **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills) |
-| **Secrets** | Resolve secret values for ENVs that reference secrets |
+| **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments) |
+| **Secrets** | Resolve secret values for ENVs that reference secrets. Resolve image pull secret credentials for private registry access |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
@@ -99,15 +99,18 @@ sequenceDiagram
     participant R as Runner
 
     O->>T: Get agent definition + sub-resources
-    T-->>O: Agent, MCPs, Volumes, ENVs, InitScripts, Hooks, Skills
+    T-->>O: Agent, MCPs, Volumes, ENVs, InitScripts, Hooks, Skills, ImagePullSecretAttachments
     O->>S: Resolve secret values for secret-backed ENVs
     S-->>O: Resolved secret values
+    O->>S: Resolve image pull secrets (IDs from attachments)
+    S-->>O: Resolved credentials (registry, username, password)
+    O->>O: Merge image pull credentials, detect conflicts
     O->>O: Assemble workload spec
     O->>RS: Select runner (org scope + label match)
     RS-->>O: Runner
     O->>ZM: CreateAgentIdentity(agentId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
-    O->>R: StartWorkload(spec, enrollmentJWT)
+    O->>R: StartWorkload(spec, enrollmentJWT, image_pull_credentials)
     R-->>O: workloadId
     O->>RS: CreateWorkload(runnerId, workloadId, threadId, agentId, containers)
     RS-->>O: OK
@@ -130,6 +133,7 @@ The orchestrator assembles the full workload specification from multiple sources
 7. **Hooks** (from Agents): event-driven sidecar containers.
 8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
 9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
+10. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
 
 The orchestrator also wires the init container flow:
 

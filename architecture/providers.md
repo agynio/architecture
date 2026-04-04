@@ -46,7 +46,7 @@ The platform resolves: agent → model → LLM provider, then makes API calls us
 
 ## Secret Provider
 
-A secret provider represents a connection to an external secret management system. Currently only Vault is supported; the design allows adding other providers.
+A secret provider represents a connection to an external secret management system. Secret providers are used by secrets and image pull secrets that use remote value storage. Currently only Vault is supported; the design allows adding other providers.
 
 ### Resource Definition
 
@@ -66,16 +66,41 @@ A secret provider represents a connection to an external secret management syste
 
 ## Secret
 
-A secret references a specific secret in an external provider. The platform stores a stable ID for the secret without storing the secret value itself.
+A secret stores a sensitive value. The value is either stored locally (encrypted at rest in the Secrets service database) or referenced from an external provider.
 
 ### Resource Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `secretProvider` | string (UUID) | Reference to a Secret Provider resource |
-| `remoteName` | string | Identifier of the secret in the external provider |
+| `name` | string | Secret name |
+| `value` | string | Direct secret value, encrypted at rest. Mutually exclusive with `value_provider_id` + `value_reference` |
+| `value_provider_id` | string (UUID) | Reference to a Secret Provider. Mutually exclusive with `value`. Requires `value_reference` |
+| `value_reference` | string | Identifier of the secret in the external provider. Required when `value_provider_id` is set |
 
-The format of `remoteName` is provider-specific. For Vault, it is a composite key: `<mount>/<path>/<key>` (e.g., `secret/platform/keys/api_key`).
+Exactly one storage mode is set:
+
+- **Local:** `value` is set. The Secrets service stores the value encrypted at rest using a symmetric encryption key from a Kubernetes Secret mounted into the service pod.
+- **Remote:** `value_provider_id` + `value_reference` are set. The Secrets service resolves the value from the external provider at runtime.
+
+The format of `value_reference` is provider-specific. For Vault, it is a composite key: `<mount>/<path>/<key>` (e.g., `secret/platform/keys/api_key`).
+
+---
+
+## Image Pull Secret
+
+An image pull secret stores registry credentials for pulling container images from private registries. Managed by the [Secrets](secrets.md) service. Referenced by [ImagePullSecretAttachment](resource-definitions.md#image-pull-secret-attachment) resources.
+
+### Resource Definition
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `registry` | string | Registry hostname (e.g., `ghcr.io`, `123456789.dkr.ecr.us-east-1.amazonaws.com`) |
+| `username` | string | Registry username (e.g., `_json_key`, `AWS`, `oauth2accesstoken`, a plain username) |
+| `value` | string | Direct password/token value, encrypted at rest. Mutually exclusive with `value_provider_id` + `value_reference` |
+| `value_provider_id` | string (UUID) | Reference to a Secret Provider. Mutually exclusive with `value`. Requires `value_reference` |
+| `value_reference` | string | Identifier of the password/token in the external provider. Required when `value_provider_id` is set |
+
+The `registry` and `username` fields are plain text. The password/token uses the same dual storage model as [Secret](#secret) — local (encrypted at rest) or remote (resolved from a provider at runtime).
 
 ---
 
@@ -89,10 +114,24 @@ flowchart LR
     B --> C[Create Agent<br/>references model ID]
 ```
 
-### Secret Setup
+### Secret Setup (Remote)
 
 ```mermaid
 flowchart LR
-    A[Create Secret Provider<br/>type: vault, address + token] --> B[Create Secret<br/>provider + remoteName]
+    A[Create Secret Provider<br/>type: vault, address + token] --> B[Create Secret<br/>value_provider_id + value_reference]
     B --> C[Reference secret in<br/>resource configs]
+```
+
+### Secret Setup (Local)
+
+```mermaid
+flowchart LR
+    A[Create Secret<br/>value: plaintext] --> B[Reference secret in<br/>resource configs]
+```
+
+### Image Pull Secret Setup
+
+```mermaid
+flowchart LR
+    A[Create Image Pull Secret<br/>registry + username + value] --> B[Attach to agent, MCP, or hook<br/>via ImagePullSecretAttachment]
 ```
