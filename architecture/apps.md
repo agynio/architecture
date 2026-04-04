@@ -41,19 +41,19 @@ graph LR
     Gateway --> Threads
 ```
 
-## App Definition
+## App
 
-An app definition is the registration of an app on the platform. It belongs to an [organization](organizations.md) (the developing org) and defines the app's identity, connectivity, and visibility.
+An app is a registered service on the platform. It belongs to an [organization](organizations.md) (the developing org) and defines the app's identity, connectivity, and visibility.
 
 ### Identity
 
-Each app definition has a unique identity registered in the [Identity](identity.md) service with `identity_type: app`. This identity is used as `sender_id` when the app posts messages to threads.
+Each app has a unique identity registered in the [Identity](identity.md) service with `identity_type: app`. This identity is used as `sender_id` when the app posts messages to threads.
 
 When [Chat](chat.md) resolves a `sender_id` of type `app`, it fetches the app profile (name, icon) from the [Apps Service](apps-service.md).
 
 ### Identification
 
-Each app definition has a unique **slug** within its owning organization — a human-readable identifier used in the app's public address and as the default slug during installation.
+Each app has a unique **slug** within its owning organization — a human-readable identifier used in the app's public address and as the default slug during installation.
 
 The app's globally unique address is `{org-slug}/{app-slug}` (e.g., `acme-tools/telegram-connector`).
 
@@ -63,7 +63,7 @@ The app's globally unique address is `{org-slug}/{app-slug}` (e.g., `acme-tools/
 
 ### Visibility
 
-App definitions have a visibility level that controls which organizations can install them:
+Apps have a visibility level that controls which organizations can install them:
 
 | Visibility | Description |
 |------------|-------------|
@@ -87,7 +87,7 @@ Each app owns its own storage and dependencies. The platform provides connectivi
 
 ## App Installation
 
-An app installation connects an [app definition](#app-definition) to a target organization. It provides org-scoped configuration and acts as a **permissions bridge** — granting the app access to interact with entities in the installing organization.
+An app installation connects an [app](#app) to a target organization. It provides org-scoped configuration and acts as a **permissions bridge** — granting the app access to interact with entities in the installing organization.
 
 Without an installation, an app has no access to an organization's resources.
 
@@ -96,16 +96,16 @@ Without an installation, an app has no access to an organization's resources.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique installation identifier |
-| `app_id` | string (UUID) | Reference to the [app definition](#app-definition) |
+| `app_id` | string (UUID) | Reference to the [app](#app) |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
-| `slug` | string | Unique within the installing organization. Used in CLI commands and Gateway routing. Defaults to the app definition's slug |
+| `slug` | string | Unique within the installing organization. Used in CLI commands and Gateway routing. Defaults to the app's slug |
 | `configuration` | map (string → string) | App-specific configuration (e.g., bot token, agent ID). Opaque to the platform — only the app interprets it |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
 
 ### Slug
 
-The installation slug is unique within the installing organization and is chosen by the org admin at install time. It defaults to the app definition's slug but can be overridden — this allows multiple installations of the same app within one organization (e.g., `telegram-support`, `telegram-sales`).
+The installation slug is unique within the installing organization and is chosen by the org admin at install time. It defaults to the app's slug but can be overridden — this allows multiple installations of the same app within one organization (e.g., `telegram-support`, `telegram-sales`).
 
 The slug is used in CLI commands: `agyn app <installation-slug> <command>`.
 
@@ -135,7 +135,7 @@ When an installation is deleted, the authorization tuples are removed — the ap
 
 ### Multiple Installations
 
-The same app definition can be installed multiple times:
+The same app can be installed multiple times:
 
 - **Across organizations** — Org A and Org B each install the same Telegram Connector with different configs.
 - **Within one organization** — Org A installs the same Telegram Connector twice with different slugs and configs (e.g., two Telegram bots for two teams).

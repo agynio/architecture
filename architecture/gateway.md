@@ -156,7 +156,7 @@ sequenceDiagram
 
 1. Gateway receives a request matching `/apps/{slug}/{method}`.
 2. Gateway authenticates the caller and resolves the organization context (same as all other requests).
-3. Gateway resolves the installation slug within the caller's organization via the [Apps Service](apps-service.md) (`GetInstallationBySlug`). This returns the installation record including the app definition and its OpenZiti service.
+3. Gateway resolves the installation slug within the caller's organization via the [Apps Service](apps-service.md) (`GetInstallationBySlug`). This returns the installation record including the app and its OpenZiti service.
 4. Gateway dials the app's OpenZiti service and forwards the request body, including the `x-app-installation-id` header so the app knows which installation the request is for.
 5. Gateway returns the app's response to the caller.
 

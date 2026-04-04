@@ -127,7 +127,7 @@ graph TB
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
-| **[Apps Service](apps-service.md)** | App definitions, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both definitions (owned by organizations) and per-org installations (permissions bridge + configuration) |
+| **[Apps Service](apps-service.md)** | Apps, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both apps (owned by organizations) and per-org installations (permissions bridge + configuration) |
 | **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
 
 ## Data Concerns

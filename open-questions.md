@@ -96,7 +96,7 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 **Questions:**
 - Should configuration values reference the [Secrets](architecture/secrets.md) service (similar to how agent ENVs can reference secrets)?
 - Should the entire configuration map be encrypted at rest, or only specific keys marked as sensitive?
-- Should the app definition declare which configuration keys are sensitive (as part of a future configuration schema)?
+- Should the app declare which configuration keys are sensitive (as part of a future configuration schema)?
 - What is the access control model for configuration retrieval? (Only the app itself, or also org admins?)
 
 ---
