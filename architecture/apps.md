@@ -70,6 +70,18 @@ Apps have a visibility level that controls which organizations can install them:
 | `public` | Any organization can install the app |
 | `internal` | Only the owning organization can install the app |
 
+### Permissions
+
+The app declares the permissions it requires to function. These are granted to the app's identity when the app is [installed](#app-installation) into an organization. The org admin sees the required permissions during installation.
+
+| Permission | Description |
+|------------|-------------|
+| `thread:create` | Create threads in the organization |
+| `thread:write` | Send messages to any thread in the organization without being a participant |
+| `participant:add` | Add the organization's agents and users as thread participants |
+
+This vocabulary is extensible — new permissions are added as new app capabilities emerge.
+
 ### Connectivity
 
 Apps connect to the platform via [OpenZiti](openziti.md). An app has **bidirectional** OpenZiti access:
@@ -124,12 +136,11 @@ See [Open Questions — Installation Configuration Secrets](../open-questions.md
 
 ### Permissions Bridge
 
-The installation grants the app broad permissions to interact with entities in the installing organization. When an installation is created, [authorization](authz.md) relationship tuples are written granting the app's identity permissions within the organization:
+The installation grants the app's [declared permissions](#permissions) within the installing organization. When an installation is created, [authorization](authz.md) relationship tuples are written for each permission the app declared.
 
-- **Create threads** in the organization
-- **Add the organization's agents and users as thread participants**
+For example, a Telegram Connector declaring `[thread:create, participant:add]` receives tuples granting those two capabilities in the org. A Reminders app declaring `[thread:write]` receives only that.
 
-Access to individual threads is governed by participant membership — the app creates a thread (becoming a participant) and interacts with it as any other participant would. No special `thread:write` bypass is needed.
+Access to individual threads is governed by the granted permissions — participant apps access threads through participant membership, write-only apps access threads through the `thread:write` permission.
 
 When an installation is deleted, the authorization tuples are removed — the app loses access to that organization.
 
@@ -156,8 +167,7 @@ sequenceDiagram
     AS->>AS: Validate visibility (public or owning org)
     AS->>AS: Validate slug uniqueness within org
     AS->>AS: Store installation record
-    AS->>Auth: Write(identity:appIdentityId, can_create_thread, organization:orgId)
-    AS->>Auth: Write(identity:appIdentityId, can_add_participant, organization:orgId)
+    AS->>Auth: Write tuples for each app-declared permission
     AS-->>Admin: Installation record
 ```
 
@@ -187,11 +197,12 @@ A Telegram Connector creates threads when Telegram users message the bot, adds t
 
 ## Permissions
 
-App permissions are managed through [Authorization](authz.md) (OpenFGA relationship tuples), same as all other identities. Permissions are granted through [installations](#permissions-bridge).
+App permissions are managed through [Authorization](authz.md) (OpenFGA relationship tuples), same as all other identities. Each app [declares the permissions it requires](#permissions), and the [installation](#permissions-bridge) grants those permissions within the installing organization.
 
-For write-only apps like [Reminders](apps/reminders.md), the installation grants `thread:write` permission within the organization — the app can send messages to any thread in the org without being a participant.
-
-For participant apps like the [Telegram Connector](apps/telegram-connector.md), the installation grants permission to create threads and add participants within the organization. Thread-level access comes from participant membership.
+| App | Declared Permissions | Thread Access |
+|-----|---------------------|---------------|
+| [Reminders](apps/reminders.md) | `thread:write` | Non-participant — writes to any thread in the org |
+| [Telegram Connector](apps/telegram-connector.md) | `thread:create`, `participant:add` | Participant — creates threads and accesses them via membership |
 
 See [Open Questions — App Permission Model](../open-questions.md#app-permission-model) for future refinement of granular permissions.
 

@@ -34,6 +34,7 @@ The Apps Service manages apps and installations — the configuration entities t
 | `description` | string | Human-readable description |
 | `icon` | string | Icon URL or identifier for UI display |
 | `visibility` | enum | `public`, `internal` |
+| `permissions` | list of string | Permissions the app requires (e.g., `["thread:create", "participant:add"]`). See [Apps — Permissions](apps.md#permissions) |
 | `identity_id` | string (UUID) | App's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token. Used for enrollment |
 | `created_at` | timestamp | Creation time |
@@ -82,8 +83,7 @@ sequenceDiagram
     AS->>AS: Validate: app visibility allows installation
     AS->>AS: Validate: slug unique within org
     AS->>AS: Store installation record
-    AS->>Auth: Write(identity:appIdentityId, can_create_thread, organization:orgId)
-    AS->>Auth: Write(identity:appIdentityId, can_add_participant, organization:orgId)
+    AS->>Auth: Write tuples for each app-declared permission
     AS-->>Admin: Installation record
 ```
 
@@ -91,7 +91,7 @@ sequenceDiagram
 2. Apps Service validates that the app's visibility allows installation by this organization (`public` — any org; `internal` — owning org only).
 3. Apps Service validates slug uniqueness within the target organization.
 4. Apps Service stores the installation record.
-5. Apps Service writes authorization tuples granting the app's identity permissions within the organization (create threads, add participants).
+5. Apps Service writes authorization tuples for each permission the app declared — granting the app's identity those capabilities within the organization.
 6. Returns the installation record.
 
 ## Uninstall Flow
@@ -103,8 +103,7 @@ sequenceDiagram
     participant Auth as Authorization
 
     Admin->>AS: UninstallApp(installation_id)
-    AS->>Auth: Delete(identity:appIdentityId, can_create_thread, organization:orgId)
-    AS->>Auth: Delete(identity:appIdentityId, can_add_participant, organization:orgId)
+    AS->>Auth: Delete tuples for each app-declared permission
     AS->>AS: Delete installation record
     AS-->>Admin: OK
 ```

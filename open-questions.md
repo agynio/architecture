@@ -67,12 +67,13 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## App Permission Model
 
-**Context:** [Apps](architecture/apps.md) use [installation-based permissions](architecture/apps.md#permissions-bridge) — an installation grants the app broad permissions within the installing organization (create threads, add participants). Thread-level access comes from participant membership. Write-only apps receive `thread:write` within the org.
+**Context:** [Apps](architecture/apps.md) declare the [permissions they require](architecture/apps.md#permissions) from an extensible vocabulary (`thread:create`, `thread:write`, `participant:add`). The [installation](architecture/apps.md#permissions-bridge) grants the declared permissions within the installing organization by writing authorization tuples.
 
 **Questions:**
-- Should permissions narrow to per-agent or per-thread granularity? (e.g., installation config specifies agent X, but authorization allows interaction with any agent in the org)
+- Should permissions support per-agent or per-thread granularity? (e.g., `participant:add` narrowed to specific agents rather than any agent in the org)
 - How does permission delegation work if an agent grants an app access to a specific thread?
 - What is the authorization check path for app → thread operations? (Direct OpenFGA check, or mediated by a service?)
+- Should the permission vocabulary be formalized in a registry, or are they free-form strings validated at the Apps Service layer?
 
 ---
 
