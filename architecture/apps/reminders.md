@@ -4,16 +4,18 @@
 
 Reminders is a platform-provided [app](../) that delivers delayed messages to threads. Agents schedule reminders via the [`agyn` CLI](../); when a reminder fires, the Reminders app posts a message to the thread, waking the agent through the normal [orchestrator reconciliation](../#reconciliation).
 
-Reminders is the first app built on the [Apps](../) architecture. It is a cluster-scoped app deployed as part of platform infrastructure.
+Reminders is the first app built on the [Apps](../) architecture. It is deployed as part of platform infrastructure and installed into organizations that need it.
 
 | Aspect | Detail |
 |--------|--------|
-| **Type** | [App](../) (cluster-scoped) |
-| **Identity** | `app` type in [Identity](../), slug: `reminders` |
+| **Type** | [App](../) |
+| **Identity** | `app` type in [Identity](../) |
 | **Thread interaction** | Write-only (non-participant) |
+| **Visibility** | `public` — any organization can [install](../apps.md#app-installation) it |
+| **Default slug** | `reminders` |
 | **Deployment** | IaC (Terraform/bootstrap) |
 | **Storage** | Own PostgreSQL database |
-| **Connectivity** | [OpenZiti](../) — binds `app-reminders` service, dials Gateway |
+| **Connectivity** | [OpenZiti](../) — binds its OpenZiti service, dials Gateway |
 
 ## Agent Usage
 

@@ -10,7 +10,7 @@ graph TB
         WebApp[Chat App]
         Console[Console]
         MobileApp[Mobile App]
-        ThirdParty[3rd-party Apps<br/>Slack, etc.]
+        ThirdParty[3rd-party Services]
     end
 
     subgraph Control Plane
@@ -41,7 +41,7 @@ graph TB
 
     subgraph Apps
         RemindersApp[Reminders]
-        SlackApp[Slack App]
+        TelegramApp[Telegram Connector]
     end
 
     subgraph Workloads
@@ -52,7 +52,7 @@ graph TB
     end
 
     WebApp & Console & MobileApp -- "/api/" --> Gateway
-    ThirdParty <--> SlackApp
+    ThirdParty <--> TelegramApp
 
     Gateway --> ZitiMgmt
     Gateway --> Users
@@ -99,7 +99,7 @@ graph TB
     AppsService --> Authorization
     Gateway --> AppsService
     RemindersApp -->|OpenZiti| Gateway
-    SlackApp -->|OpenZiti| Gateway
+    TelegramApp -->|OpenZiti| Gateway
 
     Agents --> AgentsOrch
 ```
@@ -127,8 +127,8 @@ graph TB
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
-| **[Apps Service](apps-service.md)** | App registration, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) |
-| **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products (Slack) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
+| **[Apps Service](apps-service.md)** | App definitions, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both definitions (owned by organizations) and per-org installations (permissions bridge + configuration) |
+| **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
 
 ## Data Concerns
 

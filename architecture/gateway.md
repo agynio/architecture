@@ -146,23 +146,31 @@ sequenceDiagram
     participant App as App (e.g., Reminders)
 
     C->>GW: POST /apps/reminders/CreateReminder
-    GW->>GW: Authenticate caller (OIDC / API token / OpenZiti)
-    GW->>AS: GetAppBySlug("reminders")
-    AS-->>GW: App record (slug: "reminders")
-    GW->>App: Forward request via OpenZiti (dial "app-reminders")
+    GW->>GW: Authenticate caller, resolve organization context
+    GW->>AS: GetInstallationBySlug(org_id, "reminders")
+    AS-->>GW: Installation record (app_id, installation_id)
+    GW->>App: Forward request via OpenZiti (+ x-app-installation-id header)
     App-->>GW: Response
     GW-->>C: Response
 ```
 
 1. Gateway receives a request matching `/apps/{slug}/{method}`.
-2. Gateway authenticates the caller (same as all other requests).
-3. Gateway resolves the app slug via the [Apps Service](apps-service.md) (`GetAppBySlug`). The OpenZiti service name is derived from the slug as `app-{slug}`.
-4. Gateway dials the app's OpenZiti service and forwards the request body.
+2. Gateway authenticates the caller and resolves the organization context (same as all other requests).
+3. Gateway resolves the installation slug within the caller's organization via the [Apps Service](apps-service.md) (`GetInstallationBySlug`). This returns the installation record including the app definition and its OpenZiti service.
+4. Gateway dials the app's OpenZiti service and forwards the request body, including the `x-app-installation-id` header so the app knows which installation the request is for.
 5. Gateway returns the app's response to the caller.
 
 ### Identity Propagation
 
-The Gateway injects the caller's identity into the forwarded request (same metadata headers as internal services: `x-identity-id`, `x-identity-type`). This allows apps to know who initiated the request (e.g., which agent created a reminder).
+The Gateway injects the caller's identity and installation context into the forwarded request:
+
+| Header | Description |
+|--------|-------------|
+| `x-identity-id` | Caller's identity UUID |
+| `x-identity-type` | Caller's identity type |
+| `x-app-installation-id` | Installation UUID — identifies which installation the request is for |
+
+This allows apps to know who initiated the request and which installation configuration to use.
 
 ### Protocol
 
@@ -174,11 +182,11 @@ The Gateway forwards app requests as opaque HTTP/ConnectRPC calls over OpenZiti.
 
 ### Caching
 
-The `GetAppBySlug` lookup is cached in-memory with a short TTL. App registrations change infrequently.
+The `GetInstallationBySlug` lookup is cached in-memory with a short TTL. Installations change infrequently.
 
 ### Exposed Services Table Update
 
 | Gateway Proto Service | Internal Service | Methods |
 |-----------------------|-----------------|---------|
-| `AppsGateway` | [Apps Service](apps-service.md) | ListApps, GetApp |
+| `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, GetAppByAddress, ListApps, UpdateApp, DeleteApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp |
 | *(app proxy)* | *per-app via OpenZiti* | *pass-through* |

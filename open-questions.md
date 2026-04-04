@@ -67,25 +67,12 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## App Permission Model
 
-**Context:** [Apps](architecture/apps.md) currently use cluster-level permissions — a cluster-scoped app can send messages to any thread in the platform. This is acceptable for self-hosted deployments where the platform operator controls which apps are installed.
+**Context:** [Apps](architecture/apps.md) use [installation-based permissions](architecture/apps.md#permissions-bridge) — an installation grants the app broad permissions within the installing organization (create threads, add participants). Thread-level access comes from participant membership. Write-only apps receive `thread:write` within the org.
 
 **Questions:**
-- When should permissions narrow to org-level? (When org-scoped apps are introduced?)
-- Should thread-level permissions exist? (App X can only write to threads where an agent explicitly granted access?)
+- Should permissions narrow to per-agent or per-thread granularity? (e.g., installation config specifies agent X, but authorization allows interaction with any agent in the org)
 - How does permission delegation work if an agent grants an app access to a specific thread?
 - What is the authorization check path for app → thread operations? (Direct OpenFGA check, or mediated by a service?)
-
----
-
-## Org-Scoped Apps
-
-**Context:** The current design covers cluster-scoped apps deployed as platform infrastructure. Future needs include org-scoped apps managed by organization administrators. (Runner org-scoping is handled by the [Runners](architecture/runners.md) service.)
-
-**Questions:**
-- How does an org admin register an org-scoped app? (Via `agyn` CLI with org context? Via Terraform?)
-- How are org-scoped and cluster-scoped apps with the same slug resolved? (Org-scoped takes precedence? Cluster slugs are reserved?)
-- How does the enrollment flow differ for org-scoped apps? (Same service token flow, scoped to the org?)
-- Are org-scoped apps visible only within their organization, or can they be shared?
 
 ---
 
@@ -102,16 +89,15 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 
 ---
 
-## Apps Installation Model
+## Installation Configuration Secrets
 
-**Context:** The current apps architecture registers apps at the cluster level with a unique slug. For org-scoped apps, this creates a namespace collision problem — a user in one organization can register a slug and prevent others from using it. The platform needs a two-tier model similar to GitHub Apps: cluster-wide app definitions with configurable visibility, and per-organization app installations with scoped permissions and slugs.
+**Context:** [App installations](architecture/apps.md#configuration) store configuration as a flat string-to-string map. Some configuration values are sensitive (e.g., Telegram bot tokens, API keys for external services). Currently, configuration values are stored as plain text.
 
 **Questions:**
-- What is the app definition model? (Who can create apps — cluster admin only, or any org owner? What visibility levels exist — public, organization-only, cluster-wide?)
-- How does an app installation relate to the app definition? (What fields does an installation have — slug override, permissions, configuration?)
-- How does the Gateway resolve app routing when installations can have org-specific slugs? (Does the request include organization context, or is the slug globally unique per installation?)
-- How do permissions narrow from cluster-level to org-level on installation? (Can an installation restrict which threads the app can access?)
-- What is the migration path for existing cluster-scoped apps?
+- Should configuration values reference the [Secrets](architecture/secrets.md) service (similar to how agent ENVs can reference secrets)?
+- Should the entire configuration map be encrypted at rest, or only specific keys marked as sensitive?
+- Should the app definition declare which configuration keys are sensitive (as part of a future configuration schema)?
+- What is the access control model for configuration retrieval? (Only the app itself, or also org admins?)
 
 ---
 
