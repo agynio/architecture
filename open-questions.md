@@ -91,11 +91,11 @@ The custom provider approach was chosen because the built-in OpenAI provider tri
 
 ## Installation Configuration Secrets
 
-**Context:** [App installations](architecture/apps.md#configuration) store configuration as a flat string-to-string map. Some configuration values are sensitive (e.g., Telegram bot tokens, API keys for external services). Currently, configuration values are stored as plain text.
+**Context:** [App installations](architecture/apps.md#configuration) store configuration as a JSON object. Some configuration values are sensitive (e.g., Telegram bot tokens, API keys for external services). Currently, configuration values are stored as plain text.
 
 **Questions:**
 - Should configuration values reference the [Secrets](architecture/secrets.md) service (similar to how agent ENVs can reference secrets)?
-- Should the entire configuration map be encrypted at rest, or only specific keys marked as sensitive?
+- Should the entire configuration object be encrypted at rest, or only specific keys marked as sensitive?
 - Should the app declare which configuration keys are sensitive (as part of a future configuration schema)?
 - What is the access control model for configuration retrieval? (Only the app itself, or also org admins?)
 

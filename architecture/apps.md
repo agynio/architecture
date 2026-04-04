@@ -99,7 +99,7 @@ Without an installation, an app has no access to an organization's resources.
 | `app_id` | string (UUID) | Reference to the [app](#app) |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
 | `slug` | string | Unique within the installing organization. Used in CLI commands and Gateway routing. Defaults to the app's slug |
-| `configuration` | map (string → string) | App-specific configuration (e.g., bot token, agent ID). Opaque to the platform — only the app interprets it |
+| `configuration` | JSON object | App-specific configuration. Opaque to the platform — only the app interprets it |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
 
@@ -111,7 +111,7 @@ The slug is used in CLI commands: `agyn app <installation-slug> <command>`.
 
 ### Configuration
 
-Installation configuration is a flat string-to-string map, opaque to the platform. The app defines what configuration keys it expects; the platform stores and delivers the values without interpretation.
+Installation configuration is a JSON object, opaque to the platform. The app defines what configuration keys it expects; the platform stores and delivers the values without interpretation.
 
 Example for a Telegram Connector installation:
 

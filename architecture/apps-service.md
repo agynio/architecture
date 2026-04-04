@@ -47,7 +47,7 @@ The Apps Service manages apps and installations — the configuration entities t
 | `app_id` | string (UUID) | Reference to the app |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
 | `slug` | string | Unique within the installing organization. Used in CLI commands and Gateway routing. Defaults to the app's slug |
-| `configuration` | map (string → string) | App-specific configuration. Opaque to the platform |
+| `configuration` | JSON object | App-specific configuration. Opaque to the platform |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
 
