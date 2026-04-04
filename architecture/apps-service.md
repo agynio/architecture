@@ -9,7 +9,8 @@ The Apps Service manages app definitions and installations — the configuration
 | Method | Description |
 |--------|-------------|
 | **CreateApp** | Create a new app definition. Creates the app record, registers an identity (type `app`) in [Identity](identity.md), and generates a service token. Requires ownership of the organization |
-| **GetApp** | Get an app definition by ID or by owner organization + slug pair |
+| **GetApp** | Get an app definition by ID |
+| **GetAppBySlug** | Get an app definition by owning organization ID + slug |
 | **ListApps** | List app definitions. Supports filtering by organization (own apps) and visibility (public apps) |
 | **UpdateApp** | Update an app definition (name, description, icon, visibility) |
 | **DeleteApp** | Delete an app definition. Revokes the app's OpenZiti identity. Fails if active installations exist |

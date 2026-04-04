@@ -188,5 +188,5 @@ The `GetInstallationBySlug` lookup is cached in-memory with a short TTL. Install
 
 | Gateway Proto Service | Internal Service | Methods |
 |-----------------------|-----------------|---------|
-| `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, ListApps, UpdateApp, DeleteApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp |
+| `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, GetAppBySlug, ListApps, UpdateApp, DeleteApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp |
 | *(app proxy)* | *per-app via OpenZiti* | *pass-through* |
