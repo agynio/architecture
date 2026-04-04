@@ -27,6 +27,7 @@ The Runner [workload model](runner.md#workload-model) maps to Kubernetes primiti
 | Init container | Pod initContainer |
 | Ephemeral volume (`persistent: false`) | `emptyDir` volume |
 | Persistent volume (`persistent: true`) | PersistentVolumeClaim |
+| Image pull credential | Kubernetes Secret (`kubernetes.io/dockerconfigjson`) + Pod `imagePullSecrets` |
 | Labels | Pod labels |
 
 ```mermaid
@@ -50,8 +51,9 @@ graph TB
 When `StartWorkload` is called, the k8s-runner:
 
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
-2. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts, environment variables, resource requests/limits, and labels.
-3. Creates the Pod via the Kubernetes API.
+2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
+3. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts, environment variables, resource requests/limits, `imagePullSecrets`, and labels.
+4. Creates the Pod via the Kubernetes API.
 
 Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn-bin`).
 
@@ -65,6 +67,19 @@ PVCs use the cluster's default StorageClass unless overridden by deployment conf
 
 `RemoveVolume` deletes the PVC.
 
+### Image Pull Credentials
+
+When `StartWorkload` includes `image_pull_credentials`, the k8s-runner:
+
+1. For each credential, creates a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` in the workload namespace. The secret name is derived from the workload ID (e.g., `workload-<id>-pull-<index>`).
+2. The `.dockerconfigjson` data contains a single `auths` entry with the registry hostname, username, and password from the credential.
+3. All created Kubernetes Secrets are listed in the Pod's `spec.imagePullSecrets`.
+4. On `StopWorkload` or `RemoveWorkload`, the k8s-runner deletes the Kubernetes Secrets it created for that workload.
+
+Kubernetes Secrets are created per-workload. They are not shared across workloads.
+
+See [Private Registry Support](private-registry-support.md) for the full end-to-end flow.
+
 ## RPC Implementation
 
 All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This section describes how the k8s-runner implements each one using the Kubernetes API.
@@ -73,9 +88,9 @@ All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This s
 
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
-| `StartWorkload` | Create PVCs (if needed) → create Pod |
-| `StopWorkload` | Delete Pod (graceful termination) |
-| `RemoveWorkload` | Delete Pod and optionally its PVCs |
+| `StartWorkload` | Create Kubernetes Secrets for image pull credentials (if any) → create PVCs (if needed) → create Pod |
+| `StopWorkload` | Delete Pod (graceful termination) → delete image pull Kubernetes Secrets |
+| `RemoveWorkload` | Delete Pod, optionally its PVCs, and image pull Kubernetes Secrets |
 | `InspectWorkload` | Read Pod status, container statuses, volume mounts |
 | `TouchWorkload` | Update a Pod annotation with the current timestamp |
 
@@ -128,6 +143,7 @@ The k8s-runner requires a Kubernetes ServiceAccount with permissions scoped to t
 | `pods/log` | `get` |
 | `persistentvolumeclaims` | `get`, `list`, `create`, `delete` |
 | `events` | `get`, `list`, `watch` |
+| `secrets` | `get`, `list`, `create`, `delete` |
 
 These permissions are granted via a Role (not ClusterRole) bound to the workload namespace.
 

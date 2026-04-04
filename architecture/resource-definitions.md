@@ -29,16 +29,21 @@ erDiagram
     Agent ||--o{ ENV : "agent_id"
     Agent ||--o{ InitScript : "agent_id"
     Agent ||--o{ VolumeAttachment : "agent_id"
+    Agent ||--o{ ImagePullSecretAttachment : "agent_id"
 
     Volume ||--o{ VolumeAttachment : "volume_id"
+
+    ImagePullSecret ||--o{ ImagePullSecretAttachment : "image_pull_secret_id"
 
     MCP ||--o{ ENV : "mcp_id"
     MCP ||--o{ InitScript : "mcp_id"
     MCP ||--o{ VolumeAttachment : "mcp_id"
+    MCP ||--o{ ImagePullSecretAttachment : "mcp_id"
 
     Hook ||--o{ ENV : "hook_id"
     Hook ||--o{ InitScript : "hook_id"
     Hook ||--o{ VolumeAttachment : "hook_id"
+    Hook ||--o{ ImagePullSecretAttachment : "hook_id"
 
     Secret ||--o{ ENV : "secret_id"
 ```
@@ -93,6 +98,25 @@ Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Volume attachments are
 
 ---
 
+## Image Pull Secret Attachment
+
+A relationship between an [Image Pull Secret](providers.md#image-pull-secret) and a target container — an [Agent](#agent), [MCP](#mcp), or [Hook](#hook). Image pull secrets are org-scoped resources managed by the [Secrets](secrets.md) service. The attachment lives in the [Agents](agents-service.md) service.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique identifier |
+| `image_pull_secret_id` | string (UUID) | Reference to an Image Pull Secret resource in the Secrets service |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
+| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
+| `hook_id` | string (UUID) | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `created_at` | timestamp | Creation time |
+
+Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Image pull secret attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same image_pull_secret_id + target) are rejected.
+
+At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the agent and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error. See [Private Registry Support](private-registry-support.md#conflict-detection).
+
+---
+
 ## MCP
 
 An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the agent pod, sharing the network namespace. See [MCP](mcp.md) for the full MCP architecture.
@@ -105,7 +129,7 @@ An MCP (Model Context Protocol) server definition. Runs as a sidecar container i
 | `command` | string | | Startup command executed inside the container |
 | `resources` | object | | Compute resources for the sidecar container (see [Compute Resources](#compute-resources)) |
 
-Environment variables, initialization scripts, and volumes for an MCP server are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this MCP by `mcp_id`.
+Environment variables, initialization scripts, volumes, and image pull secrets for an MCP server are [ENV](#env), [InitScript](#initscript), [VolumeAttachment](#volume-attachment), and [ImagePullSecretAttachment](#image-pull-secret-attachment) resources that reference this MCP by `mcp_id`.
 
 ---
 
@@ -133,7 +157,7 @@ An event-driven function that runs in response to agent lifecycle events. Hooks 
 | `image` | string | | Container image for the hook execution environment |
 | `resources` | object | | Compute resources for the hook container (see [Compute Resources](#compute-resources)) |
 
-Environment variables, initialization scripts, and volumes for a hook are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this hook by `hook_id`.
+Environment variables, initialization scripts, volumes, and image pull secrets for a hook are [ENV](#env), [InitScript](#initscript), [VolumeAttachment](#volume-attachment), and [ImagePullSecretAttachment](#image-pull-secret-attachment) resources that reference this hook by `hook_id`.
 
 ---
 
@@ -148,7 +172,7 @@ An environment variable injected into a container. Each ENV belongs to exactly o
 | `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
 | `name` | string | | Environment variable name (e.g., `"API_KEY"`) |
 | `value` | string | | Plain-text value. Mutually exclusive with `secret_id` |
-| `secret_id` | string (UUID) | | Reference to a [Secret](#secret) resource. Mutually exclusive with `value` |
+| `secret_id` | string (UUID) | | Reference to a [Secret](providers.md#secret) resource. Mutually exclusive with `value` |
 
 Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container.
 
@@ -171,7 +195,13 @@ When multiple init scripts target the same resource, they execute in creation or
 
 ## Secret
 
-A secret value stored encrypted at rest. Managed by the [Secrets](secrets.md) service. Referenced by [ENV](#env) resources via `secret_id`. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
+A sensitive value with local or remote storage. Managed by the [Secrets](secrets.md) service. Referenced by [ENV](#env) resources via `secret_id`. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
+
+---
+
+## Image Pull Secret
+
+Registry credentials for pulling container images from private registries. Managed by the [Secrets](secrets.md) service. Attached to agents, MCPs, and hooks via [ImagePullSecretAttachment](#image-pull-secret-attachment). See [Providers, Models, and Secrets](providers.md#image-pull-secret) for the resource definition.
 
 ---
 
