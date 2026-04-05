@@ -61,7 +61,7 @@ The Console displays:
 | `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `ListWorkloads` | Cluster-scoped: cluster admin. Org-scoped: org owner | Runners, Monitoring (active workloads) |
 | `LLMGateway` | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
 | `SecretsGateway` | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
-| `AppsGateway` | `RegisterApp`, `DeleteApp` | Cluster admin | Cluster Apps |
+| `AppsGateway` | `CreateApp`, `GetApp`, `GetAppBySlug`, `ListApps`, `UpdateApp`, `DeleteApp`, `InstallApp`, `GetInstallation`, `GetInstallationBySlug`, `ListInstallations`, `UpdateInstallation`, `UninstallApp` | Org owner or cluster admin | Apps (Published Apps, Installed Apps) |
 
 ## Deployment
 
