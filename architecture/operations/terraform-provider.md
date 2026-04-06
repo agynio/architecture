@@ -29,7 +29,7 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 
 | Terraform Data Source | API Method | Description |
 |----------------------|------------|-------------|
-| `data.agyn_user` | `GetUserByOIDCSubject` | Look up an existing user by OIDC subject. Returns `identity_id` and profile. Used to reference users that were provisioned outside Terraform (e.g., via OIDC login) |
+| `data.agyn_user` | `GetUserByOIDCSubject` or `GetUser` | Look up an existing user by OIDC subject or identity ID. Returns `identity_id` and profile. Used to reference users that were provisioned outside Terraform (e.g., via OIDC login) |
 
 ## User Resource
 
@@ -68,14 +68,16 @@ resource "agyn_user" "alice" {
 
 ## User Data Source
 
-The `data.agyn_user` data source looks up an existing user by OIDC subject via [Users — GetUserByOIDCSubject](../users.md#getuserbyoidcsubject). Requires cluster admin authentication. Returns an error if the user does not exist.
+The `data.agyn_user` data source looks up an existing user by OIDC subject or identity ID. Requires cluster admin authentication. Returns an error if the user does not exist.
+
+Exactly one of `oidc_subject` or `identity_id` must be provided.
 
 ### Schema
 
 | Field | Type | Direction | Description |
 |-------|------|-----------|-------------|
-| `oidc_subject` | string | input (Required) | OIDC subject claim to look up |
-| `identity_id` | string | output (Computed) | Platform identity UUID |
+| `oidc_subject` | string | input (Optional) | OIDC subject claim to look up. Calls `GetUserByOIDCSubject` |
+| `identity_id` | string | input/output (Optional input, always Computed) | Platform identity UUID. As input: calls `GetUser`. Always present in output |
 | `name` | string | output (Computed) | Display name |
 | `nickname` | string | output (Computed) | Short name or handle |
 | `photo_url` | string | output (Computed) | Profile photo URL |
