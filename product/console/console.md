@@ -125,7 +125,7 @@ Visible when Cluster Administration is selected in the context switcher. Only cl
 
 ### Empty States
 
-**No organizations and not a cluster admin** — the main area displays an onboarding message: "You have no organizations. Create one to get started or wait for an invite." The context switcher's "Create Organization" action is available. The pending invites section in the user menu is accessible so the user can accept invitations.
+**No organizations and not a cluster admin** — the main area displays an onboarding message: "You have no organizations. Create one to get started or wait for an invite." The placeholder includes a "Create Organization" button that opens the organization creation flow (same as the context switcher action). The pending invites section in the user menu is accessible so the user can accept invitations.
 
 **No organizations but is cluster admin** — the Console auto-selects Cluster Administration. The context switcher shows only "Cluster Administration" and "Create Organization".
 
