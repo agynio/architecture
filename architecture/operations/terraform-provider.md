@@ -18,6 +18,8 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent, MCP, or hook) |
 | `agyn_image_pull_secret` | Image Pull Secret | Registry credential (registry hostname, username, password/token). Managed by the Secrets service |
 | `agyn_image_pull_secret_attachment` | Image Pull Secret Attachment | Relationship between an image pull secret and a container (agent, MCP, or hook) |
+| `agyn_secret_provider` | Secret Provider | Secret provider connection (type, provider-specific config). See [Providers, Models, and Secrets — Secret Provider](../providers.md#secret-provider) |
+| `agyn_secret` | Secret | Secret value (local encrypted or remote provider reference). See [Providers, Models, and Secrets — Secret](../providers.md#secret) |
 | `agyn_mcp` | MCP | MCP server definition (image, command, compute resources) |
 | `agyn_skill` | Skill | Skill definition (name, body) |
 | `agyn_hook` | Hook | Hook definition (event, function, image, compute resources) |
@@ -101,6 +103,102 @@ resource "agyn_membership" "alice_eng" {
 }
 ```
 
+## Secret Provider Resource
+
+The `agyn_secret_provider` resource creates and manages secret provider connections via [SecretsGateway](../gateway.md). Requires org owner or cluster admin authorization.
+
+### Schema
+
+| Field | Type | Required | Computed | Mutable | Description |
+|-------|------|----------|----------|---------|-------------|
+| `id` | string | — | yes | — | UUID identifier |
+| `organization_id` | string | yes | — | no (forces replacement) | Organization scope |
+| `type` | string | yes | — | no (forces replacement) | Provider type. Supported: `vault` |
+| `address` | string | yes | — | yes | Provider server address (e.g., `http://vault:8200`) |
+| `token` | string | yes | — | yes | Authentication token. Sensitive |
+
+### Lifecycle
+
+| Operation | API Method | Notes |
+|-----------|------------|-------|
+| **Create** | `CreateSecretProvider` | Creates the provider connection |
+| **Read** | `GetSecretProvider` | Reads by `id` |
+| **Update** | `UpdateSecretProvider` | Updates `address`, `token` |
+| **Delete** | `DeleteSecretProvider` | Deletes the provider. Fails if secrets reference it |
+| **Import** | — | Import by `id` |
+
+### Example
+
+```hcl
+resource "agyn_secret_provider" "vault" {
+  organization_id = agyn_organization.eng.id
+  type            = "vault"
+  address         = "http://vault:8200"
+  token           = var.vault_token
+}
+```
+
+## Secret Resource
+
+The `agyn_secret` resource creates and manages secrets via [SecretsGateway](../gateway.md). Requires org owner or cluster admin authorization. Secrets store sensitive values either locally (encrypted at rest) or as references to an external secret provider.
+
+Exactly one of `value` or `value_provider_id` must be provided.
+
+### Schema
+
+| Field | Type | Required | Computed | Mutable | Description |
+|-------|------|----------|----------|---------|-------------|
+| `id` | string | — | yes | — | UUID identifier |
+| `organization_id` | string | yes | — | no (forces replacement) | Organization scope |
+| `name` | string | yes | — | yes | Secret name |
+| `value` | string | optional | — | yes | Direct secret value, encrypted at rest. Sensitive. Mutually exclusive with `value_provider_id` |
+| `value_provider_id` | string | optional | — | yes | Reference to an `agyn_secret_provider`. Mutually exclusive with `value`. Requires `value_reference` |
+| `value_reference` | string | optional | — | yes | Identifier of the secret in the external provider. Required when `value_provider_id` is set. For Vault: `<mount>/<path>/<key>` |
+
+### Lifecycle
+
+| Operation | API Method | Notes |
+|-----------|------------|-------|
+| **Create** | `CreateSecret` | Creates the secret with local or remote storage |
+| **Read** | `GetSecret` | Reads by `id`. Does not return the plaintext `value` |
+| **Update** | `UpdateSecret` | Updates `name`, `value`, `value_provider_id`, `value_reference` |
+| **Delete** | `DeleteSecret` | Deletes the secret |
+| **Import** | — | Import by `id` |
+
+### Example (Local)
+
+```hcl
+resource "agyn_secret" "api_key" {
+  organization_id = agyn_organization.eng.id
+  name            = "openai-api-key"
+  value           = var.openai_api_key
+}
+
+resource "agyn_env" "api_key" {
+  agent_id  = agyn_agent.assistant.id
+  name      = "OPENAI_API_KEY"
+  secret_id = agyn_secret.api_key.id
+}
+```
+
+### Example (Remote — Vault)
+
+```hcl
+resource "agyn_secret_provider" "vault" {
+  organization_id = agyn_organization.eng.id
+  type            = "vault"
+  address         = "http://vault:8200"
+  token           = var.vault_token
+}
+
+resource "agyn_secret" "api_key" {
+  organization_id   = agyn_organization.eng.id
+  name              = "openai-api-key"
+  value_provider_id = agyn_secret_provider.vault.id
+  value_reference   = "secret/platform/keys/openai_api_key"
+}
+```
+
 ## Provisioning Resources
 
 Some resources produce a **service token** on creation. The token is returned only once (on `terraform apply`) and stored in Terraform state. It is used to enroll the service at startup. See [Authentication — Service Tokens](../authn.md#service-tokens).
@@ -112,7 +210,7 @@ Some resources produce a **service token** on creation. The token is returned on
 
 ## Agent Resource Structure
 
-Agent resources (everything except `agyn_app`, `agyn_runner`, `agyn_user`, and `agyn_membership`) share a common envelope:
+Agent resources (everything except `agyn_app`, `agyn_runner`, `agyn_user`, `agyn_secret_provider`, `agyn_secret`, and `agyn_membership`) share a common envelope:
 
 | Field | Type | Description |
 |-------|------|-------------|
