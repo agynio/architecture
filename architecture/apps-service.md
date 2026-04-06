@@ -112,14 +112,14 @@ When an installation is removed, the authorization tuples are deleted. The app l
 
 ## Enrollment
 
-When the app starts, it presents the service token to the platform enrollment endpoint. The platform validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key) to the app. This follows the same flow as [external runner enrollment](openziti.md#runner-provisioning).
+When the app starts, it calls `EnrollApp` with its service token. The Apps Service validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md) `CreateAppIdentity` (which deletes any previous identity for this app first), enrolls it, and returns the enrolled identity (certificate + key) to the app. This follows the same flow as [runner enrollment](openziti.md#runner-provisioning).
 
 After enrollment, the app can:
 
 - **Bind** its OpenZiti service — Gateway can now route commands to it.
 - **Dial** the Gateway — the app can call platform APIs.
 
-The service token is long-lived and can be reused. If the app restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
+The service token is long-lived and can be reused. If the app restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is explicitly deleted by Ziti Management as part of `CreateAppIdentity` before creating the new one.
 
 ## Profile Resolution
 

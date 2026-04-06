@@ -15,11 +15,11 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 | Method | Description |
 |--------|-------------|
-| **RegisterRunner** | Register a new runner. Creates the runner record, creates a per-runner OpenZiti service via [Ziti Management](openziti.md), registers an identity (type `runner`) in [Identity](identity.md), writes authorization tuples, and generates a service token |
+| **RegisterRunner** | Register a new runner. Creates the runner record, creates a per-runner OpenZiti service via [Ziti Management](openziti.md) `CreateService`, registers an identity (type `runner`) in [Identity](identity.md), writes authorization tuples, and generates a service token |
 | **GetRunner** | Get a runner by ID |
 | **ListRunners** | List registered runners. Supports filtering by organization |
 | **UpdateRunner** | Update a runner's mutable fields (name, labels) |
-| **DeleteRunner** | Delete a runner registration. Deletes the per-runner OpenZiti service and revokes the runner's OpenZiti identity via Ziti Management |
+| **DeleteRunner** | Delete a runner registration. Deletes the runner's OpenZiti identity and per-runner OpenZiti service via Ziti Management `DeleteRunnerIdentity` |
 
 ### Workload State
 
@@ -96,7 +96,7 @@ sequenceDiagram
     participant Auth as Authorization
 
     Admin->>RS: RegisterRunner(name, organization_id?, labels?)
-    RS->>ZM: Create OpenZiti service "runner-{id}" (roleAttributes: ["runner-services"])
+    RS->>ZM: CreateService("runner-{id}", roleAttributes: ["runner-services"])
     RS->>I: RegisterIdentity(id, type: runner)
     RS->>Auth: Write(identity:runnerId, runner:bind, org/cluster scope)
     RS->>RS: Generate service token, store runner record
@@ -104,7 +104,7 @@ sequenceDiagram
 ```
 
 1. Admin calls `RegisterRunner` (via `agyn` CLI or Terraform).
-2. Runners service creates a per-runner OpenZiti service `runner-{id}` with `roleAttributes: ["runner-services"]` via [Ziti Management](openziti.md). This service is what callers will dial to reach this specific runner.
+2. Runners service creates a per-runner OpenZiti service `runner-{id}` with `roleAttributes: ["runner-services"]` via [Ziti Management](openziti.md) `CreateService`. This service is what callers will dial to reach this specific runner.
 3. Runners service registers the runner's identity in the [Identity](identity.md) service with `identity_type: runner`.
 4. Runners service writes authorization tuples granting the runner its permissions.
 5. Runners service generates a service token, stores the runner record (including `openziti_service_name`), and returns the token.
@@ -135,20 +135,19 @@ The `service_token` output is provided to the runner deployment (e.g., as a Kube
 
 ## Enrollment
 
-When a runner starts, it presents the service token to the platform enrollment endpoint. The platform validates the token against the Runners service, creates an OpenZiti identity via [Ziti Management](openziti.md), enrolls it, and returns the enrolled identity (certificate + key) along with the service name (`runner-{runnerId}`). See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) for the full enrollment sequence.
+When a runner starts, it calls `EnrollRunner` with its service token. The Runners service validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md) `CreateRunnerIdentity` (which deletes any previous identity for this runner first), enrolls it, and returns the enrolled identity (certificate + key) along with the service name (`runner-{runnerId}`). See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) for the full enrollment sequence.
 
 After enrollment, the runner binds its per-runner OpenZiti service (`runner-{runnerId}`) and begins accepting workload commands from the Orchestrator.
 
-The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC. All runners — whether deployed as platform infrastructure or by an enterprise admin — follow this same flow.
+The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is deleted by Ziti Management as part of `CreateRunnerIdentity` before creating the new one. All runners — whether deployed as platform infrastructure or by an enterprise admin — follow this same flow.
 
 ## Deletion
 
 `DeleteRunner` cleans up all associated resources:
 
-1. Deletes the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management.
-2. Revokes the runner's current OpenZiti identity via Ziti Management.
-3. Removes authorization tuples.
-4. Removes the runner record from PostgreSQL.
+1. Deletes the runner's current OpenZiti identity (if any) and the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management `DeleteRunnerIdentity`.
+2. Removes authorization tuples.
+3. Removes the runner record from PostgreSQL.
 
 ## Workload State Management
 
