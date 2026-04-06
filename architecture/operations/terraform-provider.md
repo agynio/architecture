@@ -10,6 +10,7 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 
 | Terraform Resource | API Resource | Description |
 |-------------------|-------------|-------------|
+| `agyn_user` | User | Platform user (OIDC subject, profile, cluster role). See [Users — Admin User Management](../users.md#admin-user-management) |
 | `agyn_app` | App | App registration (slug, name, icon). Returns service token for enrollment |
 | `agyn_runner` | Runner | Runner registration (name, organization scope, labels). Returns service token for enrollment |
 | `agyn_agent` | Agent | Agent definition (identity, model, image, compute resources, configuration) |
@@ -24,6 +25,80 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_init_script` | InitScript | Initialization script (shell script content) |
 | `agyn_membership` | Membership | Organization membership (identity, organization, role). See [Organizations — Members Management](../organizations.md#members-management) |
 
+## Data Sources
+
+| Terraform Data Source | API Method | Description |
+|----------------------|------------|-------------|
+| `data.agyn_user` | `GetUserByOIDCSubject` | Look up an existing user by OIDC subject. Returns `identity_id` and profile. Used to reference users that were provisioned outside Terraform (e.g., via OIDC login) |
+
+## User Resource
+
+The `agyn_user` resource creates and manages platform users via [Users — Admin User Management](../users.md#admin-user-management). Requires cluster admin authentication.
+
+### Schema
+
+| Field | Type | Required | Computed | Mutable | Description |
+|-------|------|----------|----------|---------|-------------|
+| `identity_id` | string | — | yes | — | Platform identity UUID. Primary identifier |
+| `oidc_subject` | string | yes | — | no (forces replacement) | OIDC subject claim (`sub`). Must be unique. Immutable — changing it destroys and recreates the user |
+| `name` | string | optional | — | yes | Display name |
+| `nickname` | string | optional | — | yes | Short name or handle |
+| `photo_url` | string | optional | — | yes | Profile photo URL |
+| `cluster_role` | string | optional | — | yes | `admin` or unset. Controls `cluster:global admin` authorization tuple |
+
+### Lifecycle
+
+| Operation | API Method | Notes |
+|-----------|------------|-------|
+| **Create** | `CreateUser` | Creates user record, registers identity, optionally writes cluster admin tuple. Fails with `AlreadyExists` if `oidc_subject` is already taken |
+| **Read** | `GetUser` | Reads by `identity_id` |
+| **Update** | `UpdateUser` | Updates `name`, `nickname`, `photo_url`, `cluster_role` |
+| **Delete** | `DeleteUser` | Deletes user record, identity registration, cluster admin tuple (if any), and all organization memberships |
+| **Import** | — | Import by `identity_id` |
+
+### Example
+
+```hcl
+resource "agyn_user" "alice" {
+  oidc_subject = "auth0|abc123"
+  name         = "Alice"
+  cluster_role = "admin"
+}
+```
+
+## User Data Source
+
+The `data.agyn_user` data source looks up an existing user by OIDC subject via [Users — GetUserByOIDCSubject](../users.md#getuserbyoidcsubject). Requires cluster admin authentication. Returns an error if the user does not exist.
+
+### Schema
+
+| Field | Type | Direction | Description |
+|-------|------|-----------|-------------|
+| `oidc_subject` | string | input (Required) | OIDC subject claim to look up |
+| `identity_id` | string | output (Computed) | Platform identity UUID |
+| `name` | string | output (Computed) | Display name |
+| `nickname` | string | output (Computed) | Short name or handle |
+| `photo_url` | string | output (Computed) | Profile photo URL |
+| `cluster_role` | string | output (Computed) | Cluster role (`admin` or empty) |
+
+### Example
+
+```hcl
+data "agyn_user" "alice" {
+  oidc_subject = "auth0|abc123"
+}
+
+resource "agyn_organization" "eng" {
+  name = "Engineering"
+}
+
+resource "agyn_membership" "alice_eng" {
+  organization_id = agyn_organization.eng.id
+  identity_id     = data.agyn_user.alice.identity_id
+  role            = "owner"
+}
+```
+
 ## Provisioning Resources
 
 Some resources produce a **service token** on creation. The token is returned only once (on `terraform apply`) and stored in Terraform state. It is used to enroll the service at startup. See [Authentication — Service Tokens](../authn.md#service-tokens).
@@ -35,7 +110,7 @@ Some resources produce a **service token** on creation. The token is returned on
 
 ## Agent Resource Structure
 
-Agent resources (everything except `agyn_app`, `agyn_runner`, and `agyn_membership`) share a common envelope:
+Agent resources (everything except `agyn_app`, `agyn_runner`, `agyn_user`, and `agyn_membership`) share a common envelope:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -47,4 +122,3 @@ Resource-specific fields are exposed as typed HCL attributes. The canonical sche
 ### Ownership
 
 Most sub-resources (MCP, Skill, Hook, ENV, InitScript) have an ownership field (`agent_id`, `mcp_id`, or `hook_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.
-

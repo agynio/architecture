@@ -60,6 +60,7 @@ The Users service provides CRUD methods for cluster administrators to manage pla
 |--------|-------------|
 | **CreateUser** | Create a user with OIDC subject, profile fields, and optional cluster role. Registers identity. Returns `identity_id` |
 | **GetUser** | Get a user by `identity_id`. Returns profile and cluster role |
+| **GetUserByOIDCSubject** | Get a user by `oidc_subject`. Returns profile and cluster role. Used by the [Terraform Provider](operations/terraform-provider.md) data source to resolve existing users |
 | **ListUsers** | List all platform users. Paginated, filterable |
 | **UpdateUser** | Update profile fields and cluster role |
 | **DeleteUser** | Delete user record, identity registration, and cluster role tuple |
@@ -86,6 +87,19 @@ The Users service provides CRUD methods for cluster administrators to manage pla
 Organization membership is managed by the [Organizations](organizations.md) service.
 
 When the user logs in via OIDC, `ResolveUser` finds the record — `ProvisionUser` is not called.
+
+
+### GetUserByOIDCSubject
+
+**Request:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `oidc_subject` | string | Yes | OIDC subject claim to look up |
+
+**Response:** Same shape as `GetUser` — user profile fields, `identity_id`, and `cluster_role`.
+
+**Behavior:** Look up a user by `oidc_subject`. Returns the user if found, not-found error otherwise. Requires `cluster:global admin` authorization (consistent with other admin user methods).
 
 ### UpdateUser
 
@@ -164,7 +178,7 @@ Initial profile fields (name, email, picture) are populated from the IdP UserInf
 | **Gateway** | Resolve OIDC subject → `identity_id` on every request (`ResolveUser`). Provision new users on first login (`ProvisionUser`). Resolve [API tokens](api-tokens.md) → `identity_id` (`ResolveAPIToken`) |
 | **Chat** | Resolve user profiles for message display (sender name, photo) |
 | **[Console](console.md)** | Current user context via `GetMe` (profile, cluster admin status). User management (CRUD) for cluster admins |
-| **[Terraform Provider](operations/terraform-provider.md)** | `agyn_user` resource — create and manage users as code |
+| **[Terraform Provider](operations/terraform-provider.md)** | `agyn_user` resource — create and manage users as code. `data.agyn_user` data source — look up existing users by OIDC subject |
 
 ## Data Store
 
