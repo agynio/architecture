@@ -37,7 +37,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
-| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Enrollment endpoint (runner/app enrollment) |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
@@ -49,7 +49,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 - The Gateway needs identity resolution on the request hot path. It calls Ziti Management, which reads from PostgreSQL — no dependency on the OpenZiti Controller for every request.
 - If OpenZiti's API changes, only one service changes.
 - Infrastructure services (Orchestrator, Gateway) self-enroll through Ziti Management at startup, keeping all OpenZiti Controller interactions in one place.
-- The enrollment endpoint delegates identity creation to Ziti Management for runners and apps.
+- The Runners Service and Apps Service delegate identity creation to Ziti Management for runners and apps.
 - Future capabilities (user enrollment for CLI, agent-to-agent port sharing) will also route through this service.
 
 ### API Surface
@@ -57,8 +57,11 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | RPC | Caller | Description |
 |-----|--------|-------------|
 | `CreateAgentIdentity` | Orchestrator | Create an OpenZiti identity for an agent, return enrollment JWT |
-| `CreateRunnerIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for a runner, return enrolled identity (cert + key) and service name |
-| `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
+| `CreateRunnerIdentity` | Runners Service | Create and enroll an OpenZiti identity for a runner, return enrolled identity (cert + key). If a previous identity exists for this runner, deletes it first |
+| `DeleteRunnerIdentity` | Runners Service | Delete a runner's OpenZiti identity, service, and platform mapping |
+| `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
+| `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
+| `CreateService` | Runners Service, Apps Service | Create a per-runner or per-app OpenZiti service |
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
@@ -69,9 +72,9 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 
 | Operation | API Endpoint | When |
 |-----------|-------------|------|
-| Create identity | `POST /edge/management/v1/identities` | Agent start, service self-enrollment, runner/app enrollment |
+| Create identity | `POST /edge/management/v1/identities` | Agent start, service self-enrollment, runner/app enrollment (re-enrollment deletes previous identity first) |
 | Enroll identity | Controller enrollment endpoint | Service identity self-enrollment, runner/app enrollment (Ziti Management enrolls on behalf of the caller) |
-| Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC |
+| Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC, runner/app re-enrollment (previous identity cleanup) |
 | List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
 | Create service | `POST /edge/management/v1/services` | Runner registration, app registration |
@@ -99,7 +102,7 @@ Three identity lifecycle patterns coexist:
 
 - **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the agent pod's Ziti sidecar container.
 - **Service identities** — self-managed by each infrastructure service (Orchestrator, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
-- **Runner and App identities** — provisioned via the enrollment endpoint using a service token. Runners and Apps present their service token on startup, the enrollment endpoint creates the OpenZiti identity via Ziti Management, and returns the enrolled credentials. See [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle).
+- **Runner and App identities** — provisioned via enrollment using a service token. Runners and Apps present their service token on startup, the Runners/Apps Service creates the OpenZiti identity via Ziti Management (deleting any previous identity for that runner/app first), and returns the enrolled credentials. See [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle).
 
 The agent identity pattern follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification: the Orchestrator is control plane (decides what should exist), the Runner is data plane (executes what it is told).
 
@@ -347,39 +350,42 @@ The per-runner OpenZiti service enables callers (Orchestrator, Terminal Proxy) t
 ```mermaid
 sequenceDiagram
     participant R as Runner
-    participant EP as Enrollment Endpoint
     participant RS as Runners Service
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
 
     Note over R: Runner starts with service token
-    R->>EP: Present service token
-    EP->>RS: Validate token (hash lookup)
-    RS-->>EP: Runner record (runnerId, service name)
-    EP->>ZM: CreateRunnerIdentity(runnerId, roleAttributes: ["runners"])
-    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["runners"], enrollment.ott)
+    R->>RS: EnrollRunner(service token)
+    RS->>RS: Validate token (hash lookup)
+    RS->>ZM: CreateRunnerIdentity(runnerId, roleAttributes: ["runners"])
+    ZM->>ZM: Lookup existing identity by runnerId
+    opt Previous identity exists
+        ZM->>ZC: DELETE /identities/{previousZitiId}
+        ZM->>ZM: Delete previous managed identity record
+    end
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["runners"], externalId: runnerId, enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
     ZC->>ZM: Certificate + private key
     ZM->>ZM: Store mapping in PostgreSQL
-    ZM->>EP: Enrolled identity (cert + key)
-    EP->>R: Enrolled identity (cert + key) + service name (runner-{runnerId})
+    ZM->>RS: Enrolled identity (cert + key)
+    RS->>RS: Update runner status to enrolled
+    RS->>R: Enrolled identity (cert + key) + service name (runner-{runnerId})
     R->>R: Write identity to disk
     R->>R: Load identity, zitiContext.Listen("runner-{runnerId}")
     Note over R: Accepting gRPC connections via OpenZiti
 ```
 
-The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is cleaned up by Ziti Management lease GC.
+The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. `CreateRunnerIdentity` is idempotent — if a previous OpenZiti identity exists for this runner (looked up by `identity_id` in the managed identities table), Ziti Management deletes it from the OpenZiti Controller and removes the mapping before creating the new identity. This ensures re-enrollment succeeds regardless of prior state.
 
-The enrollment response includes the service name (`runner-{runnerId}`) that the runner must bind. The runner does not need any additional configuration to learn its service name.
+The enrollment response includes the service name (`runner-{runnerId}`) that the runner must bind. The service name is read from the runner record (set during registration). The runner does not need any additional configuration to learn its service name.
 
 ### Deletion
 
 `DeleteRunner` cleans up all associated resources:
 
-1. Deletes the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management.
-2. Revokes the runner's OpenZiti identity via Ziti Management.
-3. Removes the runner record from the Runners service database.
+1. Deletes the runner's current OpenZiti identity (if any) and the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management `DeleteRunnerIdentity`.
+2. Removes the runner record from the Runners service database.
 
 ### Addressing
 
@@ -420,7 +426,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 
 ## App Identity Lifecycle
 
-[Apps](apps.md) connect to the OpenZiti overlay to both bind their own service (receive commands from Gateway) and dial the Gateway (call platform APIs). App identities are created by the [Apps Service](apps-service.md) via Ziti Management during app registration.
+[Apps](apps.md) connect to the OpenZiti overlay to both bind their own service (receive commands from Gateway) and dial the Gateway (call platform APIs). App identities are created by the [Apps Service](apps-service.md) via Ziti Management during app enrollment.
 
 ### Flow
 
@@ -429,31 +435,36 @@ sequenceDiagram
     participant Admin as Cluster Admin
     participant AS as Apps Service
     participant App as App Process
-    participant EP as Enrollment Endpoint
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
 
     Note over Admin: Register app
     Admin->>AS: RegisterApp(slug, name)
-    AS->>AS: Generate service token, store app record
+    AS->>ZM: CreateService("app-{slug}", roleAttributes: ["app-services"])
+    AS->>AS: Generate service token, store app record (including service ID)
     AS-->>Admin: App record + service token
 
     Note over App: App deployed with service token
-    App->>EP: Present service token
-    EP->>EP: Validate token (hash lookup via Apps Service)
-    EP->>ZM: CreateAppIdentity(appId, roleAttributes: ["apps"])
-    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps"], enrollment.ott)
+    App->>AS: EnrollApp(service token)
+    AS->>AS: Validate token (hash lookup)
+    AS->>ZM: CreateAppIdentity(appId, slug, roleAttributes: ["apps"])
+    ZM->>ZM: Lookup existing identity by appId
+    opt Previous identity exists
+        ZM->>ZC: DELETE /identities/{previousZitiId}
+        ZM->>ZM: Delete previous managed identity record
+    end
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps"], externalId: appId, enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
     ZC->>ZM: Certificate + private key
     ZM->>ZM: Store mapping in PostgreSQL
-    ZM->>EP: Enrolled identity (cert + key)
-    EP->>App: Enrolled identity (cert + key)
+    ZM->>AS: Enrolled identity (cert + key)
+    AS->>App: Enrolled identity (cert + key)
     App->>App: Bind own service (e.g., "app-reminders")
     App->>App: Dial Gateway for platform APIs
 ```
 
-This follows the same pattern as [runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity.
+This follows the same pattern as [runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity. `CreateAppIdentity` is idempotent — if a previous identity exists for this app, Ziti Management deletes it before creating the new one.
 
 ### Identity Creation Request
 
@@ -474,18 +485,20 @@ This follows the same pattern as [runner enrollment](#runner-provisioning). The 
 
 | RPC | Caller | Description |
 |-----|--------|-------------|
-| `CreateAppIdentity` | Enrollment endpoint | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key) |
+| `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
+| `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
+| `CreateService` | Runners Service, Apps Service | Create a per-runner or per-app OpenZiti service |
 
 This follows the same pattern as runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
 
 ### OpenZiti Service per App
 
-Each app binds its own OpenZiti service (named `app-{slug}`). The service is created at registration time:
+Each app binds its own OpenZiti service (named `app-{slug}`). The service is created at registration time via Ziti Management `CreateService`:
 
 | Operation | When |
 |-----------|------|
-| `POST /edge/management/v1/services` | App registration — creates the app's service (e.g., `app-reminders`) with `roleAttributes: ["app-services"]` |
-| `DELETE /edge/management/v1/services/{id}` | App deletion — removes the service |
+| `CreateService` | App registration — creates the app's service (e.g., `app-reminders`) with `roleAttributes: ["app-services"]` |
+| `DeleteAppIdentity` | App deletion — deletes the identity, service, and platform mapping |
 
 ### Updated Role Attributes Table
 
