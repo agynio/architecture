@@ -69,9 +69,11 @@ Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) fo
 
 ### Idle Timeout
 
-The orchestrator owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload` and removed from the [Runners](runners.md) service.
+The orchestrator owns idle timeout enforcement. During each reconciliation pass, it queries the [Runners](runners.md) service for running workloads and checks each workload's `last_activity_at` timestamp against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). Workloads where `now - last_activity_at > idle_timeout` are stopped via `Runner.StopWorkload` and removed from the [Runners](runners.md) service.
 
-The agent container does not implement idle detection. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
+The `last_activity_at` timestamp is maintained by [`agynd`](agynd-cli.md), which calls `TouchWorkload` on the [Runners](runners.md) service (via [Gateway](gateway.md)) every 10 seconds while the agent is actively processing. When the agent is idle (waiting for new messages), `agynd` stops sending keepalives, and the idle clock begins. This ensures long-running tasks (which may take hours) are never prematurely terminated.
+
+The agent container does not implement idle detection or self-termination. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
 
 ### OpenZiti Identity Reconciliation
 
