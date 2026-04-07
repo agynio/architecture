@@ -46,13 +46,40 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 | Preparation | Description |
 |-------------|-------------|
 | **Skills** | Loads [skill](resource-definitions.md#skill) content and places it into the filesystem in the directory structure expected by the agent CLI |
-| **LLM endpoint** | Provides [LLM Proxy](llm-proxy.md) endpoint configuration so the agent CLI knows where to make model calls |
+| **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
 
 The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the init image's `config.json` specifies which SDK module `agynd` uses.
+
+#### LLM Endpoint Configuration
+
+`agynd` configures each agent CLI to use the [LLM Proxy](llm-proxy.md) as its LLM endpoint. The configuration method is agent-specific:
+
+**Codex CLI** — `agynd` writes `~/.codex/config.toml` with a custom model provider pointing at the LLM Proxy, and sets `CODEX_HOME=~/.codex` and `OPENAI_API_KEY` in the subprocess environment:
+
+```toml
+model_provider = "platform"
+
+[model_providers.platform]
+name = "Agyn LLM"
+base_url = "http://llm-proxy.ziti/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+```
+
+The custom provider is used instead of overriding the built-in OpenAI provider via `OPENAI_BASE_URL` because the built-in provider triggers behaviors the LLM Proxy does not implement (remote compaction via `POST /responses/compact`, realtime WebSocket) and has `env_key: None` which prevents `OPENAI_API_KEY` from being used for Bearer authentication in the subprocess auth pipeline.
+
+**[`agn`](agn-cli.md)** — `agynd` writes `~/.agyn/agn/config.yaml` with the LLM Proxy endpoint:
+
+```yaml
+llm:
+  endpoint: http://llm-proxy.ziti/v1
+```
+
+Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` OpenZiti hostname. The Ziti sidecar resolves the hostname and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses connect with standard HTTP clients — no OpenZiti SDK required. When running with the Ziti sidecar, authentication is handled at the network level by the sidecar's mTLS — the `OPENAI_API_KEY` value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
 
 ### 4. Agent Process Management
 

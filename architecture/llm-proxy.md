@@ -149,34 +149,3 @@ The ingress route is defined as an Istio VirtualService in `agynio/bootstrap` (s
 | HTTP framework | Standard `net/http` |
 | OpenZiti | Embedded SDK (`openziti/sdk-golang`) for binding the `llm-proxy` service and extracting caller identity |
 | Internal calls | Standard gRPC clients for LLM service, Ziti Management, Users, Authorization |
-
-## Agent Configuration
-
-Agents are configured with the LLM Proxy as their LLM endpoint. The wrapper daemon ([`agynd`](agynd-cli.md)) sets the endpoint when preparing the agent environment.
-
-**Codex CLI** uses a custom model provider in `config.toml`:
-
-`agynd` writes `$CODEX_HOME/config.toml` with a custom provider pointing at the LLM Proxy. The custom provider avoids inheriting OpenAI-specific behavior (remote compaction via `POST /responses/compact`, realtime WebSocket) that the LLM Proxy does not implement.
-
-```toml
-model_provider = "platform"
-
-[model_providers.platform]
-name = "Agyn LLM"
-base_url = "http://llm-proxy.ziti/v1"  # OpenZiti hostname intercepted by Ziti sidecar
-env_key = "OPENAI_API_KEY"
-wire_api = "responses"
-```
-
-`agynd` sets `OPENAI_API_KEY` in the Codex subprocess environment. When running with the Ziti sidecar, the `base_url` points to the OpenZiti hostname (`llm-proxy.ziti`), resolved by the sidecar DNS server and intercepted via TPROXY. Authentication is handled at the network level by the sidecar's mTLS — the token value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
-
-> **Note:** Using `OPENAI_BASE_URL` env var to override the built-in OpenAI provider does not work with `codex app-server`. The built-in provider has `name = "OpenAI"` which triggers remote compaction (`POST /responses/compact`) and has `env_key: None` which prevents the `OPENAI_API_KEY` env var from being used for Bearer authentication in the subprocess auth pipeline.
-
-**[`agn`](agn-cli.md)** uses `llm.endpoint` in its configuration:
-
-```yaml
-llm:
-  endpoint: http://llm-proxy.ziti/v1
-```
-
-Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` OpenZiti hostname. The Ziti sidecar resolves the hostname to a `100.64.0.0/10` address and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses (Codex CLI, Claude Code, `agn`) connect with standard HTTP clients — no OpenZiti SDK or special client logic required. `agynd` configures the endpoint address automatically.
