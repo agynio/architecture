@@ -32,6 +32,7 @@ Target product definition. Describes how the product should work from the user's
 | [Concepts](product/concepts.md) | Domain glossary — canonical definitions of product terms |
 | **Chat** | |
 | [Chat](product/chat/chat.md) | Conversations with users and agents |
+| [Inline Media](product/chat/inline-media.md) | Images, video, and audio rendered inline in chat messages |
 | **Console** | |
 | [Console](product/console/console.md) | Management UI — organizations, users, agents, providers, runners, monitoring |
 | **Tracing** | |
@@ -64,6 +65,7 @@ Target architecture of the platform. Describes how the system should work.
 | [Reminders](architecture/apps/reminders.md) | Platform-provided app — delayed messages to threads |
 | [Threads](architecture/threads.md) | Messaging service interface and data model |
 | [Media](architecture/media.md) | File attachments in thread messages |
+| [Media Proxy](architecture/media-proxy.md) | Authenticated media proxy — external URLs and platform files for inline display |
 | [files-mcp](architecture/files-mcp.md) | MCP server for agent file access |
 | [Token Counting](architecture/token-counting.md) | Per-message token counting service |
 | [Providers, Models, and Secrets](architecture/providers.md) | LLM provider / model and secret provider / secret resource ownership |

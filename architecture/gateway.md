@@ -77,6 +77,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
 | `TokenCountingGateway` | [Token Counting](token-counting.md) | All methods |
+| *(media proxy)* | [Media Proxy](media-proxy.md) | `GET /api/media/proxy` — REST binary streaming endpoint (not a proto service) |
 
 ### Handler Implementation
 
