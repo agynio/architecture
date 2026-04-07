@@ -141,7 +141,7 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 
 | Variable | Injected into | Description |
 |----------|---------------|-------------|
-| `AGYN_GATEWAY` | All containers (agent, MCP sidecars, hooks) | Gateway URL for platform API access |
+| `GATEWAY_ADDRESS` | Agent container, MCP sidecars | Gateway URL for platform API access |
 | `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 
