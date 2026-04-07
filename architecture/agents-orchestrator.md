@@ -137,6 +137,14 @@ The orchestrator assembles the full workload specification from multiple sources
 9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
 10. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
 
+In addition to user-defined environment variables, the orchestrator injects **platform-managed environment variables** into containers:
+
+| Variable | Injected into | Description |
+|----------|---------------|-------------|
+| `AGYN_GATEWAY` | All containers (agent, MCP sidecars, hooks) | Gateway URL for platform API access |
+| `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
+| `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
+
 The orchestrator also wires the init container flow:
 
 - Read `init_image` from the agent definition (fall back to `DEFAULT_INIT_IMAGE`).
