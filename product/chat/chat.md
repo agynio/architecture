@@ -10,6 +10,7 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want to see all my conversations in a single list so I can find any discussion quickly.
 - As a user, I want to filter conversations by status (open, resolved, all) so I can focus on active work.
 - As a user, I want to send messages, markdown, and file attachments.
+- As a user, I want to see images, video, and audio inline in messages so I can view media without leaving the conversation.
 - As a user, I want to see which messages have been read and which are unread.
 - As a user, I want to mark a conversation as resolved or reopen it.
 - As a user, I want to delete messages I no longer need.
@@ -84,6 +85,8 @@ Infinite scroll loads older conversations.
 ### Conversation Area
 
 Messages displayed chronologically. Each message shows sender, timestamp, and read/unread status. Messages can be deleted.
+
+Messages containing media (images, video, audio) — whether from external URLs or platform files — display the media inline. See [Inline Media](inline-media.md) for rendering behavior, security, and authentication details.
 
 When an agent is a participant, the conversation also shows:
 
