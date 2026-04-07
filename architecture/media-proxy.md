@@ -7,7 +7,7 @@ The Media Proxy is a dedicated service that fetches media content on behalf of c
 1. **External media** — proxy publicly available images, video, and audio so that the user's browser never contacts third-party servers directly.
 2. **Platform files** — proxy files stored in the [Files](media.md) service so that object storage (MinIO / S3) is never exposed to clients.
 
-All requests to the Media Proxy are authenticated via JWT (see [Authentication](authn.md)). The proxy validates the token before fetching content.
+All requests to the Media Proxy are authenticated via JWT. The service validates tokens independently using the same JWKS-based verification as the [Gateway](gateway.md) — see [Authentication](authn.md). The Media Proxy is not routed through the Gateway; it has its own ingress.
 
 ## Architecture
 
@@ -15,19 +15,27 @@ All requests to the Media Proxy are authenticated via JWT (see [Authentication](
 graph LR
     Browser[Browser]
     SW[Service Worker<br/>intercepts media requests<br/>injects Authorization header]
-    Gateway[Gateway]
-    MP[Media Proxy]
+    MP[Media Proxy<br/>agyn.dev/media/]
     Files[Files Service]
     OS[Object Storage]
     Ext[External Origin<br/>third-party server]
 
     Browser -->|media request| SW
-    SW -->|request + JWT| Gateway
-    Gateway --> MP
+    SW -->|request + JWT| MP
     MP -->|agyn:// URLs| Files
     Files --> OS
     MP -->|https:// URLs| Ext
 ```
+
+## Ingress
+
+The Media Proxy is exposed via a path-based route on the same domain as the platform UI, ensuring same-origin requests (no CORS required).
+
+| Path | Host | Target | Description |
+|------|------|--------|-------------|
+| Path-based | `agyn.dev/media/` | `media-proxy:8080` | URI rewrite: `/media/` → `/`. Same origin as the SPA |
+
+The Istio VirtualService for `agyn.dev` routes `/media/*` to the Media Proxy, alongside the existing `/api/*` route to the Gateway and the default route to the platform UI.
 
 ## Supported URL Schemes
 
@@ -80,22 +88,20 @@ The Media Proxy validates that the authenticated user has access to the requeste
 sequenceDiagram
     participant B as Browser
     participant SW as Service Worker
-    participant GW as Gateway
     participant MP as Media Proxy
     participant F as Files Service
 
-    B->>SW: GET /api/media/proxy?url=agyn://file/abc
+    B->>SW: GET /media/proxy?url=agyn://file/abc
     SW->>SW: Inject Authorization header
-    SW->>GW: GET /api/media/proxy?url=agyn://file/abc (+ JWT)
-    GW->>MP: ProxyMedia(url, identity)
+    SW->>MP: GET /media/proxy?url=agyn://file/abc (+ JWT)
+    MP->>MP: Validate JWT
     MP->>MP: Parse agyn://file/abc → file_id=abc
     MP->>MP: Check authorization (identity, file_id)
     MP->>F: GetFileMetadata(abc)
     F-->>MP: {content_type, size_bytes, filename}
     MP->>F: GetFileContent(abc)
     F-->>MP: Stream of chunks
-    MP-->>GW: Stream response (content_type, cache headers)
-    GW-->>SW: Response
+    MP-->>SW: Stream response (content_type, cache headers)
     SW-->>B: Response (browser caches via HTTP headers)
 ```
 
@@ -142,12 +148,12 @@ For range responses, the proxy also returns `Content-Range` and `Accept-Ranges: 
 
 ## API
 
-The Media Proxy is exposed through the [Gateway](gateway.md) as a REST endpoint (not a proto service, since it handles binary streaming with query parameters).
+The Media Proxy exposes a REST endpoint directly (not through the Gateway). It is not a proto/ConnectRPC service — it handles binary streaming with query parameters and HTTP range semantics.
 
 ### Endpoint
 
 ```
-GET /api/media/proxy?url={url}&width={width}
+GET /media/proxy?url={url}&width={width}
 ```
 
 | Parameter | Required | Description |
@@ -157,7 +163,7 @@ GET /api/media/proxy?url={url}&width={width}
 
 ### Authentication
 
-Standard JWT Bearer authentication, identical to all other Gateway endpoints. The Service Worker in the chat app injects the `Authorization` header on every request to this endpoint.
+JWT Bearer authentication. The Media Proxy validates the `access_token` JWT signature against the IdP's JWKS endpoint, identical to the Gateway's authentication flow (see [Authentication — User Authentication](authn.md#user-authentication-oidc)). The Service Worker in the chat app injects the `Authorization` header on every request to this endpoint.
 
 ### Response
 
@@ -195,12 +201,14 @@ The Media Proxy is a **data plane** service — it carries live media traffic.
 | **Repository** | `agynio/media-proxy` |
 | **Language** | Go |
 | **Kubernetes** | Deployment + Service |
+| **Ingress** | Istio VirtualService: `agyn.dev/media/*` → `media-proxy:8080` |
 | **CI/CD** | See [CI/CD](operations/ci-cd.md) |
 
 ## Related Documents
 
 - [Media](media.md) — file upload, storage, and the Files service
-- [Gateway](gateway.md) — external API surface
+- [Gateway](gateway.md) — external API surface (Media Proxy is independent, not routed through Gateway)
 - [Chat (Product)](../product/chat/chat.md) — inline media rendering in conversations
+- [Inline Media (Product)](../product/chat/inline-media.md) — product spec for inline media display
 - [Authentication](authn.md) — JWT authentication
 - [Authorization](authz.md) — file access control

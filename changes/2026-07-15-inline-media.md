@@ -12,9 +12,9 @@
 Inline media display does not exist yet. The following are not implemented:
 
 - Media Proxy service (`agynio/media-proxy` repository)
-- Media Proxy Kubernetes deployment and Service
-- Gateway: REST route for `GET /api/media/proxy` proxied to the Media Proxy service
-- Chat app: Service Worker for authenticated media requests (JWT injection)
+- Media Proxy: Kubernetes deployment, Service, and Istio VirtualService (`agyn.dev/media/*`)
+- Media Proxy: independent JWT validation (JWKS-based, same as Gateway)
+- Chat app: Service Worker for authenticated media requests (JWT injection on `/media/proxy/` path)
 - Chat app: markdown renderer media components (`<img>`, `<video>`, `<audio>`) using proxy URLs
 - Chat app: download-original link on each rendered media element
 - Image downsampling in the Media Proxy
