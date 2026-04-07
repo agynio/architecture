@@ -60,9 +60,9 @@ Organization members do not have Console access. A user can be an organization o
 
 The Console uses a three-region layout:
 
-- **Top bar** — context switcher (left), user menu (right). Always visible.
+- **Top bar** — context switcher (left), current page title (center), user menu (right). Always visible.
 - **Sidebar** — navigation within the current context. Sections change based on the selected context.
-- **Main area** — list-detail pattern: resource list → resource detail/edit.
+- **Main area** — page content only. No page-level headers — the page title is in the top bar. List-detail pattern: resource list → resource detail/edit.
 
 ### Top Bar
 
@@ -77,6 +77,10 @@ The switcher dropdown lists:
 - **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow. On success, the new organization appears in the list and the Console switches to it.
 
 The currently selected context is displayed in the top bar. On load, the Console selects the last-used context (persisted in local storage). If no previous context exists, the Console selects the first organization alphabetically, or Cluster Administration if the user has no organizations but is a cluster admin.
+
+#### Page Title
+
+The top bar displays the title of the currently active section (e.g., "Agents", "Volumes", "Users"). This is the only place the page title appears — the main area does not repeat it.
 
 #### User Menu
 
