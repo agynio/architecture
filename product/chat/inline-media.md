@@ -64,7 +64,7 @@ The user's browser never contacts third-party servers directly to load media. Al
 
 ## Authentication
 
-Media proxy requests require authentication. A **Service Worker** registered by the chat app intercepts all requests to the media proxy (`media.agyn.dev`) and injects the user's authentication token. This is transparent to the user — media loads as if it were public.
+Media proxy requests require authentication. A **Service Worker** registered by the SPA intercepts all requests to the media proxy (`media.agyn.dev`) and injects the user's authentication token. This is transparent to the user — media loads as if it were public.
 
 The Service Worker approach means that `<img>`, `<video>`, and `<audio>` elements use plain `src` attributes pointing to the media proxy URL. The browser handles caching, range requests (for video/audio seeking), and progressive loading natively. See [Media Proxy — Service Worker](../../architecture/media-proxy.md#service-worker--client-side-auth-injection) for technical details.
 
