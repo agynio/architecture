@@ -15,7 +15,7 @@ All requests to the Media Proxy are authenticated via JWT. The service validates
 graph LR
     Browser[Browser]
     SW[Service Worker<br/>intercepts media requests<br/>injects Authorization header]
-    MP[Media Proxy<br/>agyn.dev/media/]
+    MP[Media Proxy<br/>media.agyn.dev]
     Files[Files Service]
     OS[Object Storage]
     Ext[External Origin<br/>third-party server]
@@ -29,13 +29,27 @@ graph LR
 
 ## Ingress
 
-The Media Proxy is exposed via a path-based route on the same domain as the platform UI, ensuring same-origin requests (no CORS required).
+The Media Proxy is exposed via a dedicated subdomain.
 
-| Path | Host | Target | Description |
-|------|------|--------|-------------|
-| Path-based | `agyn.dev/media/` | `media-proxy:8080` | URI rewrite: `/media/` → `/`. Same origin as the SPA |
+| Host | Target | Description |
+|------|--------|-------------|
+| `media.agyn.dev` | `media-proxy:8080` | Dedicated subdomain for media proxying |
 
-The Istio VirtualService for `agyn.dev` routes `/media/*` to the Media Proxy, alongside the existing `/api/*` route to the Gateway and the default route to the platform UI.
+The Istio VirtualService routes `media.agyn.dev` to the Media Proxy service. Since this is a different origin from the SPA (`agyn.dev`), the Media Proxy returns CORS headers — see [CORS](#cors).
+
+## CORS
+
+The Media Proxy is served from `media.agyn.dev`, a different origin from the chat app at `agyn.dev`. The Service Worker changes request mode from `no-cors` to `cors` when injecting the `Authorization` header. The Media Proxy responds with the following CORS headers:
+
+| Header | Value |
+|--------|-------|
+| `Access-Control-Allow-Origin` | `https://agyn.dev` |
+| `Access-Control-Allow-Headers` | `Authorization, Range` |
+| `Access-Control-Allow-Methods` | `GET, OPTIONS` |
+| `Access-Control-Expose-Headers` | `Content-Type, Content-Range, Accept-Ranges, Content-Disposition, Content-Length` |
+| `Access-Control-Max-Age` | `86400` |
+
+The `OPTIONS` preflight response is cached for 24 hours to minimize preflight overhead.
 
 ## Supported URL Schemes
 
@@ -56,7 +70,7 @@ For external URLs (`http://`, `https://`), the Media Proxy fetches the resource 
 | **SSRF — private network blocking** | Reject requests that resolve to RFC1918, loopback, link-local, or IPv6 ULA addresses. Blocks both direct IP URLs and DNS resolution to private ranges |
 | **SSRF — DNS rebinding** | Resolve DNS before connecting. Validate the resolved address against the deny list, not just the hostname |
 | **Redirect limits** | Follow at most 3 redirects. Validate each hop against the SSRF deny list |
-| **Content-Type whitelist** | Only proxy `image/*`, `video/*`, and `audio/*` content types. Reject all others |
+| **Content-Type whitelist** | Only proxy `image/*`, `video/*`, and `audio/*` content types. Reject all others. This restriction applies only to external URLs — platform files are served with any content type |
 | **Max response size** | Reject responses exceeding a configurable size limit |
 | **Request timeout** | Abort origin requests that exceed a configurable timeout |
 
@@ -78,6 +92,8 @@ For external URLs (`http://`, `https://`), the Media Proxy fetches the resource 
 
 For `agyn://file/<id>` URLs, the Media Proxy extracts the file ID and fetches content from the [Files](media.md) service via `GetFileMetadata` and `GetFileContent` RPCs.
 
+Platform files are served with their original content type — no content-type whitelist is applied. Users can upload any file type (images, video, audio, PDFs, text files, code files, etc.), and the proxy serves them all.
+
 ### Authorization
 
 The Media Proxy validates that the authenticated user has access to the requested file. The caller's identity (from the JWT) is checked against the [authorization model](authz.md) before fetching file content.
@@ -91,9 +107,9 @@ sequenceDiagram
     participant MP as Media Proxy
     participant F as Files Service
 
-    B->>SW: GET /media/proxy?url=agyn://file/abc
+    B->>SW: GET media.agyn.dev/proxy?url=agyn://file/abc
     SW->>SW: Inject Authorization header
-    SW->>MP: GET /media/proxy?url=agyn://file/abc (+ JWT)
+    SW->>MP: GET /proxy?url=agyn://file/abc (+ JWT)
     MP->>MP: Validate JWT
     MP->>MP: Parse agyn://file/abc → file_id=abc
     MP->>MP: Check authorization (identity, file_id)
@@ -109,20 +125,19 @@ sequenceDiagram
 
 The Media Proxy supports on-the-fly image downsampling for inline display. Clients request a constrained size; the proxy resizes the image before streaming it. This reduces bandwidth for large images displayed inline in the chat UI.
 
-Downsampling applies only to `image/*` content types. Video and audio are streamed at original quality.
+Downsampling applies only to `image/*` content types. Video, audio, and non-media files are streamed at original quality.
 
-### Parameters
+### Size Parameter
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `url` | string | Required. The media URL to proxy (`https://...` or `agyn://file/...`) |
-| `width` | integer | Optional. Maximum width in pixels. Aspect ratio is preserved |
+| `size` | integer | Optional. Maximum dimension in pixels. The larger of width and height is constrained to this value; aspect ratio is preserved |
 
-When `width` is specified, the proxy resizes the image so that its width does not exceed the given value, preserving aspect ratio. When omitted, the image is served at original resolution.
+When `size` is specified, the proxy resizes the image so that neither its width nor its height exceeds the given value, preserving aspect ratio. When omitted, the image is served at original resolution.
 
 ### Original File Access
 
-To download the original (non-downsampled) file, the client omits the `width` parameter. The chat UI uses this for the "download original" action.
+To download the original (non-downsampled) file, the client omits the `size` parameter. The chat UI uses this for the "download original" action.
 
 ## Range Request Support
 
@@ -146,6 +161,83 @@ The Media Proxy sets HTTP cache headers on responses to enable browser caching:
 
 For range responses, the proxy also returns `Content-Range` and `Accept-Ranges: bytes`.
 
+## Service Worker — Client-Side Auth Injection
+
+The chat app registers a Service Worker that intercepts all requests to `media.agyn.dev` and injects the JWT `Authorization` header. This allows `<img>`, `<video>`, and `<audio>` elements to use plain `src` attributes — the browser handles caching, range requests, and progressive loading natively.
+
+### Registration
+
+The SPA registers the Service Worker on startup:
+
+```javascript
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
+```
+
+The Service Worker activates immediately via `skipWaiting()` and `clients.claim()`. On the first page load before the Service Worker is active, media requests proceed without the auth header and receive `401` — the browser retries after the Service Worker takes control, or the UI defers media loading until the Service Worker is ready.
+
+### Fetch Interception
+
+The Service Worker intercepts requests matching the media proxy origin and injects the auth header:
+
+```javascript
+const MEDIA_ORIGIN = 'https://media.agyn.dev';
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (url.origin !== MEDIA_ORIGIN) return;
+
+  event.respondWith(
+    fetch(new Request(event.request, {
+      mode: 'cors',
+      headers: {
+        ...Object.fromEntries(event.request.headers.entries()),
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }))
+  );
+});
+```
+
+Key details:
+- **Request mode change:** Browser-initiated requests from `<img>`, `<video>`, `<audio>` tags arrive in `no-cors` mode. The Service Worker creates a new request with `mode: 'cors'` — required to add custom headers. Since the Media Proxy returns CORS headers for `https://agyn.dev`, this works without issues.
+- **Range header preservation:** The new `Request` constructor preserves the original `Range` header from the browser. This is critical for video/audio seeking in all browsers, including Safari's `Range: bytes=0-1` probe.
+
+### Token Lifecycle
+
+The SPA communicates the current JWT to the Service Worker via `postMessage`:
+
+```javascript
+// SPA — after login or token refresh
+navigator.serviceWorker.controller?.postMessage({
+  type: 'SET_TOKEN',
+  token: accessToken,
+});
+```
+
+```javascript
+// Service Worker — receives token updates
+let accessToken = null;
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SET_TOKEN') {
+    accessToken = event.data.token;
+  }
+});
+```
+
+The SPA sends the token:
+1. After initial OIDC login.
+2. After each token refresh.
+3. On page load, if the Service Worker is already active (re-sends the current token).
+
+If the Service Worker has no token (e.g., the worker restarted and the SPA hasn't re-sent it yet), it falls through without injecting the header. The `401` response triggers the SPA to re-send the token and retry.
+
+### Browser Compatibility
+
+Service Workers are supported in all modern browsers since April 2018: Chrome, Firefox, Safari (desktop and iOS), Edge. See [Can I Use: Service Workers](https://caniuse.com/serviceworkers).
+
 ## API
 
 The Media Proxy exposes a REST endpoint directly (not through the Gateway). It is not a proto/ConnectRPC service — it handles binary streaming with query parameters and HTTP range semantics.
@@ -153,13 +245,13 @@ The Media Proxy exposes a REST endpoint directly (not through the Gateway). It i
 ### Endpoint
 
 ```
-GET /media/proxy?url={url}&width={width}
+GET https://media.agyn.dev/proxy?url={url}&size={size}
 ```
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `url` | yes | URL-encoded media URL. `https://...`, `http://...`, or `agyn://file/...` |
-| `width` | no | Max width in pixels (images only) |
+| `size` | no | Max dimension in pixels (images only). The larger of width/height is constrained; aspect ratio preserved |
 
 ### Authentication
 
@@ -176,7 +268,7 @@ JWT Bearer authentication. The Media Proxy validates the `access_token` JWT sign
 | `403 Forbidden` | User does not have access to the requested `agyn://` file |
 | `404 Not Found` | Platform file not found, or external URL returned 404 |
 | `413 Content Too Large` | Response exceeds max size limit |
-| `415 Unsupported Media Type` | Origin content type not in the whitelist |
+| `415 Unsupported Media Type` | Origin content type not in the whitelist (external URLs only) |
 | `422 Unprocessable Content` | URL resolves to a denied network (SSRF) |
 | `502 Bad Gateway` | Origin server error or unreachable |
 | `504 Gateway Timeout` | Origin request timed out |
@@ -188,7 +280,7 @@ JWT Bearer authentication. The Media Proxy validates the `access_token` JWT sign
 | `MAX_RESPONSE_SIZE` | no | Maximum proxied response size in bytes. Default: configurable per deployment |
 | `REQUEST_TIMEOUT` | no | Timeout for origin requests. Default: configurable per deployment |
 | `MAX_REDIRECTS` | no | Maximum redirect hops for external URLs. Default: 3 |
-| `MAX_IMAGE_WIDTH` | no | Maximum allowed `width` parameter value. Default: configurable per deployment |
+| `MAX_IMAGE_SIZE` | no | Maximum allowed `size` parameter value. Default: configurable per deployment |
 
 ## Classification
 
@@ -201,7 +293,7 @@ The Media Proxy is a **data plane** service — it carries live media traffic.
 | **Repository** | `agynio/media-proxy` |
 | **Language** | Go |
 | **Kubernetes** | Deployment + Service |
-| **Ingress** | Istio VirtualService: `agyn.dev/media/*` → `media-proxy:8080` |
+| **Ingress** | Istio VirtualService: `media.agyn.dev` → `media-proxy:8080` |
 | **CI/CD** | See [CI/CD](operations/ci-cd.md) |
 
 ## Related Documents
