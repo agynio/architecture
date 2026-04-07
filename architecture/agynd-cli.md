@@ -22,6 +22,7 @@
 - Posts agent responses back to the thread via `SendMessage`.
 - Acknowledges processed messages via `AckMessages`.
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable message delivery.
+- Sends keepalive signals to the [Runners](runners.md) service (via [Gateway](gateway.md)) while the agent is actively processing. See [Activity Keepalive](#5-activity-keepalive).
 
 ### 2. Message Formatting
 
@@ -60,6 +61,14 @@ The configuration strategy per agent CLI (where skills are placed, how MCP serve
 The agent CLI can be:
 - [`agn`](agn-cli.md) — our own agent loop implementation.
 - Any 3rd-party CLI (Claude Code, Codex CLI, custom implementations).
+
+### 5. Activity Keepalive
+
+`agynd` reports agent activity to the [Runners](runners.md) service for [idle timeout](runners.md#idle-timeout) enforcement. While the agent CLI is actively processing (executing LLM calls, running tools, producing output), `agynd` calls `TouchWorkload` on the [Runners](runners.md) service (via [Gateway](gateway.md)) every 10 seconds. This updates the `last_activity_at` timestamp on the workload record.
+
+When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long.
+
+`agynd` determines activity state from the agent CLI SDK — it knows when the agent is processing a request vs. waiting for input. The keepalive is SDK-agnostic: regardless of which agent CLI is running (Codex, Claude Code, `agn`), `agynd` uses the same `TouchWorkload` mechanism.
 
 ## Agent Communication Protocol
 

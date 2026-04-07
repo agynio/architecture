@@ -175,9 +175,9 @@ sequenceDiagram
 
 ### Idle Timeout
 
-The **orchestrator** owns idle timeout enforcement. During each reconciliation pass, it checks running agent workloads against their last activity (last message on the thread). Agents that have been idle beyond the configured timeout are stopped via `Runner.StopWorkload`.
+The [Agents Orchestrator](../agents-orchestrator.md) owns idle timeout enforcement. The agent's [`idle_timeout`](../resource-definitions.md#agent) (default `"5m"`) controls how long a workload can remain idle before being stopped. [`agynd`](../agynd-cli.md) reports activity while the agent is processing; the orchestrator stops workloads that exceed the timeout. The agent container does not implement idle detection or self-termination.
 
-The agent container does not implement idle detection. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
+See [Agents Orchestrator — Idle Timeout](../agents-orchestrator.md#idle-timeout) for the full mechanism.
 
 ### Scaling
 

@@ -31,6 +31,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
 | **ListWorkloads** | List workloads for an organization |
 | **ListWorkloadsByThread** | List workloads for a thread |
+| **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. Lightweight — updates only the timestamp, no status or container changes |
 
 ## Runner Resource
 
@@ -74,6 +75,7 @@ If the agent defines no `runner_labels`, step 2 is skipped — any eligible runn
 | `containers` | list | Containers in the workload (see below) |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last status update |
+| `last_activity_at` | timestamp | Last activity reported by [`agynd`](agynd-cli.md) via `TouchWorkload`. Set to `created_at` on workload creation. Updated by `agynd` keepalive calls while the agent is actively processing. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement |
 
 ### Container
 
@@ -151,13 +153,27 @@ The service token is long-lived and reusable. If the runner restarts, it re-enro
 
 ## Workload State Management
 
-The [Agents Orchestrator](agents-orchestrator.md) is the sole writer of workload state. The orchestrator calls the Runners service to record workload lifecycle events:
+The [Agents Orchestrator](agents-orchestrator.md) and [`agynd`](agynd-cli.md) write workload state. The orchestrator manages lifecycle; `agynd` reports activity.
 
-1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, thread ID, agent ID, and initial container list.
+**Orchestrator** calls the Runners service to record workload lifecycle events:
+
+1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, thread ID, agent ID, and initial container list. `last_activity_at` is set to `created_at`.
 2. **Update**: orchestrator detects status changes during reconciliation (via Runner `InspectWorkload`) and calls `UpdateWorkloadStatus`.
 3. **Stop**: orchestrator stops a workload via Runner `StopWorkload`, then calls `DeleteWorkload`.
 
-The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator tells it.
+**`agynd`** calls `TouchWorkload` (via [Gateway](gateway.md)) to update `last_activity_at` while the agent is actively processing. See [Idle Timeout](#idle-timeout).
+
+The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator and `agynd` tell it.
+
+## Idle Timeout
+
+The Runners service supports idle timeout enforcement by tracking `last_activity_at` on each workload. The mechanism involves three components:
+
+1. **[`agynd`](agynd-cli.md)** — while the agent CLI is actively processing (executing LLM calls, running tools), `agynd` calls `TouchWorkload` via [Gateway](gateway.md) every 10 seconds. When the agent is idle (waiting for new messages), `agynd` stops calling `TouchWorkload`. This gives the orchestrator a clear signal of agent activity.
+2. **Runners service** — stores `last_activity_at` on the workload record. `TouchWorkload` is a lightweight RPC that updates only this timestamp.
+3. **[Agents Orchestrator](agents-orchestrator.md)** — during each reconciliation pass, queries the Runners service for running workloads. For each workload, compares `now - last_activity_at` against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). If the timeout is exceeded, the orchestrator stops the workload.
+
+This design ensures that long-running agent tasks (which may take hours) are never prematurely terminated — as long as the agent is working, `agynd` keeps touching. The idle clock only starts when the agent finishes processing and enters a wait state.
 
 ## Gateway Exposure
 
@@ -165,11 +181,11 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`, `TouchWorkload` |
 
 Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
 
-Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`) provide external access to workload state.
+Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is called by [`agynd`](agynd-cli.md) to report agent activity for [idle timeout](#idle-timeout) enforcement.
 
 ## Terminal Proxy Integration
 
