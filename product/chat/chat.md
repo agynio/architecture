@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Chat is the platform's communication interface. Users create conversations by selecting participants — other users, AI agents, or a mix of both — and exchanging messages. Every conversation lives in the same list regardless of who the participants are. When an agent is a participant, the conversation gains agent-specific capabilities: runs, containers, and reminders.
+Chat is the platform's communication interface. Users create conversations by selecting participants — other users, AI agents, or a mix of both — and exchanging messages. Every conversation lives in the same list regardless of who the participants are. When an agent is a participant, the conversation gains agent-specific capabilities such as reminders.
 
 ## User Stories
 
@@ -16,7 +16,7 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want to delete messages I no longer need.
 - As a user, I want to see reminders created by agents so I can track follow-ups.
 - As a user, I want to cancel reminders if they are no longer needed.
-- As a user, I want to access running containers attached to a conversation so I can inspect agent workloads.
+- As a user, I want to edit the conversation topic so I can keep it meaningful as the discussion evolves.
 
 ## Layout
 
@@ -54,11 +54,17 @@ Clicking "+" (new conversation) opens the composer:
 
 Drafts are local-only and discarded on cancel or navigation.
 
+## Conversation Topic
+
+Every conversation has a topic — a short text identifying the conversation. The topic is auto-generated from the initial message when the conversation is created. Any participant can edit the topic afterward.
+
+The topic is the primary label shown in the conversation list and in the conversation detail header.
+
 ## Conversation List
 
 All conversations, filtered by status: **Open** (default), **Resolved**, or **All**. Ordered by creation time (newest first). Each entry shows:
 
-- Summary (auto-generated from initial message).
+- Topic.
 - Participant name(s).
 - Creation timestamp.
 - Activity status indicator (running, pending, finished) — for conversations with agent participants.
@@ -76,10 +82,8 @@ Infinite scroll loads older conversations.
 - Activity status indicator.
 - Participant name(s) and role(s).
 - Creation timestamp (relative).
-- Summary.
+- Topic (editable — click to edit inline, save on blur or Enter, cancel on Escape).
 - Status toggle (Open / Resolved).
-- Run count (when an agent is a participant).
-- Container count — with popover listing running containers. Each entry shows the container name and status. Clicking a container opens the [Container Terminal](#container-terminal).
 - Reminder count — with popover listing agent-created reminders, each cancellable.
 
 ### Conversation Area
@@ -90,7 +94,6 @@ Messages containing media (images, video, audio) — whether from external URLs 
 
 When an agent is a participant, the conversation also shows:
 
-- **Runs** — each run represents an agent execution cycle. Runs show status and duration, with a link to the [Run Timeline](../tracing/run-timeline.md).
 - **Reminders** — scheduled follow-ups created by the agent, with content, scheduled time, and cancel action.
 
 ### Composer
@@ -105,34 +108,12 @@ A markdown editor at the bottom. Supports:
 
 The composer persists draft text per conversation to local storage. Drafts restore when returning to a conversation and clear after successful send.
 
-## Container Terminal
-
-When a conversation has agent participants, the platform runs agent workloads as containers. Users can connect to any running container in the conversation's workload — the main agent container or any sidecar (MCP servers, hooks) — via an interactive web-based terminal.
-
-### Opening the Terminal
-
-The container count in the conversation header opens a popover listing all running containers for the conversation. Clicking a container opens a fullscreen modal with an interactive terminal session.
-
-### Terminal Modal
-
-The modal contains:
-
-- **Header** — container name and a close button.
-- **Container switcher** — a control to switch between all containers in the workload (main container and sidecars) without closing the modal.
-- **Terminal** — a fully interactive shell session. The terminal supports keyboard input, command execution, and standard terminal output. The shell is auto-detected (bash if available, otherwise sh).
-
-### Session Lifecycle
-
-- A terminal session starts when the user opens the modal and connects to the selected container.
-- If the user switches to a different container, the current session closes and a new session opens for the selected container.
-- If the container stops while the terminal is open, the session closes and the terminal displays that the session has ended.
-- Closing the modal ends the terminal session.
-
 ## Real-Time Updates
 
 Via WebSocket:
 
-- New conversations appear in the list; summaries and statuses refresh.
+- New conversations appear in the list; topics and statuses refresh.
+- New messages appear in the conversation without page refresh.
 - Activity indicators update (working → waiting → idle).
 - Reminder counts refresh.
 - On reconnection, all data re-fetches.
