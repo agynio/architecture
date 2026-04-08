@@ -1,4 +1,4 @@
-# Chat: Topic and UI Simplification
+# Chat: Editable Summary and UI Simplification
 
 ## Target
 
@@ -6,13 +6,13 @@
 
 ## Delta
 
-### Conversation topic
+### Editable conversation summary
 
-The product spec defines a conversation topic — auto-generated from the initial message, editable by participants, displayed in the conversation list and detail header. Current state:
+The product spec defines the conversation summary as editable by any participant, displayed in the conversation list and detail header. Current state:
 
-- The Chat service data model has no topic field. The `Chat` store type contains only `ThreadID`, `OrganizationID`, and `CreatedAt`.
-- The Chat API has no RPC to update a conversation topic.
-- The chat-app UI displays participant names as the list entry title. There is no topic field in the `Chat` API response type or the `ChatListItem` UI model.
+- The Chat service data model has no summary field. The `Chat` store type contains only `ThreadID`, `OrganizationID`, and `CreatedAt`.
+- The Chat API has no RPC to update a conversation summary.
+- The chat-app UI displays participant names as the list entry title. There is no summary field in the `Chat` API response type or the `ChatListItem` UI model.
 
 ### Open / Resolved filter
 
@@ -52,7 +52,7 @@ The product spec states that new messages appear in the conversation without pag
 
 ## Acceptance Signal
 
-- Conversation topic is stored, auto-generated, editable, and displayed in the list and header.
+- Conversation summary is stored, auto-generated, editable, and displayed in the list and header.
 - Open/Resolved filter and status toggle function end-to-end.
 - Run count badge, container count badge, Container Terminal, run info panel, and inline runs are removed from the chat-app.
 - Real-time WebSocket delivery is enabled in production; new messages appear without page refresh.

@@ -16,7 +16,7 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want to delete messages I no longer need.
 - As a user, I want to see reminders created by agents so I can track follow-ups.
 - As a user, I want to cancel reminders if they are no longer needed.
-- As a user, I want to edit the conversation topic so I can keep it meaningful as the discussion evolves.
+- As a user, I want to edit the conversation summary so I can keep it meaningful as the discussion evolves.
 
 ## Layout
 
@@ -54,17 +54,17 @@ Clicking "+" (new conversation) opens the composer:
 
 Drafts are local-only and discarded on cancel or navigation.
 
-## Conversation Topic
+## Conversation Summary
 
-Every conversation has a topic — a short text identifying the conversation. The topic is auto-generated from the initial message when the conversation is created. Any participant can edit the topic afterward.
+Every conversation has a summary — a short text identifying the conversation. The summary is auto-generated from the initial message when the conversation is created. Any participant can edit the summary afterward.
 
-The topic is the primary label shown in the conversation list and in the conversation detail header.
+The summary is the primary label shown in the conversation list and in the conversation detail header.
 
 ## Conversation List
 
 All conversations, filtered by status: **Open** (default), **Resolved**, or **All**. Ordered by creation time (newest first). Each entry shows:
 
-- Topic.
+- Summary.
 - Participant name(s).
 - Creation timestamp.
 - Activity status indicator (running, pending, finished) — for conversations with agent participants.
@@ -82,7 +82,7 @@ Infinite scroll loads older conversations.
 - Activity status indicator.
 - Participant name(s) and role(s).
 - Creation timestamp (relative).
-- Topic (editable — click to edit inline, save on blur or Enter, cancel on Escape).
+- Summary (editable — click to edit inline, save on blur or Enter, cancel on Escape).
 - Status toggle (Open / Resolved).
 - Reminder count — with popover listing agent-created reminders, each cancellable.
 
@@ -112,7 +112,7 @@ The composer persists draft text per conversation to local storage. Drafts resto
 
 Via WebSocket:
 
-- New conversations appear in the list; topics and statuses refresh.
+- New conversations appear in the list; summaries and statuses refresh.
 - New messages appear in the conversation without page refresh.
 - Activity indicators update (working → waiting → idle).
 - Reminder counts refresh.
