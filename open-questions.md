@@ -99,3 +99,18 @@ Unresolved product and architectural decisions requiring discussion.
 **Questions:**
 - How should persistent volume (PVC) state be tracked and exposed? The [Runner](architecture/runner.md) creates PVCs, but the [Runners](architecture/runners.md) service does not track them. Without tracking, GC/TTL of orphaned PVCs is not possible. This needs a design decision: should the Runners service track PVCs as a first-class resource, or is there a simpler approach?
 - How should historical usage metrics (token consumption, compute hours) be aggregated and served? A dedicated metering/analytics service, per-service summary tables, or deferred until billing is prioritized?
+
+---
+
+## OpenZiti: Upgrade to v2.0.0+ for Secure Dialer Identity
+
+**Context:** The LLM Proxy (and Gateway) need to identify which agent is making a request over an OpenZiti connection. In Ziti v1.x, the only mechanism is `SourceIdentifier()` — which reads `CallerIdHeader`, a value set by the dialing SDK client. The router passes it through verbatim without validation. Any enrolled identity with Dial access to a service can set `CallerIdHeader` to an arbitrary string, impersonating another identity at the application level.
+
+Ziti v2.0.0-pre9 introduced `GetDialerIdentityId()` — the edge router now injects the dialer's identity ID from the authenticated API session into the circuit peer data (`DialerIdentityIdHeader`). This is router-attested and not spoofable by the client.
+
+**Current state:** The `SourceIdentifier()` fallback has been restored as an interim measure. The `ParseManagedIdentityName` server-side validation provides defense-in-depth but does not fully close the spoofing vector.
+
+**Questions:**
+- What is the migration plan for upgrading Ziti controller and routers from v1.7.2 to v2.0.0+? The v2.x line introduces OIDC-based authentication, router data model changes, and removal of `xgress_edge_tunnel` v1 — this is a breaking upgrade.
+- Once on v2.0.0+, should the `SourceIdentifier()` fallback be removed immediately, or kept behind a feature flag for rollback safety?
+- Are there other services (Gateway, Tracing) that rely on `SourceIdentifier()` and would need the same update?
