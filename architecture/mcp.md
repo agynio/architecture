@@ -134,3 +134,21 @@ sequenceDiagram
 ## Resource Definition
 
 MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource specifies the container image, startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and volumes are attached via their respective sub-resources.
+
+## Open Questions
+
+### Standalone SSE for server-initiated notifications
+
+The MCP Streamable HTTP transport defines an optional standalone SSE stream (HTTP GET) that allows servers to push notifications to clients when no POST request is in flight (e.g., `notifications/tools/list_changed`, resource updates, server→client requests like `sampling/createMessage`).
+
+The agent CLI currently disables this stream (`DisableStandaloneSSE: true` in the Go MCP SDK) because:
+
+1. The Go SDK (`modelcontextprotocol/go-sdk`) hangs indefinitely if the server accepts the GET but doesn't flush response headers — which happens with `supergateway` and many non-Go MCP HTTP bridges.
+2. If the connection eventually errors out, the SDK poisons the entire session (`c.fail()`), making all subsequent `ListTools`/`CallTool` calls fail permanently.
+3. There is no "attempt and gracefully fall back" path in the current SDK.
+
+When the agent CLI is extended to support server-initiated notifications, this needs to be resolved. Options:
+
+1. **Upstream SDK fix** — [go-sdk #633](https://github.com/modelcontextprotocol/go-sdk/issues/633). Change `connectStandaloneSSE` to log and continue instead of poisoning the connection on failure.
+2. **Contribute upstream** — Submit a PR to the Go SDK making the standalone SSE failure non-fatal.
+3. **Custom notification channel** — Implement a separate SSE listener outside the SDK with proper timeouts and graceful fallback.
