@@ -238,7 +238,7 @@ Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart
 
 ### E2E Tests in CI
 
-CI provisions the environment using bootstrap and runs E2E tests inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment.
+CI provisions the environment using bootstrap and runs E2E tests inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment. The GitHub Actions job structure is defined in [CI/CD](ci-cd.md#e2e-job).
 
 The CI workflow has two modes:
 

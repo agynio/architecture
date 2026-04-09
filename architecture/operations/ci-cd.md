@@ -74,6 +74,45 @@ ENTRYPOINT ["/app/service"]
 
 **Steps:** Lint, test, build — service-specific.
 
+### E2E Job
+
+Services with in-cluster E2E suites add a dedicated `e2e` job to `ci.yml`. The job provisions a k3d-backed bootstrap cluster, installs tooling, and runs DevSpace tests against the cluster.
+
+**Job definition:**
+
+- `runs-on: ubuntu-latest`
+- `timeout-minutes: 60`
+- `permissions`: `contents: read`, `packages: write`
+
+**Disk space reclamation:** remove preinstalled toolchains to make room for the k3d cluster (Java/JDKs, .NET SDKs, Swift toolchain, Haskell/GHC, Julia, Android SDKs).
+
+**PR image build + push:**
+
+1. Set `PR_IMAGE=ghcr.io/agynio/<service>:pr-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}` in the job environment.
+2. Build and push the image with Docker Buildx after logging into GHCR.
+
+**Bootstrap checkout:** checkout `agynio/bootstrap` at `main` into `bootstrap/`.
+
+**Tool installation:**
+
+- kubectl v1.28.7
+- k3d v5.7.5
+- Terraform 1.6.6
+- DevSpace v6.3.20
+
+**Cluster provisioning:** run `bootstrap/apply.sh -y`. The script applies Terraform stacks in order (`k8s`, `system`, `routing`, `deps`, `ziti`, `data`, `platform`, `apps`) with a CA install step between `system` and `routing`. The kubeconfig is written to `bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml`.
+
+**Platform health verification:** run `bootstrap/.github/scripts/verify_platform_health.sh` to poll ArgoCD applications, check pod and job health, and verify Ziti overlay readiness.
+
+**E2E execution:** run `devspace run-pipeline test-e2e` with `KUBECONFIG` pointing at the bootstrap kubeconfig and `PR_IMAGE` set to the PR tag. Additional test-suite variables (for example, Argos metadata for Playwright) are passed as needed.
+
+**Service patching modes:**
+
+- **Source-sync (Go services):** CI runs `devspace dev` first to patch the service deployment with a dev container and synced source. `devspace run-pipeline test-e2e` runs afterward against the patched pod.
+- **Image-swap (frontends/built artifacts):** CI builds and pushes the PR image. The `test-e2e` pipeline swaps the deployment image via `kubectl set image` using `PR_IMAGE` before running tests.
+
+**Artifacts:** upload Playwright reports and traces with `actions/upload-artifact` when applicable (for example, always upload `playwright-report/`, upload `test-results/` on failures).
+
 ## Base Helm Chart
 
 All service Helm charts inherit from the shared library chart:

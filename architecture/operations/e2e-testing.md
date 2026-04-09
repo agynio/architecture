@@ -682,7 +682,7 @@ All three layers run on every PR. E2E tests also run on push to `main`. Exceptio
 
 ## CI Integration
 
-CI uses the same DevSpace commands as developers. The two workflows differ only in whether `devspace dev` is called first.
+CI uses the same DevSpace commands as developers. The two workflows differ only in whether `devspace dev` is called first. See [CI/CD](ci-cd.md#e2e-job) for the GitHub Actions job that provisions the bootstrap cluster and installs tooling.
 
 ### Pull request workflow
 
