@@ -224,7 +224,7 @@ Register the service in `agynio/bootstrap` so it is deployed in the local cluste
 
 ## E2E Tests
 
-Each service includes end-to-end tests that verify behavior against a running environment provisioned by bootstrap. Tests run **inside the cluster** in a dedicated test pod via DevSpace — the service pods run their pinned release images untouched. See [E2E Testing](e2e-testing.md) for the full methodology.
+Each service includes end-to-end tests that verify behavior against a running environment provisioned by bootstrap. Tests run **inside the cluster** in a dedicated test pod via DevSpace — the service pods run whatever is deployed in the cluster, and the test pod is managed separately. See [E2E Testing](e2e-testing.md) for the full methodology.
 
 ### Structure
 
@@ -240,19 +240,11 @@ Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart
 
 CI provisions the environment using bootstrap and runs E2E tests inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment. The GitHub Actions job structure is defined in [CI/CD](ci-cd.md#e2e-job).
 
-The CI workflow has two modes:
-
-**Pull requests** — deploy from source, then test:
+CI uses the same two-step sequence for pull requests and `main`:
 
 ```bash
-devspace dev           # patch service pod with PR source code
+devspace dev           # patch service pod with source code
 devspace run test-e2e  # run tests against the modified cluster
 ```
 
-**Push to `main`** — test pinned release images directly:
-
-```bash
-devspace run test-e2e  # services are already running released versions
-```
-
-These are separate sequential steps. The `test-e2e` command never deploys or modifies the service pod — it only manages the test pod. See [E2E Testing](e2e-testing.md) for the full rationale.
+Bootstrap pins the rest of the platform images; CI overlays the service under test via `devspace dev` before running the test pod. These are separate sequential steps. The `test-e2e` command never deploys or modifies the service pod — it only manages the test pod. See [E2E Testing](e2e-testing.md) for the full rationale.
