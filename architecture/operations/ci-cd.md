@@ -76,42 +76,17 @@ ENTRYPOINT ["/app/service"]
 
 ### E2E Job
 
-Services with in-cluster E2E suites add a dedicated `e2e` job to `ci.yml`. The job provisions a k3d-backed bootstrap cluster, installs tooling, and runs DevSpace tests against the cluster.
+Services with in-cluster E2E suites add a dedicated e2e job to `ci.yml`. The job provisions a k3d-backed bootstrap cluster, installs tooling, and runs DevSpace tests against the cluster. The job follows this algorithm:
 
-**Job definition:**
-
-- `runs-on: ubuntu-latest`
-- `timeout-minutes: 60`
-- `permissions`: `contents: read`, `packages: write`
-
-**Disk space reclamation:** remove preinstalled toolchains to make room for the k3d cluster (Java/JDKs, .NET SDKs, Swift toolchain, Haskell/GHC, Julia, Android SDKs).
-
-**PR image build + push:**
-
-1. Set `PR_IMAGE=ghcr.io/agynio/<service>:pr-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}` in the job environment.
-2. Build and push the image with Docker Buildx after logging into GHCR.
-
-**Bootstrap checkout:** checkout `agynio/bootstrap` at `main` into `bootstrap/`.
-
-**Tool installation:**
-
-- kubectl v1.28.7
-- k3d v5.7.5
-- Terraform 1.6.6
-- DevSpace v6.3.20
-
-**Cluster provisioning:** run `bootstrap/apply.sh -y`. The script applies Terraform stacks in order (`k8s`, `system`, `routing`, `deps`, `ziti`, `data`, `platform`, `apps`) with a CA install step between `system` and `routing`. The kubeconfig is written to `bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml`.
-
-**Platform health verification:** run `bootstrap/.github/scripts/verify_platform_health.sh` to poll ArgoCD applications, check pod and job health, and verify Ziti overlay readiness.
-
-**E2E execution:** run `devspace run-pipeline test-e2e` with `KUBECONFIG` pointing at the bootstrap kubeconfig and `PR_IMAGE` set to the PR tag. Additional test-suite variables (for example, Argos metadata for Playwright) are passed as needed.
-
-**Service patching modes:**
-
-- **Source-sync (Go services):** CI runs `devspace dev` first to patch the service deployment with a dev container and synced source. `devspace run-pipeline test-e2e` runs afterward against the patched pod.
-- **Image-swap (frontends/built artifacts):** CI builds and pushes the PR image. The `test-e2e` pipeline swaps the deployment image via `kubectl set image` using `PR_IMAGE` before running tests.
-
-**Artifacts:** upload Playwright reports and traces with `actions/upload-artifact` when applicable (for example, always upload `playwright-report/`, upload `test-results/` on failures).
+1. Run on ubuntu-latest with a 60-minute timeout and permissions limited to repository contents read and packages write.
+2. Reclaim disk space by removing preinstalled toolchains (Java/JDKs, .NET SDKs, Swift toolchain, Haskell/GHC, Julia, Android SDKs).
+3. Checkout the service repository and the bootstrap repository, with bootstrap placed in a subdirectory.
+4. Install tooling at fixed versions: kubectl v1.28.7, k3d v5.7.5, Terraform 1.6.6, DevSpace v6.3.20.
+5. Provision the cluster by running the bootstrap apply script in auto-approve mode. The script applies Terraform stacks in order (k8s, system, routing, deps, ziti, data, platform, apps), installs the CA between system and routing, and writes kubeconfig to bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml.
+6. Verify platform health with the bootstrap verification script, which polls ArgoCD applications, checks pod and job health, and validates Ziti overlay readiness.
+7. For pull requests, invoke the DevSpace dev workflow to patch the service deployment with source and sync. For main/release runs, skip this step so tests run against pinned release images.
+8. Run the DevSpace test-e2e pipeline against the cluster using the bootstrap kubeconfig so tests execute inside the cluster against the currently deployed services.
+9. Upload test artifacts when produced by the suite (Playwright report on every run, Playwright traces on failures).
 
 ## Base Helm Chart
 
