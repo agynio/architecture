@@ -684,33 +684,21 @@ All three layers run on every PR. E2E tests also run on push to `main`. Exceptio
 
 CI uses the same DevSpace commands as developers and always invokes `devspace dev` before `devspace run test-e2e`. See [CI/CD](ci-cd.md#e2e-job) for the GitHub Actions job that provisions the bootstrap cluster and installs tooling.
 
-### Pull request workflow
+### CI workflow
 
-A PR needs to test the branch's code. CI calls two commands sequentially:
+CI always runs the same two-step sequence to test the service under development while bootstrap pins the rest of the platform images:
 
 ```bash
-# Step 1: Deploy the service from PR source code
+# Step 1: Deploy the service from source code
 devspace dev
 
 # Step 2: Run E2E tests against the now-modified cluster
 devspace run test-e2e
 ```
 
-`devspace dev` (default mode) patches the service pod, syncs source, waits for the health check, then exits. The patched pod keeps running. `devspace run test-e2e` then deploys the test pod and runs tests against the cluster — which now has the PR's code running in the service pod.
+`devspace dev` (default mode) patches the service pod, syncs source, waits for the health check, then exits. The patched pod keeps running. `devspace run test-e2e` then deploys the test pod and runs tests against the cluster — which now has the service's source code running in the service pod.
 
 These are **separate CI steps**, not a single combined command. The `test-e2e` pipeline must not contain any service deployment logic.
-
-### Push to `main` / release workflow
-
-Pushes to `main` and releases use the same two-step sequence:
-
-```bash
-# Step 1: Deploy the service from source
-devspace dev
-
-# Step 2: Run E2E tests against the now-modified cluster
-devspace run test-e2e
-```
 
 The bootstrap repository pins the rest of the platform images; CI overlays the service under test via `devspace dev` and then runs the test pod against the updated cluster.
 
