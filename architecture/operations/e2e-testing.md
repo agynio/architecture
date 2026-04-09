@@ -682,38 +682,29 @@ All three layers run on every PR. E2E tests also run on push to `main`. Exceptio
 
 ## CI Integration
 
-CI uses the same DevSpace commands as developers. The two workflows differ only in whether `devspace dev` is called first.
+CI uses the same DevSpace commands as developers and always invokes `devspace dev` before `devspace run test-e2e`. See [CI/CD](ci-cd.md#e2e-job) for the GitHub Actions job that provisions the bootstrap cluster and installs tooling.
 
-### Pull request workflow
+### CI workflow
 
-A PR needs to test the branch's code. CI calls two commands sequentially:
+CI always runs the same two-step sequence to test the service under development while bootstrap pins the rest of the platform images:
 
 ```bash
-# Step 1: Deploy the service from PR source code
+# Step 1: Deploy the service from source code
 devspace dev
 
 # Step 2: Run E2E tests against the now-modified cluster
 devspace run test-e2e
 ```
 
-`devspace dev` (default mode) patches the service pod, syncs source, waits for the health check, then exits. The patched pod keeps running. `devspace run test-e2e` then deploys the test pod and runs tests against the cluster — which now has the PR's code running in the service pod.
+`devspace dev` (default mode) patches the service pod, syncs source, waits for the health check, then exits. The patched pod keeps running. `devspace run test-e2e` then deploys the test pod and runs tests against the cluster — which now has the service's source code running in the service pod.
 
 These are **separate CI steps**, not a single combined command. The `test-e2e` pipeline must not contain any service deployment logic.
 
-### Push to `main` / release workflow
-
-On `main`, there is no source to deploy — the goal is to verify the pinned release images:
-
-```bash
-# Only run tests — services already run their released versions
-devspace run test-e2e
-```
-
-No `devspace dev` is called. The cluster is unmodified. Tests verify the real deployed behavior.
+The bootstrap repository pins the rest of the platform images; CI overlays the service under test via `devspace dev` and then runs the test pod against the updated cluster.
 
 ### Why two steps, not one
 
-If `test-e2e` also deployed from source, it would be impossible to run the `main` workflow — every test run would forcibly replace the released image with source code. The separation ensures `test-e2e` is a pure test runner that works against whatever is currently deployed.
+If `test-e2e` also deployed from source, it would duplicate the `devspace dev` deployment logic and blur the boundary between deployment and test execution. Keeping them separate ensures `devspace dev` owns patching and source sync while `test-e2e` remains a pure test runner that executes against whatever is already deployed.
 
 ## Summary
 
@@ -721,7 +712,7 @@ If `test-e2e` also deployed from source, it would be impossible to run the `main
 |--------|----------|
 | Where tests live | In each service repo under `test/e2e/` |
 | Where tests run | Dedicated test pod inside the cluster (not the service pod) |
-| Service pods affected? | No — run pinned release images, untouched |
+| Service pods affected? | No — test-e2e does not patch service pods; it runs against whatever is already deployed |
 | How test pod is created | DevSpace `deployments` with `component-chart` |
 | How source reaches test pod | DevSpace sync (`dev` section) |
 | How tests are triggered | `devspace run test-e2e` |
