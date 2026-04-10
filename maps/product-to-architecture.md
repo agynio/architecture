@@ -46,10 +46,10 @@ Cross-links from product surfaces to the architecture docs that support them.
 ### Architecture docs
 
 - [Expose Service](../architecture/expose-service.md)
+- [Users (Devices)](../architecture/users.md#devices)
 - [OpenZiti Integration](../architecture/openziti.md)
 - [Console](../architecture/console.md)
 - [Gateway](../architecture/gateway.md)
-- [Agents Orchestrator](../architecture/agents-orchestrator.md)
 - [agyn-cli](../architecture/agyn-cli.md)
 
 ## Tracing

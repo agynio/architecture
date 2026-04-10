@@ -19,7 +19,6 @@ graph LR
     LLMService[LLM]
     Secrets[Secrets]
     Apps[Apps Service]
-    Expose[Expose Service]
 
     Console -->|ConnectRPC / HTTP JSON| Gateway
     Gateway --> Users
@@ -29,7 +28,6 @@ graph LR
     Gateway --> LLMService
     Gateway --> Secrets
     Gateway --> Apps
-    Gateway --> Expose
 ```
 
 The Console is a static SPA served by its own Kubernetes deployment with no backend.
@@ -64,7 +62,7 @@ The Console displays:
 | `LLMGateway` | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
 | `SecretsGateway` | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
 | `AppsGateway` | `CreateApp`, `GetApp`, `GetAppBySlug`, `ListApps`, `UpdateApp`, `DeleteApp`, `InstallApp`, `GetInstallation`, `GetInstallationBySlug`, `ListInstallations`, `UpdateInstallation`, `UninstallApp` | Org owner or cluster admin | Apps (Published Apps, Installed Apps) |
-| `ExposeGateway` | `CreateDevice`, `ListDevices`, `DeleteDevice` | Any authenticated user (own devices) | Devices (User Menu) |
+| `UsersGateway` | `CreateDevice`, `ListDevices`, `DeleteDevice` | Any authenticated user (own devices) | Devices (User Menu) |
 
 ## Deployment
 

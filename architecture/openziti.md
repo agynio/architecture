@@ -69,8 +69,8 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity |
 | `CreateExposureResources` | Expose Service | Create an OpenZiti service + Bind policy + Dial policy for a port exposure. Returns all three resource IDs |
 | `DeleteExposureResources` | Expose Service | Delete the OpenZiti service + Bind policy + Dial policy by their IDs |
-| `CreateDeviceIdentity` | Expose Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices"]`, return identity ID + enrollment JWT |
-| `DeleteDeviceIdentity` | Expose Service | Delete a device's OpenZiti identity |
+| `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices"]`, return identity ID + enrollment JWT |
+| `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
 
 ### OpenZiti Controller Operations
 

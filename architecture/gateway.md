@@ -72,7 +72,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `FilesGateway` | [Files](media.md) | UploadFile (client-streaming), GetFileMetadata, GetDownloadURL, GetFileContent (server-streaming) |
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue, CreateSecretProvider, GetSecretProvider, ListSecretProviders, UpdateSecretProvider, DeleteSecretProvider, CreateSecret, GetSecret, ListSecrets, UpdateSecret, DeleteSecret |
-| `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, GetUserByOIDCSubject, ListUsers, UpdateUser, DeleteUser |
+| `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, GetUserByOIDCSubject, ListUsers, UpdateUser, DeleteUser, CreateDevice, ListDevices, DeleteDevice |
 | `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, EnrollRunner, ListWorkloads, ListWorkloadsByThread, GetWorkload, TouchWorkload |
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
@@ -189,5 +189,5 @@ The `GetInstallationBySlug` lookup is cached in-memory with a short TTL. Install
 | Gateway Proto Service | Internal Service | Methods |
 |-----------------------|-----------------|---------|
 | `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, GetAppBySlug, ListApps, UpdateApp, DeleteApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp |
-| `ExposeGateway` | [Expose Service](expose-service.md) | AddExposure, RemoveExposure, ListExposures, CreateDevice, ListDevices, DeleteDevice |
+| `ExposeGateway` | [Expose Service](expose-service.md) | AddExposure, RemoveExposure, ListExposures |
 | *(app proxy)* | *per-app via OpenZiti* | *pass-through* |

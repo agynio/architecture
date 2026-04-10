@@ -76,5 +76,6 @@ The enrollment JWT is shown once at creation time and cannot be retrieved again.
 ## Related Architecture
 
 - [Expose Service](../../architecture/expose-service.md)
+- [Users — Devices](../../architecture/users.md#devices)
 - [OpenZiti Integration](../../architecture/openziti.md)
 - [Console](../../architecture/console.md)

@@ -21,7 +21,6 @@ graph TB
     Runners[Runners] -->|workload state| Reconciler
     Reconciler -->|start/stop workloads| Runner
     Reconciler -->|create/delete identities| ZitiMgmt[Ziti Management]
-    Reconciler -->|cleanup exposures| Expose[Expose Service]
 ```
 
 | Dependency | Usage |
@@ -33,7 +32,6 @@ graph TB
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
-| **[Expose Service](expose-service.md)** | Clean up port exposures when stopping workloads |
 
 ## Reconciliation
 
@@ -164,13 +162,10 @@ When the orchestrator decides an agent workload should stop (idle timeout exceed
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant ES as Expose Service
     participant R as Runner
     participant RS as Runners Service
     participant ZM as Ziti Management
 
-    O->>ES: RemoveExposuresByWorkload(workloadId)
-    ES-->>O: OK
     O->>R: StopWorkload(workloadId)
     R-->>O: OK
     O->>RS: DeleteWorkload(workloadId)
@@ -179,7 +174,7 @@ sequenceDiagram
     ZM-->>O: OK
 ```
 
-The orchestrator calls the [Expose Service](expose-service.md) to clean up any active port exposures before stopping the workload. This ensures OpenZiti resources (services, policies) are removed. See [Expose Service — Workload Cleanup](expose-service.md#workload-cleanup).
+The [Expose Service](expose-service.md) discovers workload stops independently via [Notifications](notifications.md) events and its own reconciliation loop. The Orchestrator does not participate in exposure cleanup. See [Expose Service — Reconciliation](expose-service.md#reconciliation).
 
 ## Leader Election
 

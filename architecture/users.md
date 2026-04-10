@@ -177,12 +177,82 @@ Initial profile fields (name, email, picture) are populated from the IdP UserInf
 |----------|-------|
 | **Gateway** | Resolve OIDC subject → `identity_id` on every request (`ResolveUser`). Provision new users on first login (`ProvisionUser`). Resolve [API tokens](api-tokens.md) → `identity_id` (`ResolveAPIToken`) |
 | **Chat** | Resolve user profiles for message display (sender name, photo) |
-| **[Console](console.md)** | Current user context via `GetMe` (profile, cluster admin status). User management (CRUD) for cluster admins |
+| **[Console](console.md)** | Current user context via `GetMe` (profile, cluster admin status). User management (CRUD) for cluster admins. Device management (create, list, delete) |
 | **[Terraform Provider](operations/terraform-provider.md)** | `agyn_user` resource — create and manage users as code. `data.agyn_user` data source — look up existing users by OIDC subject |
+
+## Devices
+
+Users register devices to access [exposed agent ports](expose-service.md) from their machines. Device management is part of the Users service because devices are user-scoped identity resources — similar to API tokens.
+
+### Device Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique device identifier |
+| `user_identity_id` | string (UUID) | Owning user's identity ID |
+| `name` | string | User-provided device name |
+| `openziti_identity_id` | string | OpenZiti identity ID for this device |
+| `enrollment_jwt` | string (nullable) | Enrollment JWT. Stored until enrollment completes, then cleared |
+| `status` | enum | `pending` (JWT generated, not yet enrolled) or `enrolled` |
+| `created_at` | timestamp | Creation time |
+
+### Device Interface
+
+| Method | Description |
+|--------|-------------|
+| **CreateDevice** | Register a device. Creates an OpenZiti identity via [Ziti Management](openziti.md) and returns the device record with enrollment JWT |
+| **ListDevices** | List devices for the calling user |
+| **DeleteDevice** | Delete a device and its OpenZiti identity. Caller must own the device |
+
+### Device Enrollment Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User (Console)
+    participant GW as Gateway
+    participant US as Users Service
+    participant ZM as Ziti Management
+    participant ZC as OpenZiti Controller
+
+    U->>GW: CreateDevice(name)
+    GW->>US: CreateDevice(user_identity_id, name)
+    US->>ZM: CreateDeviceIdentity(user_identity_id, name, roleAttributes: [devices])
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: [devices], enrollment.ott)
+    ZC-->>ZM: Identity ID + enrollment JWT
+    ZM-->>US: (openziti_identity_id, enrollment_jwt)
+    US->>US: Store device record (status: pending)
+    US-->>GW: Device record + enrollment JWT
+    GW-->>U: Device record + enrollment JWT (shown once)
+```
+
+The user copies the JWT and uses it in their Ziti tunnel client (Ziti Desktop Edge or `ziti-edge-tunnel`). The OpenZiti Controller handles enrollment directly — when the user's tunnel enrolls with the JWT, the Controller issues an x509 certificate. The Users service does not participate in the enrollment step.
+
+Device status transitions from `pending` to `enrolled` when the Ziti tunnel enrolls. The Users service queries the OpenZiti Controller (via Ziti Management) to check enrollment status — this can be done on `ListDevices` calls or via a background check.
+
+### Device OpenZiti Identity
+
+| Field | Value |
+|-------|-------|
+| `name` | `device-<deviceId>` |
+| `type` | `Device` |
+| `roleAttributes` | `[devices]` |
+| `externalId` | `<user_identity_id>` |
+| `enrollment` | `{ ott: true }` |
+
+The `devices` role attribute is used by Dial policies on exposed services. All enrolled devices can access all exposed services — scoped access control is not implemented in this version.
+
+The enrollment JWT is shown once at creation time and cannot be retrieved again. If the user loses the JWT before enrolling, they must delete the device and create a new one.
+
+### Ziti Management API Additions
+
+| RPC | Caller | Description |
+|-----|--------|-------------|
+| `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: [devices]` and `enrollment.ott: true`. Returns the identity ID and enrollment JWT |
+| `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
 
 ## Data Store
 
-PostgreSQL. System-wide `users` and `user_api_tokens` tables. See [API Tokens](api-tokens.md) for the token model.
+PostgreSQL. System-wide `users`, `user_api_tokens`, and `user_devices` tables. See [API Tokens](api-tokens.md) for the token model.
 
 ## Classification
 
