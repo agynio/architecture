@@ -174,7 +174,6 @@ sequenceDiagram
     ZM-->>O: OK
 ```
 
-The [Expose Service](expose-service.md) discovers workload stops independently via [Notifications](notifications.md) events and its own reconciliation loop. The Orchestrator does not participate in exposure cleanup. See [Expose Service — Reconciliation](expose-service.md#reconciliation).
 
 ## Leader Election
 
