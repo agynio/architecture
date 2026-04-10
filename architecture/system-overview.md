@@ -18,6 +18,7 @@ graph TB
         RunnersService[Runners]
         AgentsOrch[Agents<br/>Orchestrator]
         Organizations[Organizations]
+        Expose[Expose]
     end
 
     subgraph Data Plane
@@ -55,6 +56,8 @@ graph TB
     ThirdParty <--> TelegramApp
 
     Gateway --> ZitiMgmt
+    Gateway --> Expose
+    Expose --> ZitiMgmt
     Gateway --> Users
     Gateway --> Authorization
     Gateway --> Chat
@@ -73,6 +76,7 @@ graph TB
     Chat --> Users
 
     Users --> Identity
+    Users --> ZitiMgmt
     Agents --> Identity
 
     Threads -->|publish events| Notifications
@@ -109,7 +113,7 @@ graph TB
 | Component | Responsibility |
 |-----------|---------------|
 | **Identity** | Central identity registry. Maps `identity_id` to `identity_type` for all identity types |
-| **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display |
+| **Users** | User identity records and profiles. Provisions users on first OIDC login, serves profiles for display. Mints OpenZiti user-device enrollment tokens for Ziti Desktop Edge |
 | **Organizations** | Organization lifecycle (CRUD), membership management (invites, direct membership, role assignment), and listing accessible organizations for an identity |
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
@@ -126,6 +130,7 @@ graph TB
 | **[Runners](runners.md)** | Manages runner registrations and workload runtime state. Central registry of runners (cluster-scoped and org-scoped) and running workloads |
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
+| **[Expose](expose.md)** | Manages exposed ports (dev server links) over OpenZiti |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | Apps, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both apps (owned by organizations) and per-org installations (permissions bridge + configuration) |
 | **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |

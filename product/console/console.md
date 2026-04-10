@@ -91,6 +91,7 @@ The dropdown contains:
 | Item | Description |
 |------|-------------|
 | **Profile** | View and edit the user's own profile (name, nickname, photo URL). Read-only fields: OIDC subject |
+| **Devices** | Enroll and manage OpenZiti devices (Ziti Desktop Edge) used to access exposed ports |
 | **API Tokens** | Create, list, and revoke API tokens for programmatic access. Token value is shown once at creation and cannot be retrieved again |
 | **Pending Invites** | List of pending organization invites with accept/decline actions. Badge on the user menu shows the count of pending invites. Accepting an invite adds the organization to the context switcher and switches to it |
 | **Logout** | Ends the session |
