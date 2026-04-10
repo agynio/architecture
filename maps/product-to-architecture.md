@@ -8,6 +8,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 
 - [Chat](../product/chat/chat.md)
 - [Inline Media](../product/chat/inline-media.md)
+- [Exposed Ports](../product/chat/exposed-ports.md)
 
 ### Architecture docs
 
@@ -17,6 +18,9 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Media](../architecture/media.md)
 - [Media Proxy](../architecture/media-proxy.md)
 - [Reminders](../architecture/apps/reminders.md)
+- [OpenZiti](../architecture/openziti.md)
+- [Expose](../architecture/expose.md)
+- [Users](../architecture/users.md)
 
 ## Console
 

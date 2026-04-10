@@ -43,7 +43,7 @@ graph TB
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it connects to the [Gateway](../gateway.md) and the [LLM Proxy](../llm-proxy.md) using OpenZiti service hostnames transparently intercepted by the pod's [Ziti sidecar](../openziti.md#agent-access-scope) and accesses all platform services through them. It does not expose any server or accept inbound connections.
+The agent is a **pure client** for platform APIs — it connects to the [Gateway](../gateway.md) and the [LLM Proxy](../llm-proxy.md) using OpenZiti service hostnames transparently intercepted by the pod's [Ziti sidecar](../openziti.md#agent-access-scope) and accesses all platform services through them. Agent workloads may also run user-facing servers (e.g., dev servers) and expose specific ports through the [Expose](../expose.md) service; this is explicit and not part of the core message delivery contract.
 
 ## Communication Protocol
 
@@ -90,7 +90,7 @@ sequenceDiagram
 ### Design Principles
 
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
+- **No inbound connections for message delivery.** The agent connects outbound to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). User-facing ports are exposed only when explicitly requested via [Expose](../expose.md).
 
 ## Tools
 

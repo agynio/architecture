@@ -7,6 +7,7 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Agent** | An AI entity configured with an LLM model, tools, and instructions. Agents receive messages, reason, execute tools, and respond within conversations. |
 | **Chat** | The platform's communication interface. Users create conversations with any combination of users and agents, all managed in a single list-detail view. |
 | **Container** | A running workload (Kubernetes pod) attached to a conversation's agent. Containers provide terminal access for inspection. |
+| **Exposed Port** | A temporary network endpoint that maps a TCP port inside an agent workload to an OpenZiti hostname of the form `exposed-<id>.ziti:<port>`. |
 | **Context** | The set of items (messages, tool results, memory, summaries) assembled into a prompt for an LLM call. Context is paginated and inspectable per LLM event. |
 | **Conversation** | A persistent exchange between participants (users, agents, or both). Conversations have a lifecycle (open → resolved). |
 | **Gateway** | The external API surface of the platform. All client applications communicate with the platform through the Gateway via ConnectRPC. |

@@ -16,6 +16,7 @@ User records are system-wide — not scoped to an organization. User-to-organiza
 | **User lookup** | Resolve a user by `identity_id` or by OIDC subject |
 | **Batch profile resolution** | Return profiles for a list of identity IDs |
 | **API token management** | Create, list, revoke, and resolve [API tokens](api-tokens.md) for programmatic access |
+| **Ziti device enrollment** | Mint OpenZiti enrollment tokens for user machines (Ziti Desktop Edge / tunnel) to access [exposed ports](expose.md) |
 
 ## User Model
 
@@ -51,6 +52,45 @@ The Users service exposes a method for the calling user to retrieve their own pr
 | Method | Description |
 |--------|-------------|
 | **GetMe** | Return the calling user's profile and cluster role. Identity is resolved from the request context — no `identity_id` parameter. Returns the same shape as admin `GetUser`: profile fields and `cluster_role` |
+
+## Ziti User Device Enrollment
+
+Users can optionally enroll their local machine into the platform's OpenZiti network to reach agent-exposed dev servers (see [Expose](expose.md) and [Exposed Ports](../product/chat/exposed-ports.md)).
+
+This enrollment is **network-only** and is separate from OIDC authentication used for platform APIs.
+
+### Gateway Interface
+
+Exposed through the Gateway via `UsersGateway`. Requires that the caller is authenticated.
+
+| Method | Description |
+|--------|-------------|
+| **CreateZitiDeviceEnrollment** | Create a Ziti identity for a user device and return an enrollment token (JWT) for Ziti Desktop Edge / tunnel |
+
+#### CreateZitiDeviceEnrollment
+
+**Request**
+
+| Field | Type | Required | Description |
+|------|------|----------|-------------|
+| `label` | string | Yes | Human-readable label for the device (e.g., `"Alice MacBook"`) |
+
+**Response**
+
+| Field | Type | Description |
+|------|------|-------------|
+| `device_id` | string (UUID) | Stable ID for this enrolled device record |
+| `enrollment_jwt` | string | One-time enrollment token consumed by Ziti Desktop Edge / tunnel |
+| `expires_at` | timestamp | Token expiry time |
+
+**Behavior**
+
+1. Create a `user_ziti_devices` record in the Users DB (`device_id`, `user_identity_id`, `label`).
+2. Call Ziti Management `CreateUserDeviceIdentity(external_id=device_id, role_attributes=["ziti-users"])`.
+3. Persist the returned `openziti_identity_id` on the device record.
+4. Return `enrollment_jwt` to the caller (shown once).
+
+If the enrollment JWT expires before being used, the user creates a new device enrollment (a new OpenZiti identity is created).
 
 ## Admin User Management
 

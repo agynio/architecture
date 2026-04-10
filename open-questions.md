@@ -18,12 +18,23 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## OpenZiti: Agent-to-Agent Private Networking
 
-**Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
+**Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies).
 
 **Questions:**
 - How does the agent request port sharing? (Platform API tool? Agent SDK primitive?)
-- What is the resource model? (Does the platform define "agent networks" as a team resource, or is each share ad-hoc?)
+- What is the resource model? (Does the platform define "agent networks" as a team resource, or is each port exposure ad-hoc?)
 - Does the binding agent create the OpenZiti service dynamically, or does the Ziti Management service pre-provision it?
+
+---
+
+## OpenZiti: Exposed Ports Access Scope
+
+**Context:** Exposed ports (dev server links) are reachable over OpenZiti at `http://exposed-<id>.ziti:<port>`. We need to decide how dial access to each exposed port is scoped (cluster-wide, org-scoped, thread participants, etc.).
+
+**Questions:**
+- Should dial access be scoped to organization, thread participants, or message author?
+- If scoped to organization: should user device identities carry `org-<orgId>` role attributes, and how are they updated when membership changes?
+- Do exposed ports require per-port dial policies, or can policies be expressed through role attributes alone?
 
 ---
 
