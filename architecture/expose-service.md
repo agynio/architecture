@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Expose service manages the lifecycle of port exposures — making ports inside agent containers accessible to users over the [OpenZiti](openziti.md) network. When an agent exposes a port, the Expose service creates the required OpenZiti resources (service, policies) so that enrolled user devices can reach the port. When the exposure is removed or the agent stops, the service cleans up all associated resources.
+The Expose service manages the lifecycle of port exposures — making ports inside agent containers accessible over the [OpenZiti](openziti.md) network. When an agent exposes a port, the Expose service creates the required OpenZiti resources (service, policies) so that any identity on the OpenZiti network can reach the port. When the exposure is removed or the agent stops, the service cleans up all associated resources.
 
 The Expose service runs its own [reconciliation loop](#reconciliation) to converge actual state toward desired state. It is decoupled from the [Agents Orchestrator](agents-orchestrator.md) — it discovers workload lifecycle changes through [Notifications](notifications.md) events and the [Runners](runners.md) service, following the standard platform [pull + notifications](notifications.md#consumer-sync-protocol) pattern.
 
@@ -72,14 +72,22 @@ sequenceDiagram
     ES->>ES: Store exposure record (status: provisioning)
     ES->>RS: GetWorkload(workload_id)
     RS-->>ES: Workload (agent_id, runner_id, containers)
-    ES->>ZM: CreateExposureResources(exposure_id, port, agent_identity_attribute)
-    ZM->>ZC: POST /services (name: "exposed-<id>", roleAttributes: ["exposed-services"])
+
+    ES->>ZM: CreateService(name: "exposed-<id>", roleAttributes: ["exposed-services"])
+    ZM->>ZC: POST /services
     ZC-->>ZM: Service ID
-    ZM->>ZC: POST /service-policies (Bind, identity: #agent-<agentId>, service: @exposed-<id>)
+    ZM-->>ES: Service ID
+
+    ES->>ZM: CreateServicePolicy(type: Bind, identityRoles: ["#agent-<agentId>"], serviceRoles: ["@exposed-<id>"])
+    ZM->>ZC: POST /service-policies
     ZC-->>ZM: Bind policy ID
-    ZM->>ZC: POST /service-policies (Dial, identity: #devices, service: @exposed-<id>)
+    ZM-->>ES: Bind policy ID
+
+    ES->>ZM: CreateServicePolicy(type: Dial, identityRoles: ["#all"], serviceRoles: ["@exposed-<id>"])
+    ZM->>ZC: POST /service-policies
     ZC-->>ZM: Dial policy ID
-    ZM-->>ES: (service_id, bind_policy_id, dial_policy_id)
+    ZM-->>ES: Dial policy ID
+
     ES->>ES: Update exposure (status: active, store OpenZiti resource IDs)
     ES-->>GW: Exposure record (url: http://exposed-<id>.ziti:<port>)
     GW-->>A: Exposure record
@@ -87,26 +95,21 @@ sequenceDiagram
 
 ### OpenZiti Resources Created
 
-For each port exposure, the Expose service creates three OpenZiti resources via [Ziti Management](openziti.md):
+For each port exposure, the Expose service creates three OpenZiti resources via [Ziti Management](openziti.md), calling each API individually:
 
-| Resource | Details |
-|----------|---------|
-| **Service** | Name: `exposed-<id>`. Role attributes: `["exposed-services"]` |
-| **Bind policy** | Type: Bind. Identity roles: `#agent-<agentId>`. Service roles: `@exposed-<id>`. Grants the agent's Ziti sidecar permission to host this service |
-| **Dial policy** | Type: Dial. Identity roles: `#devices`. Service roles: `@exposed-<id>`. Grants all enrolled devices permission to connect |
+| Resource | Ziti Management RPC | Details |
+|----------|---------------------|---------|
+| **Service** | `CreateService` | Name: `exposed-<id>`. Role attributes: `["exposed-services"]` |
+| **Bind policy** | `CreateServicePolicy` | Type: Bind. Identity roles: `#agent-<agentId>`. Service roles: `@exposed-<id>`. Grants the agent's Ziti sidecar permission to host this service |
+| **Dial policy** | `CreateServicePolicy` | Type: Dial. Identity roles: `#all`. Service roles: `@exposed-<id>`. Grants all identities on the OpenZiti network permission to connect |
 
-The Bind policy uses the `agent-<agentId>` role attribute that is already assigned to agent identities at creation time (see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). The Dial policy uses a `#devices` role attribute assigned to all device identities.
+The Bind policy uses the `agent-<agentId>` role attribute that is already assigned to agent identities at creation time (see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). The Dial policy uses `#all` — any identity connected to the OpenZiti network can access exposed services.
+
+The Expose service manages the orchestration of these three calls. Ziti Management provides generic `CreateService`, `CreateServicePolicy`, `DeleteService`, and `DeleteServicePolicy` RPCs — it has no knowledge of the exposure concept.
 
 ### Agent-Side Hosting
 
 The agent's Ziti sidecar must host the exposed service. When the OpenZiti service and Bind policy are created, the sidecar — which is already enrolled and connected — receives the service update from the OpenZiti Controller. The sidecar is configured to host services matching its role attributes by forwarding traffic to `localhost:<port>` inside the pod. The agent process listens on the port in the shared network namespace.
-
-### Ziti Management API Additions
-
-| RPC | Caller | Description |
-|-----|--------|-------------|
-| `CreateExposureResources` | Expose Service | Create an OpenZiti service + Bind policy + Dial policy for a port exposure. Returns all three resource IDs |
-| `DeleteExposureResources` | Expose Service | Delete the OpenZiti service + Bind policy + Dial policy by their IDs |
 
 ## Remove Exposure Flow
 
@@ -119,9 +122,13 @@ sequenceDiagram
     participant ZC as OpenZiti Controller
 
     ES->>ES: Update exposure (status: removing)
-    ES->>ZM: DeleteExposureResources(service_id, bind_policy_id, dial_policy_id)
+    ES->>ZM: DeleteServicePolicy(dial_policy_id)
     ZM->>ZC: DELETE /service-policies/{dial_policy_id}
+    ZM-->>ES: OK
+    ES->>ZM: DeleteServicePolicy(bind_policy_id)
     ZM->>ZC: DELETE /service-policies/{bind_policy_id}
+    ZM-->>ES: OK
+    ES->>ZM: DeleteService(service_id)
     ZM->>ZC: DELETE /services/{service_id}
     ZM-->>ES: OK
     ES->>ES: Delete exposure record
@@ -147,8 +154,8 @@ On startup, the Expose service subscribes to `workload:{id}` rooms for all workl
 Each reconciliation pass:
 
 1. **Orphaned exposures:** For each `active` exposure, query [Runners](runners.md) to check if the workload still exists. If the workload is gone, transition the exposure to `removing` and delete its OpenZiti resources.
-2. **Failed provisioning:** For each `failed` exposure, attempt to delete any remaining OpenZiti resources via `DeleteExposureResources`. On success, delete the exposure record. On failure, leave for the next pass.
-3. **Stuck removals:** For each `removing` exposure, retry `DeleteExposureResources`. On success, delete the exposure record.
+2. **Failed provisioning:** For each `failed` exposure, attempt to delete any remaining OpenZiti resources via individual `DeleteService` / `DeleteServicePolicy` calls. On success, delete the exposure record. On failure, leave for the next pass.
+3. **Stuck removals:** For each `removing` exposure, retry deletion of remaining OpenZiti resources. On success, delete the exposure record.
 
 This ensures eventual cleanup of all OpenZiti resources regardless of transient failures or missed events.
 
@@ -175,7 +182,9 @@ sequenceDiagram
     RS-->>ES: not found
     ES->>ES: List exposures for workload
     loop For each exposure
-        ES->>ZM: DeleteExposureResources(...)
+        ES->>ZM: DeleteServicePolicy(dial_policy_id)
+        ES->>ZM: DeleteServicePolicy(bind_policy_id)
+        ES->>ZM: DeleteService(service_id)
         ES->>ES: Delete exposure record
     end
 ```
@@ -188,20 +197,18 @@ Port exposure involves creating multiple OpenZiti resources (service, Bind polic
 
 ### Provisioning Failure
 
-If `CreateExposureResources` fails partway through (e.g., service created but Bind policy creation fails):
+If any step in the provisioning sequence fails (e.g., service created but Bind policy creation fails):
 
-1. Ziti Management attempts to delete any resources that were successfully created in the current request.
-2. If cleanup within the same request also fails, Ziti Management returns the IDs of the resources that were created but not cleaned up.
-3. The Expose service stores the exposure record with `status: failed` and the IDs of any created resources.
-4. The [reconciliation loop](#reconciliation) retries cleanup on the next pass.
+1. The Expose service attempts to delete any resources that were successfully created in the current request (in reverse order).
+2. If cleanup also fails, the Expose service stores the exposure record with `status: failed` and the IDs of any created resources.
+3. The [reconciliation loop](#reconciliation) retries cleanup on the next pass.
 
 ### Removal Failure
 
-If `DeleteExposureResources` fails partway through (e.g., Dial policy deleted but service deletion fails):
+If any step in the removal sequence fails (e.g., Dial policy deleted but service deletion fails):
 
-1. Ziti Management returns which resources were deleted and which remain.
-2. The Expose service updates the exposure record with the remaining resource IDs and sets `status: failed`.
-3. The [reconciliation loop](#reconciliation) retries cleanup on the next pass.
+1. The Expose service updates the exposure record with the remaining resource IDs and sets `status: failed`.
+2. The [reconciliation loop](#reconciliation) retries cleanup on the next pass.
 
 ## Static Policies
 

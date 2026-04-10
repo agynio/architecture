@@ -37,7 +37,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
-| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment) |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment), Expose Service (port exposure resources), Users Service (device identities) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
@@ -61,14 +61,15 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `DeleteRunnerIdentity` | Runners Service | Delete a runner's OpenZiti identity, service, and platform mapping |
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
 | `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
-| `CreateService` | Runners Service, Apps Service | Create a per-runner or per-app OpenZiti service |
+| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure) |
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
 | `RequestServiceIdentity` | Orchestrator, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
 | `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity |
-| `CreateExposureResources` | Expose Service | Create an OpenZiti service + Bind policy + Dial policy for a port exposure. Returns all three resource IDs |
-| `DeleteExposureResources` | Expose Service | Delete the OpenZiti service + Bind policy + Dial policy by their IDs |
+| `CreateServicePolicy` | Expose Service | Create a single OpenZiti service policy (Bind or Dial). Returns the policy ID |
+| `DeleteServicePolicy` | Expose Service | Delete an OpenZiti service policy by ID |
+| `DeleteService` | Expose Service | Delete an OpenZiti service by ID |
 | `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices"]`, return identity ID + enrollment JWT |
 | `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
 
@@ -81,10 +82,10 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC, runner/app re-enrollment (previous identity cleanup) |
 | List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
-| Create service | `POST /edge/management/v1/services` | Runner registration, app registration |
-| Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion |
-| Create service policy | `POST /edge/management/v1/service-policies` | Future: dynamic access grants |
-| Delete service / policy | `DELETE /edge/management/v1/{type}/{id}` | Future: revoke dynamic access |
+| Create service | `POST /edge/management/v1/services` | Runner registration, app registration, port exposure |
+| Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion, port exposure cleanup |
+| Create service policy | `POST /edge/management/v1/service-policies` | Port exposure (per-exposure Bind and Dial policies) |
+| Delete service policy | `DELETE /edge/management/v1/service-policies/{id}` | Port exposure cleanup |
 
 ### Identity Lease GC
 
@@ -269,7 +270,7 @@ The [Expose Service](expose-service.md) creates per-exposure OpenZiti service po
 | Policy | Type | Identity Roles | Service Roles | Lifecycle |
 |--------|------|---------------|---------------|-----------|
 | Per-exposure Bind | Bind | `#agent-<agentId>` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
-| Per-exposure Dial | Dial | `#devices` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
+| Per-exposure Dial | Dial | `#all` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
 
 OpenZiti supports this natively:
 
@@ -435,7 +436,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
 | Tracing | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `tracing` service) |
-| Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Expose Service via Ziti Management | Exposed services (dial) |
+| Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Users Service via Ziti Management | Exposed services (dial) |
 
 ## App Identity Lifecycle
 
@@ -500,7 +501,7 @@ This follows the same pattern as [runner enrollment](#runner-provisioning). The 
 |-----|--------|-------------|
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
 | `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
-| `CreateService` | Runners Service, Apps Service | Create a per-runner or per-app OpenZiti service |
+| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure) |
 
 This follows the same pattern as runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
 
@@ -529,4 +530,4 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
 | App | Persistent (enrolled via service token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |
-| Device (user) | Persistent (enrolled via JWT from Console) | Expose Service via Ziti Management | Exposed services (dial) |
+| Device (user) | Persistent (enrolled via JWT from Console) | Users Service via Ziti Management | Exposed services (dial) |

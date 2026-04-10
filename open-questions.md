@@ -119,7 +119,7 @@ Ziti v2.0.0-pre9 introduced `GetDialerIdentityId()` — the edge router now inje
 
 ## Port Exposure: Scoped Access Control
 
-**Context:** The current [Expose Service](architecture/expose-service.md) design grants all enrolled devices access to all exposed services via the `#devices` role attribute on Dial policies. This is intentionally broad for the initial implementation.
+**Context:** The current [Expose Service](architecture/expose-service.md) design grants all identities on the OpenZiti network access to all exposed services via `#all` on Dial policies. This is intentionally broad for the initial implementation.
 
 **Questions:**
 - Should exposed ports be scoped to specific users? (e.g., only the user who started the conversation can access the exposed port)

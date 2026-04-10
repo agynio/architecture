@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Port Exposure allows users to access development servers and other network services running inside agent containers directly from their own machines. An agent starts a service (e.g., a dev server on port 3000), exposes it through the platform, and shares a link in the conversation. The user opens the link in their browser and interacts with the service as if it were running locally.
+Port Exposure allows users to access development servers and other network services running inside agent containers directly from their own machines. An agent starts a service (e.g., a dev server on port 3000), exposes it through the platform, and shares a link. The user opens the link in their browser and interacts with the service as if it were running locally.
 
 ## User Stories
 
 - As a user, I want to enroll my device into the platform network so I can access services exposed by agents.
-- As a user, I want to receive a link in the conversation when an agent exposes a port so I can open the service in my browser.
+- As an agent, I want to expose a port and receive an access URL so I can share it with the user.
 - As a user, I want the exposed service to be cleaned up automatically when the agent stops so I don't have stale connections.
 
 ## Prerequisites
 
-The user must install a Ziti tunnel client on their machine and enroll it using a JWT token generated from the Console. See [Devices](#devices) for the enrollment flow.
+The user must install a Ziti tunnel client on their machine and enroll it using a JWT token generated from the Console. See [Devices](#devices) for the enrollment flow. Once enrolled, the device is part of the OpenZiti network and can access any exposed service.
 
 ## Flow
 
@@ -21,8 +21,10 @@ The user must install a Ziti tunnel client on their machine and enroll it using 
 3. The platform starts the agent.
 4. The agent executes work and starts a dev server (e.g., on port 3000).
 5. The agent exposes the port via `agyn expose add 3000`.
-6. The agent posts a link to the conversation: `http://exposed-<id>.ziti:3000`.
+6. The agent receives the access URL (`http://exposed-<id>.ziti:3000`) and shares it with the user (e.g., posts it to the conversation).
 7. The user opens the link in their browser. The Ziti tunnel on the user's machine resolves the hostname and routes traffic to the agent container over the OpenZiti network.
+
+The platform does not automatically post the link — the agent decides when and how to share it.
 
 ## Link Format
 
@@ -70,7 +72,7 @@ The enrollment JWT is shown once at creation time and cannot be retrieved again.
 ## Constraints
 
 - The user must have a Ziti tunnel client installed and running on their machine.
-- Exposed services are accessible only to devices enrolled in the platform network.
+- Exposed services are accessible to any identity connected to the OpenZiti network (enrolled devices, agents, runners, etc.).
 - The link uses HTTP (not HTTPS) — TLS termination is not provided by the platform for exposed ports.
 
 ## Related Architecture
