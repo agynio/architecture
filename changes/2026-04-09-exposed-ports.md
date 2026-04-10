@@ -9,16 +9,16 @@
 ## Delta
 
 - There is no Users service + Console workflow for minting Ziti Desktop Edge / tunnel enrollment tokens for user machines.
-- There is no Expose service for managing exposed ports (port shares).
+- There is no Expose service for managing exposed ports.
 - Agents cannot request that a local port be exposed over OpenZiti.
-- The platform does not provision per-share OpenZiti services/configs/policies for port exposure.
+- The platform does not provision per-exposed-port OpenZiti services/configs/policies for port exposure.
 
 ## Acceptance Signal
 
 - A user can generate an enrollment token in the Console and enroll Ziti Desktop Edge / tunnel.
-- An agent can request a port share and receive a URL `http://exposed-<id>.ziti:<port>`.
+- An agent can request an exposed port and receive a URL `http://exposed-<id>.ziti:<port>`.
 - A user can open the URL and reach the dev server inside the agent pod.
-- Shares are cleaned up when revoked or when the workload stops (with GC as a backstop).
+- Exposed ports are cleaned up when revoked or when the workload stops (with GC as a backstop).
 
 ## Notes
 

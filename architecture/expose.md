@@ -17,9 +17,9 @@ Expose provisions **OpenZiti services, configs, and policies** dynamically (via 
 
 ## Responsibilities
 
-- **Port shares** — create and revoke port exposures ("shares") for agent workloads.
-- **Garbage collection** — reconcile failed provisioning and clean up orphaned shares.
-- **Idempotency** — ensure share provisioning and cleanup are safe to retry.
+- **Exposed ports** — create and revoke exposed ports for agent workloads.
+- **Garbage collection** — reconcile failed provisioning and clean up orphaned exposed ports.
+- **Idempotency** — ensure exposed-port provisioning and cleanup are safe to retry.
 
 Non-goals:
 - Not a general internet ingress.
@@ -53,7 +53,7 @@ Creates an exposed port bound to the calling agent.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `share_id` | string | 8-character share identifier |
+| `port_id` | string | 8-character port ID |
 | `url` | string | URL to open (e.g., `"http://exposed-ab12cd34.ziti:5173"`) |
 | `status` | enum | `active` |
 
@@ -67,7 +67,7 @@ Revokes an exposed port.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `share_id` | string | Share identifier |
+| `port_id` | string | Port identifier |
 
 **Response**
 
@@ -97,28 +97,28 @@ Each `results[]` entry:
 
 | Field | Type | Description |
 |------|------|-------------|
-| `share_id` | string | Share identifier |
+| `port_id` | string | Port identifier |
 | `status` | enum | `deleted`, `failed` |
 | `error` | string | Present when `status=failed` |
 
 **Behavior**
 
-1. Lookup all shares for `agent_id` in `status in {provisioning, active, failed}`.
+1. Lookup all exposed ports for `agent_id` in `status in {provisioning, active, failed}`.
 2. For each, run the same deletion sequence as `DeletePort`.
-3. Return per-share results; any failures are retried by GC.
+3. Return per-port results; any failures are retried by GC.
 
-## PortShare Resource
+## ExposedPort Resource
 
-Expose stores each share as a first-class resource.
+Expose stores each exposed port as a first-class resource.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `share_id` | string | 8-character share identifier |
+| `port_id` | string | 8-character port ID |
 | `organization_id` | string (UUID) | Owning organization (derived from agent) |
 | `agent_id` | string (UUID) | Agent resource UUID |
-| `thread_id` | string (UUID) | Thread where the share was created |
+| `thread_id` | string (UUID) | Thread where the port was exposed |
 | `port` | int32 | Local TCP port inside the agent pod |
-| `hostname` | string | `exposed-<share_id>.ziti` |
+| `hostname` | string | `exposed-<port_id>.ziti` |
 | `description` | string | Optional display text |
 | `status` | enum | `provisioning`, `active`, `deleting`, `failed` |
 | `last_error` | string | Error message when `status=failed` |
@@ -131,30 +131,30 @@ Expose provisions OpenZiti resources through [Ziti Management](openziti.md#ziti-
 
 ### Naming
 
-All created resources use deterministic names derived from `share_id`:
+All created resources use deterministic names derived from `port_id`:
 
 | Resource | Name |
 |----------|------|
-| Service | `exposed-<share_id>` |
-| Intercept hostname | `exposed-<share_id>.ziti` |
-| Intercept config | `exposed-<share_id>-intercept-v1` |
-| Host config | `exposed-<share_id>-host-v1` |
-| Bind policy | `exposed-<share_id>-bind` |
-| Dial policy | `exposed-<share_id>-dial` |
+| Service | `exposed-<port_id>` |
+| Intercept hostname | `exposed-<port_id>.ziti` |
+| Intercept config | `exposed-<port_id>-intercept-v1` |
+| Host config | `exposed-<port_id>-host-v1` |
+| Bind policy | `exposed-<port_id>-bind` |
+| Dial policy | `exposed-<port_id>-dial` |
 
 This makes provisioning and cleanup **idempotent**.
 
-### Resources Created per Share
+### Resources Created per Exposed Port
 
-For each share, Expose ensures:
+For each exposed port, Expose ensures:
 
-1. **OpenZiti service** named `exposed-<share_id>` with role attribute `exposed-services`.
-2. **Intercept config** (`intercept.v1`) matching hostname `exposed-<share_id>.ziti` and TCP port `port`.
+1. **OpenZiti service** named `exposed-<port_id>` with role attribute `exposed-services`.
+2. **Intercept config** (`intercept.v1`) matching hostname `exposed-<port_id>.ziti` and TCP port `port`.
 3. **Host config** (`host.v1`) forwarding to `127.0.0.1:port` inside the agent pod network namespace.
 4. **Bind service policy** granting only the agent's role attribute `agent-<agent_id>` permission to bind the service.
 5. **Dial service policy** granting selected user devices permission to dial the service (see [OpenZiti: Exposed Ports Access Scope](../open-questions.md#openziti-exposed-ports-access-scope)).
 
-### Port Share Flow
+### Exposed Port Flow
 
 ```mermaid
 sequenceDiagram
@@ -185,15 +185,15 @@ sequenceDiagram
 
 ## Removal, Cleanup, and GC
 
-### When port-share services are removed
+### When exposed ports are removed
 
-A port share (and its OpenZiti service/config/policy objects) should be removed when any of the following occurs:
+An exposed port (and its OpenZiti service/config/policy objects) should be removed when any of the following occurs:
 
-1. **Explicit revoke** — user (Console) or agent calls `DeletePort(share_id)`.
-2. **Workload stop** — when an agent workload is terminated, the control plane should revoke any remaining shares for that agent.
-   - Preferred: the **Agents Orchestrator** calls Expose to revoke shares as part of workload stop.
-   - Backstop: Expose GC detects shares whose agent workload no longer exists and deletes them.
-3. **Failed provisioning** — shares stuck in `failed` or `provisioning` beyond a timeout are deleted by GC.
+1. **Explicit revoke** — user (Console) or agent calls `DeletePort(port_id)`.
+2. **Workload stop** — when an agent workload is terminated, the control plane should revoke any remaining exposed ports for that agent.
+   - Preferred: the **Agents Orchestrator** calls Expose to revoke exposed ports as part of workload stop.
+   - Backstop: Expose GC detects exposed ports whose agent workload no longer exists and deletes them.
+3. **Failed provisioning** — ports stuck in `failed` or `provisioning` beyond a timeout are deleted by GC.
 
 Time-based expiry (TTL) is intentionally not specified yet; add it as a follow-up if we want automatic expiration even for long-running workloads.
 
@@ -201,12 +201,12 @@ Time-based expiry (TTL) is intentionally not specified yet; add it as a follow-u
 
 Expose deletes OpenZiti resources using deterministic names. Deletion treats "not found" as success.
 
-Recommended delete sequence for a share `exposed-<share_id>`:
+Recommended delete sequence for an exposed port `exposed-<port_id>`:
 
-1. Delete dial policy `exposed-<share_id>-dial`.
-2. Delete bind policy `exposed-<share_id>-bind`.
-3. Delete service `exposed-<share_id>`.
-4. Delete configs `exposed-<share_id>-intercept-v1` and `exposed-<share_id>-host-v1`.
+1. Delete dial policy `exposed-<port_id>-dial`.
+2. Delete bind policy `exposed-<port_id>-bind`.
+3. Delete service `exposed-<port_id>`.
+4. Delete configs `exposed-<port_id>-intercept-v1` and `exposed-<port_id>-host-v1`.
 
 OpenZiti revocation closes active connections; deleting the service/policies makes the URL stop working.
 
@@ -214,14 +214,14 @@ OpenZiti revocation closes active connections; deleting the service/policies mak
 
 - On delete request, set `status=deleting`.
 - Attempt OpenZiti deletions.
-- On success, delete the `PortShare` record (or mark it deleted/tombstoned; retention is implementation-defined).
+- On success, delete the `ExposedPort` record (or mark it deleted/tombstoned; retention is implementation-defined).
 - On error, keep the record, set `last_error`, and rely on GC to retry.
 
 ### Garbage collection loop
 
 Expose runs a background reconciler that:
 
-- retries deletion for shares stuck in `failed` or `deleting`.
-- deletes shares whose backing workload is no longer running (based on a control-plane workload lookup; implementation-defined).
+- retries deletion for ports stuck in `failed` or `deleting`.
+- deletes exposed ports whose backing workload is no longer running (based on a control-plane workload lookup; implementation-defined).
 
 All deletions are idempotent and may be retried safely.

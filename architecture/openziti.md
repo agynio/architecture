@@ -48,7 +48,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
-| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment), Users Service (user device enrollment), Expose (port shares) |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment), Users Service (user device enrollment), Expose (exposed ports) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
@@ -75,7 +75,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
 | `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
 | `CreateUserDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device, return enrollment JWT (Desktop Edge enrolls client-side) |
-| `CreateService` | Runners Service, Apps Service, Expose | Create a per-runner, per-app, or per-share OpenZiti service |
+| `CreateService` | Runners Service, Apps Service, Expose | Create a per-runner, per-app, or per-exposed-port OpenZiti service |
 | `CreateConfig` | Expose | Create an OpenZiti config object (intercept.v1, host.v1) |
 | `DeleteConfig` | Expose | Delete an OpenZiti config object |
 | `CreateServicePolicy` | Expose | Create a service policy (Dial/Bind) |
@@ -281,7 +281,7 @@ Static policies, services, and edge router policies are provisioned by Terraform
 
 In addition to static policies, the platform provisions dynamic services and policies at runtime for ad-hoc connectivity use cases:
 
-- **Exposed ports (dev servers)** — The [Expose service](expose.md) creates a per-share OpenZiti service `exposed-<id>` with intercept hostname `exposed-<id>.ziti` and host forwarding to `127.0.0.1:<port>` in the agent pod. A per-share Bind policy restricts hosting to the requesting agent. Expose also creates a per-share Dial policy; which user devices receive Dial access is defined by the access-scope policy (see the [open question](../open-questions.md#openziti-exposed-ports-access-scope)). On revoke/workload stop, Expose deletes the per-share service/configs/policies.
+- **Exposed ports (dev servers)** — The [Expose service](expose.md) creates a per-exposed-port OpenZiti service `exposed-<id>` with intercept hostname `exposed-<id>.ziti` and host forwarding to `127.0.0.1:<port>` in the agent pod. A per-exposed-port Bind policy restricts hosting to the requesting agent. Expose also creates a per-exposed-port Dial policy; which user devices receive Dial access is defined by the access-scope policy (see the [open question](../open-questions.md#openziti-exposed-ports-access-scope)). On revoke/workload stop, Expose deletes the per-exposed-port service/configs/policies.
 - **Agent-to-agent private networking** — Future capability. Agents expose a port that only specific other agents can connect to.
 
 OpenZiti supports this natively:
