@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LLM service manages LLM providers and models as internal resources, and provides model resolution for the [LLM Proxy](llm-proxy.md). It is the single source of truth for provider credentials and model-to-provider mappings.
+The LLM service manages LLM providers and models as internal resources, and provides model resolution for the [LLM Proxy](llm-proxy.md). It is the single source of truth for provider credentials, protocol selection, and model-to-provider mappings.
 
 Agents do not interact with the LLM service directly. They call the [LLM Proxy](llm-proxy.md), which resolves models through this service.
 
@@ -36,7 +36,9 @@ The `ResolveModel` method returns everything the [LLM Proxy](llm-proxy.md) needs
 |-------|------|-------------|
 | `endpoint` | string | Provider base URL (e.g., `https://api.openai.com`) |
 | `token` | string | Provider authentication token |
-| `remote_name` | string | Model identifier on the provider's side (e.g., `gpt-5`, `anthropic/claude-sonnet-4-20250514`) |
+| `remote_name` | string | Model identifier on the provider's side (e.g., `gpt-5`, `claude-sonnet-4-20250514`) |
+| `protocol` | string | LLM API protocol — `responses` or `anthropic_messages`. From the provider's [`protocol`](providers.md#llm-provider) field |
+| `auth_method` | string | Authentication method — `bearer` or `x_api_key`. From the provider's [`authMethod`](providers.md#llm-provider) field |
 | `organization_id` | string (UUID) | Organization that owns the model |
 
 ### Resolution Chain

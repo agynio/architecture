@@ -84,7 +84,7 @@ One init image per supported agent type, each in its own repository:
 | Image | Repository | Contents |
 |-------|------------|----------|
 | `ghcr.io/agynio/agent-init-codex:<version>` | `agynio/agent-init-codex` | `agynd` + `codex` (static musl binary) + `config.json` with `sdk: codex` |
-| `ghcr.io/agynio/agent-init-claude:<version>` | `agynio/agent-init-claude` | `agynd` + `claude` (static musl binary) + `config.json` with `sdk: claude` |
+| `ghcr.io/agynio/agent-init-claude:<version>` | `agynio/agent-init-claude` | `agynd` + `claude` (native `linux-x64-musl` binary) + `libgcc`/`libstdc++` + `config.json` with `sdk: claude` |
 | `ghcr.io/agynio/agent-init-agn:<version>` | `agynio/agent-init-agn` | `agynd` + `agn` (static Go binary) + `config.json` with `sdk: agn` |
 
 #### Repository Structure
@@ -170,7 +170,7 @@ All binaries are statically linked and run on any Linux base image:
 |--------|-------|--------|
 | `agynd` | Go, `CGO_ENABLED=0` | Yes |
 | Codex CLI | Rust, musl target (`codex-x86_64-unknown-linux-musl`) | Yes |
-| Claude Code CLI | musl variant from Anthropic distribution (GCS bucket) | Yes (musl variant only) |
+| Claude Code CLI | Native binary, `linux-x64-musl` variant from Anthropic distribution. Requires `libgcc` and `libstdc++` on Alpine — the init image bundles these alongside the binary | Yes (musl variant; depends on `libgcc`/`libstdc++`) |
 | agn CLI | Go, `CGO_ENABLED=0` | Yes |
 
 #### CI
