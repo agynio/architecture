@@ -5,7 +5,7 @@ Desired product state for the Agyn platform.
 ## Reading paths
 
 - Start here: [Overview](overview.md) -> [Concepts](concepts.md)
-- Chat: [Chat](chat/chat.md) -> [Inline Media](chat/inline-media.md)
+- Chat: [Chat](chat/chat.md) -> [Inline Media](chat/inline-media.md) -> [Exposed Ports](chat/exposed-ports.md)
 - Console: [Console](console/console.md)
 - Tracing: [Run Timeline](tracing/run-timeline.md)
 
@@ -20,6 +20,7 @@ Desired product state for the Agyn platform.
 
 - [Chat](chat/chat.md)
 - [Inline Media](chat/inline-media.md)
+- [Exposed Ports](chat/exposed-ports.md)
 
 ### Console
 
