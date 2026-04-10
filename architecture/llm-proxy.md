@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LLM Proxy is a standalone HTTP service that exposes LLM API endpoints for agents. It serves two wire protocols: the OpenAI Responses API (`POST /v1/responses`) and the Anthropic Messages API (`POST /v1/messages`). It authenticates callers, resolves the requested model to an LLM provider via the [LLM service](llm.md), and forwards the request to the external provider with injected credentials using the provider's declared wire protocol and auth method. Responses — including streaming — are passed back to the caller.
+The LLM Proxy is a standalone HTTP service that exposes LLM API endpoints for agents. It serves two LLM API protocols: the OpenAI Responses API (`POST /v1/responses`) and the Anthropic Messages API (`POST /v1/messages`). It authenticates callers, resolves the requested model to an LLM provider via the [LLM service](llm.md), and forwards the request to the external provider with injected credentials using the provider's declared protocol and auth method. Responses — including streaming — are passed back to the caller.
 
 Agents point their standard LLM client (OpenAI or Anthropic) at the LLM Proxy and use it like any compatible API. No custom client logic is required.
 
@@ -10,7 +10,7 @@ Agents point their standard LLM client (OpenAI or Anthropic) at the LLM Proxy an
 
 Agents use standard LLM client libraries that expect HTTP REST endpoints — Codex CLI and [`agn`](agn-cli.md) use the OpenAI Responses API (`POST /v1/responses`), Claude Code uses the Anthropic Messages API (`POST /v1/messages`). The platform's internal services communicate over gRPC via [ConnectRPC](gateway.md#connectrpc). Exposing the LLM proxy through the Gateway's ConnectRPC interface would require agents to use a non-standard client, defeating the goal of wrapping unmodified 3rd-party agent CLIs.
 
-The LLM Proxy bridges this gap: it speaks the standard LLM API wire formats externally and gRPC internally.
+The LLM Proxy bridges this gap: it speaks the standard LLM API formats externally and gRPC internally.
 
 ## Responsibilities
 
@@ -21,7 +21,7 @@ The LLM Proxy bridges this gap: it speaks the standard LLM API wire formats exte
 | **Authentication** | Authenticate callers via [OpenZiti](#openziti-identity) network identity or [API token](api-tokens.md) |
 | **Authorization** | Call the [Authorization](authz.md) service to check access before forwarding |
 | **Model resolution** | Call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
-| **Request forwarding** | Forward the request to the external LLM provider with injected credentials (Bearer or x-api-key, per the provider's auth method) and substituted model name, using the provider's declared wire protocol |
+| **Request forwarding** | Forward the request to the external LLM provider with injected credentials (Bearer or x-api-key, per the provider's auth method) and substituted model name, using the provider's declared protocol |
 | **Streaming** | Support SSE streaming (`stream: true`) — stream the provider's response back to the caller without buffering |
 
 ## Classification
@@ -78,18 +78,18 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 
 **Streaming:** When the request includes `"stream": true`, the response is delivered as SSE with `Content-Type: text/event-stream`. Events follow the Anthropic Messages streaming format (e.g., `message_start`, `content_block_delta`, `message_stop`).
 
-The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution and validating the provider's wire protocol. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name).
+The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution and validating the provider's protocol. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name).
 
-## Wire API Protocols
+## Protocols
 
-The LLM Proxy supports two wire protocols. The caller-facing endpoint determines which protocol the agent speaks. The provider-facing protocol is determined by the provider's [`wire_api`](providers.md#llm-provider) field returned from model resolution.
+The LLM Proxy supports two LLM API protocols. The caller-facing endpoint determines which protocol the agent speaks. The provider-facing protocol is determined by the provider's [`protocol`](providers.md#llm-provider) field returned from model resolution.
 
-| Caller Endpoint | Agent Protocol | Provider `wire_api` | Provider Endpoint Path |
+| Caller Endpoint | Agent Protocol | Provider `protocol` | Provider Endpoint Path |
 |----------------|----------------|---------------------|----------------------|
 | `POST /v1/responses` | OpenAI Responses API | `responses` | `POST /v1/responses` |
 | `POST /v1/messages` | Anthropic Messages API | `anthropic_messages` | `POST /v1/messages` |
 
-The caller-facing protocol and provider-facing protocol always match: an agent calling `POST /v1/responses` uses a model whose provider has `wire_api: responses`, and an agent calling `POST /v1/messages` uses a model whose provider has `wire_api: anthropic_messages`. The LLM Proxy validates this — if a caller sends a request to `POST /v1/messages` but the resolved provider has `wire_api: responses`, the proxy returns `400 Bad Request`.
+The caller-facing protocol and provider-facing protocol always match: an agent calling `POST /v1/responses` uses a model whose provider has `protocol: responses`, and an agent calling `POST /v1/messages` uses a model whose provider has `protocol: anthropic_messages`. The LLM Proxy validates this — if a caller sends a request to `POST /v1/messages` but the resolved provider has `protocol: responses`, the proxy returns `400 Bad Request`.
 
 ### OpenAI Responses API (`responses`)
 
@@ -148,8 +148,8 @@ sequenceDiagram
     A->>P: POST /v1/responses or /v1/messages (model: platform-model-id)
     P->>P: Authenticate caller (OpenZiti / API token)
     P->>L: ResolveModel(model_id)
-    L-->>P: endpoint, token, remoteName, wire_api, auth_method, organization_id
-    P->>P: Validate caller endpoint matches provider wire_api
+    L-->>P: endpoint, token, remoteName, protocol, auth_method, organization_id
+    P->>P: Validate caller endpoint matches provider protocol
     P->>Auth: Check(identity, can_use, model)
     Auth-->>P: allowed / denied
     P->>E: Forward request (auth per auth_method, model: remoteName)
@@ -159,8 +159,8 @@ sequenceDiagram
 
 1. Agent sends a request to the LLM Proxy (`POST /v1/responses` or `POST /v1/messages`), specifying the platform model ID.
 2. LLM Proxy authenticates the caller — OpenZiti identity resolution via [Ziti Management](openziti.md), or API token hash lookup via [Users](users.md).
-3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token, remote model name, wire protocol, auth method, and organization ID.
-4. LLM Proxy validates that the caller's endpoint matches the provider's wire protocol (e.g., `POST /v1/messages` requires `wire_api: anthropic_messages`). If mismatched, returns `400 Bad Request`.
+3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token, remote model name, protocol, auth method, and organization ID.
+4. LLM Proxy validates that the caller's endpoint matches the provider's protocol (e.g., `POST /v1/messages` requires `protocol: anthropic_messages`). If mismatched, returns `400 Bad Request`.
 5. LLM Proxy calls the [Authorization](authz.md) service to check whether the caller has access. If denied, returns `403 Forbidden`.
 6. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name and injecting the provider's token using the provider's auth method (`bearer` → `Authorization: Bearer`, `x_api_key` → `x-api-key`).
 7. The provider's response is returned to the agent. For streaming requests, SSE events are forwarded without buffering.

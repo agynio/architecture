@@ -18,20 +18,20 @@ Claude Code cannot run as an agent on the platform. The following are not implem
 - `POST /v1/messages` endpoint does not exist. The LLM Proxy only serves `POST /v1/responses` (OpenAI Responses API).
 - Anthropic Messages API request/response forwarding is not implemented (different request schema, different SSE streaming event types, `anthropic-version` header forwarding).
 - Caller authentication via `x-api-key` header is not implemented (the proxy only reads `Authorization: Bearer`).
-- Wire protocol validation (caller endpoint must match provider `wire_api`) is not implemented.
+- Wire protocol validation (caller endpoint must match provider `protocol`) is not implemented.
 
 ### LLM Service — Protocol-aware model resolution
 
-- `ResolveModel` does not return `wire_api` or `auth_method`. It returns `endpoint`, `token`, `remote_name`, `organization_id` only.
-- The LLM proto (`agynio/api`) does not have `wire_api` or `auth_method` fields on the `ResolveModelResponse` message.
+- `ResolveModel` does not return `protocol` or `auth_method`. It returns `endpoint`, `token`, `remote_name`, `organization_id` only.
+- The LLM proto (`agynio/api`) does not have `protocol` or `auth_method` fields on the `ResolveModelResponse` message.
 
-### LLM Provider — `wire_api` and `authMethod` extension
+### LLM Provider — `protocol` and `authMethod` extension
 
-- The LLM Provider resource has no `wire_api` field. All providers are assumed to speak OpenAI Responses API.
+- The LLM Provider resource has no `protocol` field. All providers are assumed to speak OpenAI Responses API.
 - The `authMethod` enum only supports `bearer`. `x_api_key` (for Anthropic's `x-api-key` header) is not supported.
-- The LLM Provider proto (`agynio/api`) does not have a `wire_api` field on the `LLMProvider` message.
-- The Agents service (`agynio/agents`) does not store or validate `wire_api` on LLM Provider resources.
-- The Terraform provider (`agynio/terraform-provider-agyn`) does not expose `wire_api` on the `agyn_llm_provider` resource.
+- The LLM Provider proto (`agynio/api`) does not have a `protocol` field on the `LLMProvider` message.
+- The Agents service (`agynio/agents`) does not store or validate `protocol` on LLM Provider resources.
+- The Terraform provider (`agynio/terraform-provider-agyn`) does not expose `protocol` on the `agyn_llm_provider` resource.
 
 ### agynd — Claude Code environment preparation
 
@@ -61,18 +61,18 @@ Claude Code cannot run as an agent on the platform. The following are not implem
 
 - An agent with `init_image: ghcr.io/agynio/agent-init-claude:<version>` starts successfully.
 - Claude Code inside the agent container connects to the LLM Proxy via `POST /v1/messages` and receives streaming responses.
-- An LLM Provider with `wire_api: anthropic_messages` and `authMethod: x_api_key` can be created and used to resolve models.
+- An LLM Provider with `protocol: anthropic_messages` and `authMethod: x_api_key` can be created and used to resolve models.
 - Claude Code has full tool permissions (no interactive prompts) via `settings.json` permissions block.
 - Claude Code has auto-updater and non-essential traffic disabled.
 - `claude-sdk-go` spawns the Claude Code subprocess, sends user messages, and receives NDJSON responses.
 - `agynd` writes `~/.claude/settings.json` with the correct `env` and `permissions` blocks before spawning Claude Code.
 - MCP tool servers are accessible to Claude Code via MCP configuration.
-- The `agyn_llm_provider` Terraform resource supports the `wire_api` field.
+- The `agyn_llm_provider` Terraform resource supports the `protocol` field.
 
 ## Notes
 
 - `claude-sdk-go` protocol spec lives in the `agynio/claude-sdk-go` repository, not in architecture docs. The protocol is reverse-engineered from Anthropic's Python and TypeScript SDK sources and has no formal specification.
 - Token counting changes are out of scope. Claude Code handles its own token counting internally.
-- The LLM Proxy does not translate between wire protocols. A `POST /v1/messages` request is only valid when the resolved provider has `wire_api: anthropic_messages`.
+- The LLM Proxy does not translate between protocols. A `POST /v1/messages` request is only valid when the resolved provider has `protocol: anthropic_messages`.
 - Claude Code's native binary (`linux-x64-musl`) is not fully static — it dynamically links `libgcc` and `libstdc++`. The init container image must bundle these libraries (from Alpine's `libgcc` and `libstdc++` packages) and ensure they are available at `/agyn-bin/lib/` or equivalent for the binary to find at runtime.
 - Claude Code permission management uses `settings.json` `permissions.allow` block to grant all tool permissions. The platform provides security isolation at the container level, so the agent can perform any action.

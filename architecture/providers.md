@@ -2,18 +2,18 @@
 
 ## LLM Provider
 
-An LLM provider represents a connection to an external LLM service. Each provider declares which wire protocol it speaks — OpenAI Responses API or Anthropic Messages API. The [LLM Proxy](llm-proxy.md) uses the matching protocol when forwarding requests.
+An LLM provider represents a connection to an external LLM service. Each provider declares which LLM API protocol it speaks — OpenAI Responses API or Anthropic Messages API. The [LLM Proxy](llm-proxy.md) uses the matching protocol when forwarding requests.
 
 ### Resource Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `endpoint` | string | Base URL of the provider API (e.g., `https://api.openai.com`, a litellm proxy URL, an OpenRouter URL) |
-| `wire_api` | enum | Wire protocol the provider speaks. Supported: `responses` (OpenAI Responses API), `anthropic_messages` (Anthropic Messages API) |
+| `protocol` | enum | LLM API protocol the provider speaks. Supported: `responses` (OpenAI Responses API), `anthropic_messages` (Anthropic Messages API) |
 | `authMethod` | enum | Authentication method. Supported: `bearer`, `x_api_key` |
 | `token` | string | Authentication token |
 
-`wire_api` determines how the [LLM Proxy](llm-proxy.md) communicates with the provider — which HTTP endpoint path, request/response format, and streaming event protocol to use. See [LLM Proxy — Wire API Protocols](llm-proxy.md#wire-api-protocols) for the details of each protocol.
+`protocol` determines how the [LLM Proxy](llm-proxy.md) communicates with the provider — which HTTP endpoint path, request/response format, and streaming event protocol to use. See [LLM Proxy — Protocols](llm-proxy.md#protocols) for the details of each protocol.
 
 `authMethod` determines how the LLM Proxy authenticates with the provider:
 
@@ -22,7 +22,7 @@ An LLM provider represents a connection to an external LLM service. Each provide
 | `bearer` | `Authorization` | `Bearer <token>` |
 | `x_api_key` | `x-api-key` | `<token>` |
 
-The auth method is independent of the wire API. An Anthropic-protocol provider typically uses `x_api_key`, but a proxy (e.g., litellm) may expose the Anthropic Messages API with `bearer` auth.
+The auth method is independent of the protocol. An Anthropic-protocol provider typically uses `x_api_key`, but a proxy (e.g., litellm) may expose the Anthropic Messages API with `bearer` auth.
 
 ### Provisioning Flow
 
