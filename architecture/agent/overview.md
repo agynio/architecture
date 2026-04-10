@@ -43,7 +43,7 @@ graph TB
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
-The agent is a **pure client** — it connects to the [Gateway](../gateway.md) and the [LLM Proxy](../llm-proxy.md) using OpenZiti service hostnames transparently intercepted by the pod's [Ziti sidecar](../openziti.md#agent-access-scope) and accesses all platform services through them. It does not expose any server or accept inbound connections.
+The agent is primarily a **client** — it connects to the [Gateway](../gateway.md) and the [LLM Proxy](../llm-proxy.md) using OpenZiti service hostnames transparently intercepted by the pod's [Ziti sidecar](../openziti.md#agent-access-scope) and accesses all platform services through them. It does not expose any server or accept inbound connections by default. When the agent exposes a port via the platform API, the Ziti sidecar binds a new OpenZiti service and forwards inbound traffic to `localhost:<port>` inside the pod. See [Expose Service](../expose-service.md).
 
 ## Communication Protocol
 

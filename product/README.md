@@ -7,6 +7,7 @@ Desired product state for the Agyn platform.
 - Start here: [Overview](overview.md) -> [Concepts](concepts.md)
 - Chat: [Chat](chat/chat.md) -> [Inline Media](chat/inline-media.md)
 - Console: [Console](console/console.md)
+- Port Exposure: [Port Exposure](port-exposure/port-exposure.md)
 - Tracing: [Run Timeline](tracing/run-timeline.md)
 
 ## By domain
@@ -24,6 +25,10 @@ Desired product state for the Agyn platform.
 ### Console
 
 - [Console](console/console.md)
+
+### Port Exposure
+
+- [Port Exposure](port-exposure/port-exposure.md)
 
 ### Tracing
 

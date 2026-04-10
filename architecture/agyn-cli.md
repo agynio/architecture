@@ -26,6 +26,11 @@ agyn agents list
 # Messaging
 agyn messages send --thread <thread-id> "Hello"
 
+# Port exposure (inside agent containers)
+agyn expose add 3000
+agyn expose remove 3000
+agyn expose list
+
 # Any Gateway API operation
 agyn <resource> <verb> [flags]
 ```
@@ -36,9 +41,21 @@ agyn <resource> <verb> [flags]
 |------|---------|---------|
 | **Administrators** | Manage platform resources from a terminal | `agyn agents create`, `agyn agents list` |
 | **Developers** | Interact with the platform during development | `agyn messages send`, `agyn threads list` |
-| **Agents** | Invoke platform operations from within an agent runtime (e.g., update memory, add agents) | `agyn agents create`, `agyn messages send` |
+| **Agents** | Invoke platform operations from within an agent runtime (e.g., update memory, add agents, expose ports) | `agyn agents create`, `agyn messages send`, `agyn expose add 3000` |
 
 All users interact with the same Gateway API. [Authorization](authz.md) determines what each identity is permitted to do.
+
+## Port Exposure Commands
+
+Agents use the `expose` command group to make ports inside their container accessible to users over the OpenZiti network. See [Expose Service](expose-service.md) for the architecture.
+
+| Command | Description |
+|---------|-------------|
+| `agyn expose add <port>` | Expose a port. Returns the access URL (`http://exposed-<id>.ziti:<port>`) |
+| `agyn expose remove <port>` | Un-expose a port |
+| `agyn expose list` | List active exposures for the current workload |
+
+These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The agent's workload context is resolved from the authenticated identity.
 
 ## Authentication
 

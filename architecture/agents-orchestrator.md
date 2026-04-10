@@ -174,6 +174,7 @@ sequenceDiagram
     ZM-->>O: OK
 ```
 
+
 ## Leader Election
 
 The orchestrator is deployed with 2+ replicas. Only one replica runs the reconciliation loop at a time.

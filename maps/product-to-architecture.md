@@ -37,6 +37,21 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Apps](../architecture/apps.md)
 - [Apps Service](../architecture/apps-service.md)
 
+## Port Exposure
+
+### Product docs
+
+- [Port Exposure](../product/port-exposure/port-exposure.md)
+
+### Architecture docs
+
+- [Expose Service](../architecture/expose-service.md)
+- [Users (Devices)](../architecture/users.md#devices)
+- [OpenZiti Integration](../architecture/openziti.md)
+- [Console](../architecture/console.md)
+- [Gateway](../architecture/gateway.md)
+- [agyn-cli](../architecture/agyn-cli.md)
+
 ## Tracing
 
 ### Product docs
