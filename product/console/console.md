@@ -306,3 +306,17 @@ Resource management views (agents, providers, models, secrets, members) do not r
 - The Console is a static SPA with no backend — all data comes from the Gateway API.
 - File uploads are not supported in the Console (agent images and configurations are specified as references, not uploaded).
 - Session persistence: the selected context (organization or cluster admin) is stored in local storage and restored on reload.
+
+## Related architecture
+
+- [Product to architecture map (Console)](../../maps/product-to-architecture.md#console)
+- [Console](../../architecture/console.md)
+- [Gateway](../../architecture/gateway.md)
+- [Organizations](../../architecture/organizations.md)
+- [Users](../../architecture/users.md)
+- [Agents service](../../architecture/agents-service.md)
+- [Runners](../../architecture/runners.md)
+- [LLM](../../architecture/llm.md)
+- [Secrets](../../architecture/secrets.md)
+- [Apps](../../architecture/apps.md)
+- [Apps service](../../architecture/apps-service.md)
