@@ -25,8 +25,3 @@ Agyn is a platform for running AI agents that collaborate with humans through co
 - **Conversation is the interface.** Every interaction starts and ends in a conversation. The platform does not expose workflow builders, DAG editors, or batch job UIs.
 - **Observability is not optional.** Every agent run produces a complete, inspectable trace. Users should never wonder "what did the agent do?"
 - **Desired state, not procedures.** Product documentation describes the target experience. Implementation catches up; the spec does not describe the gap.
-
-## Related architecture
-
-- [System overview](../architecture/system-overview.md)
-- [Control plane and data plane](../architecture/control-data-plane.md)

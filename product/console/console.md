@@ -309,6 +309,7 @@ Resource management views (agents, providers, models, secrets, members) do not r
 
 ## Related architecture
 
+- [Product to architecture map (Console)](../../maps/product-to-architecture.md#console)
 - [Console](../../architecture/console.md)
 - [Gateway](../../architecture/gateway.md)
 - [Organizations](../../architecture/organizations.md)

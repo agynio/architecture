@@ -22,15 +22,15 @@ Topics that require further investigation and a decision. Specifications for are
 
 ## Structure
 
-### [Product](product/) - Desired Product State
+### [Product](product/) — Desired Product State
 
 Target product definition. Describes how the product should work from the user's perspective. See [Product README](product/README.md) for the full list of product docs.
 
-### [Architecture](architecture/) - Desired Architecture State
+### [Architecture](architecture/) — Desired Architecture State
 
 Target architecture of the platform. Describes how the system should work. See [Architecture README](architecture/README.md) for the full list of architecture docs.
 
-### [Maps](maps/) - Cross-links
+### [Maps](maps/) — Cross-links
 
 Navigation between product and architecture docs.
 
@@ -38,7 +38,7 @@ Navigation between product and architecture docs.
 |----------|-------------|
 | [Product to Architecture Map](maps/product-to-architecture.md) | Cross-links between product specs and architecture docs |
 
-### [Operations](architecture/operations/) - CI/CD, Local Development, Configuration
+### [Operations](architecture/operations/) — CI/CD, Local Development, Configuration
 
 How services are built, deployed, run locally, and configured. See [Architecture README](architecture/README.md#operations) for the full list.
 

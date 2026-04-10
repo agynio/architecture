@@ -145,6 +145,7 @@ While a run is active, the view receives updates via WebSocket:
 
 ## Related architecture
 
+- [Product to architecture map (Tracing)](../../maps/product-to-architecture.md#tracing)
 - [Tracing](../../architecture/tracing.md)
 - [Notifications](../../architecture/notifications.md)
 - [Token counting](../../architecture/token-counting.md)

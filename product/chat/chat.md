@@ -128,6 +128,7 @@ Sound notifications play on activity changes.
 
 ## Related architecture
 
+- [Product to architecture map (Chat)](../../maps/product-to-architecture.md#chat)
 - [Chat service](../../architecture/chat.md)
 - [Threads](../../architecture/threads.md)
 - [Notifications](../../architecture/notifications.md)

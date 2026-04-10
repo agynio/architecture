@@ -84,5 +84,6 @@ The browser caches media responses using standard HTTP cache headers returned by
 
 ## Related architecture
 
+- [Product to architecture map (Chat)](../../maps/product-to-architecture.md#chat)
 - [Media support](../../architecture/media.md)
 - [Media proxy](../../architecture/media-proxy.md)

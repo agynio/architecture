@@ -1,12 +1,50 @@
 # Product to Architecture Map
 
-Cross-links from product specs to the architecture docs that define their system behavior.
+Cross-links from product surfaces to the architecture docs that support them.
 
-| Product doc | Related architecture |
-|-------------|----------------------|
-| [Overview](../product/overview.md) | [System overview](../architecture/system-overview.md)<br>[Control plane and data plane](../architecture/control-data-plane.md) |
-| [Concepts](../product/concepts.md) | [Identity](../architecture/identity.md)<br>[Organizations](../architecture/organizations.md)<br>[Agents service](../architecture/agents-service.md)<br>[Threads](../architecture/threads.md)<br>[Notifications](../architecture/notifications.md)<br>[Apps](../architecture/apps.md)<br>[MCP](../architecture/mcp.md)<br>[Resource definitions](../architecture/resource-definitions.md) |
-| [Chat](../product/chat/chat.md) | [Chat](../architecture/chat.md)<br>[Threads](../architecture/threads.md)<br>[Notifications](../architecture/notifications.md)<br>[Media](../architecture/media.md)<br>[Media proxy](../architecture/media-proxy.md)<br>[Reminders](../architecture/apps/reminders.md) |
-| [Inline Media](../product/chat/inline-media.md) | [Media](../architecture/media.md)<br>[Media proxy](../architecture/media-proxy.md) |
-| [Console](../product/console/console.md) | [Console](../architecture/console.md)<br>[Gateway](../architecture/gateway.md)<br>[Organizations](../architecture/organizations.md)<br>[Users](../architecture/users.md)<br>[Agents service](../architecture/agents-service.md)<br>[Runners](../architecture/runners.md)<br>[LLM](../architecture/llm.md)<br>[Secrets](../architecture/secrets.md)<br>[Apps](../architecture/apps.md)<br>[Apps service](../architecture/apps-service.md) |
-| [Run Timeline](../product/tracing/run-timeline.md) | [Tracing](../architecture/tracing.md)<br>[Notifications](../architecture/notifications.md)<br>[Token counting](../architecture/token-counting.md) |
+## Chat
+
+### Product docs
+
+- [Chat](../product/chat/chat.md)
+- [Inline Media](../product/chat/inline-media.md)
+
+### Architecture docs
+
+- [Chat](../architecture/chat.md)
+- [Threads](../architecture/threads.md)
+- [Notifications](../architecture/notifications.md)
+- [Media](../architecture/media.md)
+- [Media Proxy](../architecture/media-proxy.md)
+- [Reminders](../architecture/apps/reminders.md)
+
+## Console
+
+### Product docs
+
+- [Console](../product/console/console.md)
+
+### Architecture docs
+
+- [Console](../architecture/console.md)
+- [Gateway](../architecture/gateway.md)
+- [Organizations](../architecture/organizations.md)
+- [Users](../architecture/users.md)
+- [Agents Service](../architecture/agents-service.md)
+- [Runners](../architecture/runners.md)
+- [LLM](../architecture/llm.md)
+- [Secrets](../architecture/secrets.md)
+- [Apps](../architecture/apps.md)
+- [Apps Service](../architecture/apps-service.md)
+
+## Tracing
+
+### Product docs
+
+- [Run Timeline](../product/tracing/run-timeline.md)
+
+### Architecture docs
+
+- [Tracing](../architecture/tracing.md)
+- [Notifications](../architecture/notifications.md)
+- [Token Counting](../architecture/token-counting.md)
