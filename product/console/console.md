@@ -91,6 +91,7 @@ The dropdown contains:
 | Item | Description |
 |------|-------------|
 | **Profile** | View and edit the user's own profile (name, nickname, photo URL). Read-only fields: OIDC subject |
+| **Devices** | Register and manage devices enrolled in the platform network for accessing [exposed agent ports](../port-exposure/port-exposure.md). Each device has a name, enrollment status, and a one-time enrollment JWT. See [Port Exposure — Devices](../port-exposure/port-exposure.md#devices) |
 | **API Tokens** | Create, list, and revoke API tokens for programmatic access. Token value is shown once at creation and cannot be retrieved again |
 | **Pending Invites** | List of pending organization invites with accept/decline actions. Badge on the user menu shows the count of pending invites. Accepting an invite adds the organization to the context switcher and switches to it |
 | **Logout** | Ends the session |

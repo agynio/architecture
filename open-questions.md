@@ -18,7 +18,7 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## OpenZiti: Agent-to-Agent Private Networking
 
-**Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies-future).
+**Context:** Future capability. Agents should be able to expose a port and share it with specific other agents over a private OpenZiti connection. Other agents must not be able to connect. See [OpenZiti Integration — Dynamic Policies](architecture/openziti.md#dynamic-policies). User-to-agent port exposure has been designed (see [Expose Service](architecture/expose-service.md)); this question is about the agent-to-agent variant.
 
 **Questions:**
 - How does the agent request port sharing? (Platform API tool? Agent SDK primitive?)
@@ -114,3 +114,37 @@ Ziti v2.0.0-pre9 introduced `GetDialerIdentityId()` — the edge router now inje
 - What is the migration plan for upgrading Ziti controller and routers from v1.7.2 to v2.0.0+? The v2.x line introduces OIDC-based authentication, router data model changes, and removal of `xgress_edge_tunnel` v1 — this is a breaking upgrade.
 - Once on v2.0.0+, should the `SourceIdentifier()` fallback be removed immediately, or kept behind a feature flag for rollback safety?
 - Are there other services (Gateway, Tracing) that rely on `SourceIdentifier()` and would need the same update?
+
+---
+
+## Port Exposure: Scoped Access Control
+
+**Context:** The current [Expose Service](architecture/expose-service.md) design grants all enrolled devices access to all exposed services via the `#devices` role attribute on Dial policies. This is intentionally broad for the initial implementation.
+
+**Questions:**
+- Should exposed ports be scoped to specific users? (e.g., only the user who started the conversation can access the exposed port)
+- If scoped, should per-user role attributes (`user-<userId>`) be assigned to device identities, and per-exposure Dial policies target specific users?
+- How does multi-user thread access (shared threads, teams) interact with exposure scoping?
+
+---
+
+## Port Exposure: TLS for Exposed Services
+
+**Context:** Exposed services are accessed over `http://exposed-<id>.ziti:<port>`. The OpenZiti overlay provides encryption in transit (mTLS between Ziti endpoints), but the user's browser connects to the local Ziti tunnel via plain HTTP on `localhost`.
+
+**Questions:**
+- Is the lack of browser-visible HTTPS acceptable for the initial version?
+- Should the platform provide an option for agents to serve TLS-terminated services (agent provides its own cert)?
+- Would a local HTTPS proxy in the Ziti tunnel client be feasible?
+
+---
+
+## Port Exposure: Sidecar Hosting Configuration
+
+**Context:** The agent's Ziti sidecar must host (bind) dynamically created OpenZiti services and forward traffic to `localhost:<port>` inside the pod. The sidecar needs to be configured to watch for new services matching its role attributes and automatically set up the local forwarding.
+
+**Questions:**
+- What is the specific `ziti-edge-tunnel` or SDK configuration for dynamic service hosting?
+- Does the sidecar need to be notified of new services, or does the Ziti SDK automatically pick up new services when matching policies are created?
+- Is there a configuration file format (e.g., `host.v1` config) that needs to be dynamically updated, or can the sidecar use a wildcard/attribute-based hosting config?
+

@@ -72,6 +72,7 @@ Desired architecture state of the platform.
 - [MCP](mcp.md)
 - [files-mcp](files-mcp.md)
 - [OpenZiti](openziti.md)
+- [Expose Service](expose-service.md)
 
 ### Observability
 

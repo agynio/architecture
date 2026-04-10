@@ -67,6 +67,10 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
 | `RequestServiceIdentity` | Orchestrator, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
 | `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity |
+| `CreateExposureResources` | Expose Service | Create an OpenZiti service + Bind policy + Dial policy for a port exposure. Returns all three resource IDs |
+| `DeleteExposureResources` | Expose Service | Delete the OpenZiti service + Bind policy + Dial policy by their IDs |
+| `CreateDeviceIdentity` | Expose Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices"]`, return identity ID + enrollment JWT |
+| `DeleteDeviceIdentity` | Expose Service | Delete a device's OpenZiti identity |
 
 ### OpenZiti Controller Operations
 
@@ -231,8 +235,9 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 | App | `["apps"]` |
 | LLM Proxy | `["llm-proxy-hosts"]` |
 | Tracing | `["tracing-hosts"]` |
+| Device (user) | `["devices"]` |
 
-The `agent-<agentId>` attribute is assigned at creation time for future use in per-agent policies. It has no effect until matching service policies are created.
+The `agent-<agentId>` attribute is assigned at creation time and used by per-exposure Bind policies (see [Expose Service](expose-service.md)) to scope hosting to the specific agent. The `devices` attribute is assigned to user device identities enrolled via the Console.
 
 ### Static Policies
 
@@ -251,17 +256,20 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `apps-dial-gateway` | Dial | `#apps` | `@gateway` | Apps can reach Gateway |
 | `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
 | `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
+| `agents-host-exposed` | Host | `#agents` | `#exposed-services` | Agent sidecars can host exposed services (traffic forwarded to localhost) |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
 Static policies, services, and edge router policies are provisioned by Terraform at bootstrap. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) or [service token enrollment](#runner-provisioning) — policies match identities by role attributes, not by specific identity references.
 
-### Dynamic Policies (Future)
+### Dynamic Policies
 
-The static policies above are sufficient for the current architecture. Future capabilities will require dynamic, per-agent or per-user policies managed at runtime by Ziti Management:
+The [Expose Service](expose-service.md) creates per-exposure OpenZiti service policies at runtime when an agent exposes a port. These policies are dynamic — created and deleted with each exposure lifecycle. See [Expose Service — Add Exposure Flow](expose-service.md#add-exposure-flow) for the full flow.
 
-- **User-to-agent direct connection** — A user enrolls their machine via a CLI tool and connects directly to a specific agent over OpenZiti. Requires creating a per-agent service and scoped Dial/Bind policies at runtime.
-- **Agent-to-agent private networking** — An agent exposes a port that only specific other agents can connect to. Requires creating a per-share service and scoped Dial/Bind policies at runtime.
+| Policy | Type | Identity Roles | Service Roles | Lifecycle |
+|--------|------|---------------|---------------|-----------|
+| Per-exposure Bind | Bind | `#agent-<agentId>` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
+| Per-exposure Dial | Dial | `#devices` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
 
 OpenZiti supports this natively:
 
@@ -269,7 +277,11 @@ OpenZiti supports this natively:
 - **Policy changes take effect immediately.** New service policies grant (or revoke) access for matching identities in real time.
 - **Revocation closes live connections.** Removing a policy tears down existing connections, not just prevents new ones.
 
-These capabilities mean dynamic policies can be applied to already-running agents without restart. The Ziti Management service API will be extended with RPCs for port sharing and user enrollment when these features are implemented.
+These capabilities mean dynamic policies can be applied to already-running agents without restart.
+
+#### Future: Agent-to-Agent Private Networking
+
+Agent-to-agent private networking (an agent exposes a port that only specific other agents can connect to) is not yet designed. It will follow the same pattern — dynamic services and policies managed by the Expose Service or a similar mechanism.
 
 ## Gateway Identity Extraction
 
@@ -423,6 +435,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
 | Tracing | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `tracing` service) |
+| Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Expose Service via Ziti Management | Exposed services (dial) |
 
 ## App Identity Lifecycle
 
@@ -509,9 +522,11 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |
 | Tracing | `["tracing-hosts"]` |
+| Device (user) | `["devices"]` |
 
 ### Updated Identities Summary
 
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
 | App | Persistent (enrolled via service token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |
+| Device (user) | Persistent (enrolled via JWT from Console) | Expose Service via Ziti Management | Exposed services (dial) |
