@@ -81,3 +81,8 @@ The browser caches media responses using standard HTTP cache headers returned by
 
 - Media rendering depends on browser support for the media format. Unsupported formats fall back to a download link.
 - The media proxy enforces a maximum file size. Media exceeding the limit is not rendered inline — a download link is shown instead.
+
+## Related architecture
+
+- [Media support](../../architecture/media.md)
+- [Media proxy](../../architecture/media-proxy.md)

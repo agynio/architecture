@@ -142,3 +142,9 @@ While a run is active, the view receives updates via WebSocket:
 - Context items can be large; pagination prevents loading the entire context at once.
 - Tool output streaming may drop chunks under high throughput (dropped chunk count is displayed).
 - The view is accessed via a direct URL: `/agents/threads/{threadId}/runs/{runId}/timeline`.
+
+## Related architecture
+
+- [Tracing](../../architecture/tracing.md)
+- [Notifications](../../architecture/notifications.md)
+- [Token counting](../../architecture/token-counting.md)

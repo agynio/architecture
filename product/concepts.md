@@ -19,3 +19,14 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Run Event** | A discrete step within a run: a message received, an LLM call made, a tool executed, or a context summarization performed. Events are the atomic unit of observability. |
 | **Summarization** | An event where the agent's context is compressed to stay within token limits. The old context is replaced with a shorter summary. |
 | **Tool** | A capability available to an agent via an MCP server. Tools accept structured input, execute an action, and return output. Tool executions produce stdout/stderr streams. |
+
+## Related architecture
+
+- [Identity](../architecture/identity.md)
+- [Organizations](../architecture/organizations.md)
+- [Agents service](../architecture/agents-service.md)
+- [Threads](../architecture/threads.md)
+- [Notifications](../architecture/notifications.md)
+- [Apps](../architecture/apps.md)
+- [MCP](../architecture/mcp.md)
+- [Resource definitions](../architecture/resource-definitions.md)

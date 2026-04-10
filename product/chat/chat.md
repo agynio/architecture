@@ -125,3 +125,12 @@ Sound notifications play on activity changes.
 - File attachments: 20 MB per file.
 - Message character limit enforced in the composer.
 - Backend communication: ConnectRPC through the Gateway.
+
+## Related architecture
+
+- [Chat service](../../architecture/chat.md)
+- [Threads](../../architecture/threads.md)
+- [Notifications](../../architecture/notifications.md)
+- [Media support](../../architecture/media.md)
+- [Media proxy](../../architecture/media-proxy.md)
+- [Reminders](../../architecture/apps/reminders.md)
