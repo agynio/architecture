@@ -137,14 +137,3 @@ Ziti v2.0.0-pre9 introduced `GetDialerIdentityId()` — the edge router now inje
 - Should the platform provide an option for agents to serve TLS-terminated services (agent provides its own cert)?
 - Would a local HTTPS proxy in the Ziti tunnel client be feasible?
 
----
-
-## Port Exposure: Sidecar Hosting Configuration
-
-**Context:** The agent's Ziti sidecar must host (bind) dynamically created OpenZiti services and forward traffic to `localhost:<port>` inside the pod. The sidecar needs to be configured to watch for new services matching its role attributes and automatically set up the local forwarding.
-
-**Questions:**
-- What is the specific `ziti-edge-tunnel` or SDK configuration for dynamic service hosting?
-- Does the sidecar need to be notified of new services, or does the Ziti SDK automatically pick up new services when matching policies are created?
-- Is there a configuration file format (e.g., `host.v1` config) that needs to be dynamically updated, or can the sidecar use a wildcard/attribute-based hosting config?
-

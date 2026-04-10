@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Expose service manages the lifecycle of port exposures — making ports inside agent containers accessible over the [OpenZiti](openziti.md) network. When an agent exposes a port, the Expose service creates the required OpenZiti resources (service, policies) so that any identity on the OpenZiti network can reach the port. When the exposure is removed or the agent stops, the service cleans up all associated resources.
+The Expose service manages the lifecycle of port exposures — making ports inside agent containers accessible over the [OpenZiti](openziti.md) network. When an agent exposes a port, the Expose service creates the required OpenZiti resources (service, configs, policies) so that any identity on the OpenZiti network can reach the port. When the exposure is removed or the agent stops, the service cleans up all associated resources.
 
 The Expose service runs its own [reconciliation loop](#reconciliation) to converge actual state toward desired state. It is decoupled from the [Agents Orchestrator](agents-orchestrator.md) — it discovers workload lifecycle changes through [Notifications](notifications.md) events and the [Runners](runners.md) service, following the standard platform [pull + notifications](notifications.md#consumer-sync-protocol) pattern.
 
@@ -49,7 +49,7 @@ graph TB
 
 | Dependency | Usage |
 |-----------|-------|
-| **[Ziti Management](openziti.md)** | Create and delete OpenZiti services and service policies |
+| **[Ziti Management](openziti.md)** | Create and delete OpenZiti services, configs, and service policies |
 | **[Runners](runners.md)** | Resolve workload to agent identity (for Bind policy targeting). Query workload existence during reconciliation |
 | **[Notifications](notifications.md)** | Subscribe to `workload.status_changed` events for fast reactivity on workload stop |
 
@@ -73,8 +73,10 @@ sequenceDiagram
     ES->>RS: GetWorkload(workload_id)
     RS-->>ES: Workload (agent_id, runner_id, containers)
 
-    ES->>ZM: CreateService(name: "exposed-<id>", roleAttributes: ["exposed-services"])
-    ZM->>ZC: POST /services
+    ES->>ZM: CreateService(name: "exposed-<id>", roleAttributes: ["exposed-services"], configs: [host.v1, intercept.v1])
+    ZM->>ZC: POST /configs (host.v1: localhost:<port>)
+    ZM->>ZC: POST /configs (intercept.v1: exposed-<id>.ziti:<port>)
+    ZM->>ZC: POST /services (with config IDs)
     ZC-->>ZM: Service ID
     ZM-->>ES: Service ID
 
@@ -99,17 +101,49 @@ For each port exposure, the Expose service creates three OpenZiti resources via 
 
 | Resource | Ziti Management RPC | Details |
 |----------|---------------------|---------|
-| **Service** | `CreateService` | Name: `exposed-<id>`. Role attributes: `["exposed-services"]` |
+| **Service** | `CreateService` | Name: `exposed-<id>`. Role attributes: `["exposed-services"]`. Attached configs: `host.v1` and `intercept.v1` (see [Service Configs](#service-configs)) |
 | **Bind policy** | `CreateServicePolicy` | Type: Bind. Identity roles: `#agent-<agentId>`. Service roles: `@exposed-<id>`. Grants the agent's Ziti sidecar permission to host this service |
 | **Dial policy** | `CreateServicePolicy` | Type: Dial. Identity roles: `#all`. Service roles: `@exposed-<id>`. Grants all identities on the OpenZiti network permission to connect |
 
 The Bind policy uses the `agent-<agentId>` role attribute that is already assigned to agent identities at creation time (see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). The Dial policy uses `#all` — any identity connected to the OpenZiti network can access exposed services.
 
-The Expose service manages the orchestration of these three calls. Ziti Management provides generic `CreateService`, `CreateServicePolicy`, `DeleteService`, and `DeleteServicePolicy` RPCs — it has no knowledge of the exposure concept.
+The Expose service manages the orchestration of these calls. Ziti Management provides generic `CreateService`, `CreateServicePolicy`, `DeleteService`, and `DeleteServicePolicy` RPCs — it has no knowledge of the exposure concept.
+
+### Service Configs
+
+Each exposed service is created with two OpenZiti config objects attached. These configs tell tunnelers how to handle traffic for the service — no dynamic configuration file updates are needed.
+
+**`host.v1`** — tells the agent's Ziti sidecar where to forward incoming traffic:
+
+```json
+{
+  "protocol": "tcp",
+  "address": "localhost",
+  "port": <port>
+}
+```
+
+The sidecar forwards connections to `localhost:<port>` inside the pod, where the agent's dev server is listening.
+
+**`intercept.v1`** — tells dialing tunnelers (user devices) which address to intercept:
+
+```json
+{
+  "protocols": ["tcp"],
+  "addresses": ["exposed-<id>.ziti"],
+  "portRanges": [{ "low": <port>, "high": <port> }]
+}
+```
+
+The user's Ziti tunnel resolves `exposed-<id>.ziti` via its built-in DNS and intercepts connections to that address, routing them over the OpenZiti network to the hosting sidecar.
+
+Ziti Management creates both config objects on the OpenZiti Controller (`POST /configs`) and attaches them to the service at creation time. Config objects are deleted when the service is deleted.
 
 ### Agent-Side Hosting
 
-The agent's Ziti sidecar must host the exposed service. When the OpenZiti service and Bind policy are created, the sidecar — which is already enrolled and connected — receives the service update from the OpenZiti Controller. The sidecar is configured to host services matching its role attributes by forwarding traffic to `localhost:<port>` inside the pod. The agent process listens on the port in the shared network namespace.
+The agent pod's Ziti sidecar runs `ziti-edge-tunnel run`, which provides both intercepting (dial-side, for `gateway.ziti`, `llm-proxy.ziti`, etc.) and hosting (bind-side, for exposed services). When the Expose service creates the OpenZiti service with its `host.v1` config and the Bind policy, the sidecar automatically discovers the new service on its next poll of the Controller (default interval: 10 seconds, configurable via `--refresh`). No notification, restart, or configuration file update is needed — the sidecar begins hosting the service as soon as it detects the matching Bind policy and reads the `host.v1` config to learn where to forward traffic (`localhost:<port>`).
+
+The agent process listens on the port in the shared network namespace. The sidecar forwards incoming Ziti connections to `localhost:<port>` inside the pod.
 
 ## Remove Exposure Flow
 
@@ -134,7 +168,7 @@ sequenceDiagram
     ES->>ES: Delete exposure record
 ```
 
-Deletion order: Dial policy → Bind policy → Service. Policies reference the service, so they are deleted first.
+Deletion order: Dial policy → Bind policy → Service. Policies reference the service, so they are deleted first. Deleting the service also deletes its attached config objects.
 
 ## Reconciliation
 

@@ -24,7 +24,7 @@ Port exposure does not exist yet. The following are not implemented:
 - Ziti Management: `CreateDeviceIdentity`, `DeleteDeviceIdentity` RPCs
 - Gateway: extended `UsersGateway` (`CreateDevice`, `ListDevices`, `DeleteDevice`)
 - Console: Devices section in user menu
-- Ziti sidecar: configuration to host exposed services (forward to localhost)
+- Ziti sidecar: `host.v1` and `intercept.v1` configs per exposed service (created by Ziti Management, auto-discovered by sidecar)
 - OpenZiti static policy: `agents-host-exposed`
 
 ## Acceptance Signal

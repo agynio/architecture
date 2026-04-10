@@ -61,7 +61,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `DeleteRunnerIdentity` | Runners Service | Delete a runner's OpenZiti identity, service, and platform mapping |
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
 | `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
-| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure) |
+| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure). Optionally creates and attaches config objects (`host.v1`, `intercept.v1`) |
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
@@ -82,8 +82,9 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Delete identity | `DELETE /edge/management/v1/identities/{id}` | Agent stop, identity cleanup, lease GC, runner/app re-enrollment (previous identity cleanup) |
 | List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
-| Create service | `POST /edge/management/v1/services` | Runner registration, app registration, port exposure |
-| Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion, port exposure cleanup |
+| Create config | `POST /edge/management/v1/configs` | Port exposure (`host.v1` and `intercept.v1` configs per exposed service) |
+| Create service | `POST /edge/management/v1/services` | Runner registration, app registration, port exposure (with attached configs) |
+| Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion, port exposure cleanup (also deletes attached configs) |
 | Create service policy | `POST /edge/management/v1/service-policies` | Port exposure (per-exposure Bind and Dial policies) |
 | Delete service policy | `DELETE /edge/management/v1/service-policies/{id}` | Port exposure cleanup |
 
@@ -501,7 +502,7 @@ This follows the same pattern as [runner enrollment](#runner-provisioning). The 
 |-----|--------|-------------|
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
 | `DeleteAppIdentity` | Apps Service | Delete an app's OpenZiti identity, service, and platform mapping |
-| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure) |
+| `CreateService` | Runners Service, Apps Service, Expose Service | Create an OpenZiti service (per-runner, per-app, or per-exposure). Optionally creates and attaches config objects (`host.v1`, `intercept.v1`) |
 
 This follows the same pattern as runner enrollment — Ziti Management creates the identity, enrolls it on behalf of the caller, and returns the enrolled credentials.
 
