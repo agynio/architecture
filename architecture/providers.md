@@ -2,17 +2,27 @@
 
 ## LLM Provider
 
-An LLM provider represents a connection to an external LLM service. All LLM providers expose an OpenAI-compatible Responses API. The [LLM Proxy](llm-proxy.md) uses the same client for every provider — only the endpoint and auth differ.
+An LLM provider represents a connection to an external LLM service. Each provider declares which wire protocol it speaks — OpenAI Responses API or Anthropic Messages API. The [LLM Proxy](llm-proxy.md) uses the matching protocol when forwarding requests.
 
 ### Resource Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `endpoint` | string | Base URL of the provider API (e.g., `https://api.openai.com`, a litellm proxy URL, an OpenRouter URL) |
-| `authMethod` | enum | Authentication method. Supported: `bearer` |
-| `token` | string | Authentication token (used as Bearer token) |
+| `wire_api` | enum | Wire protocol the provider speaks. Supported: `responses` (OpenAI Responses API), `anthropic_messages` (Anthropic Messages API) |
+| `authMethod` | enum | Authentication method. Supported: `bearer`, `x_api_key` |
+| `token` | string | Authentication token |
 
-`authMethod` is `bearer` for now. The field exists so other methods (API key header, mTLS, etc.) can be added without schema changes.
+`wire_api` determines how the [LLM Proxy](llm-proxy.md) communicates with the provider — which HTTP endpoint path, request/response format, and streaming event protocol to use. See [LLM Proxy — Wire API Protocols](llm-proxy.md#wire-api-protocols) for the details of each protocol.
+
+`authMethod` determines how the LLM Proxy authenticates with the provider:
+
+| Value | Header | Format |
+|-------|--------|--------|
+| `bearer` | `Authorization` | `Bearer <token>` |
+| `x_api_key` | `x-api-key` | `<token>` |
+
+The auth method is independent of the wire API. An Anthropic-protocol provider typically uses `x_api_key`, but a proxy (e.g., litellm) may expose the Anthropic Messages API with `bearer` auth.
 
 ### Provisioning Flow
 
