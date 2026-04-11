@@ -76,6 +76,15 @@ On `SendMessage`, Threads publishes a `message.created` event to the [Notificati
 
 Consumers combine notifications with pull to avoid duplicates — see [Consumer Sync Protocol](notifications.md#consumer-sync-protocol).
 
+## Metering
+
+The Threads service emits usage records to the [Metering Service](metering.md) on each thread or message creation.
+
+| unit | value | labels | idempotency_key |
+|------|-------|--------|-----------------|
+| `COUNT` | 1 | resource_id=thread_id, resource=thread, kind=thread | thread_id |
+| `COUNT` | 1 | resource_id=message_id, resource=message, kind=message, thread_id | message_id |
+
 ## Non-Participant Senders
 
 Threads allows identities of type `app` to send messages without being thread participants. This supports [write-only apps](apps.md#write-only-apps) (e.g., Reminders) that post to threads but do not need to receive notifications or acknowledge messages.

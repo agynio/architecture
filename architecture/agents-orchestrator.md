@@ -197,6 +197,29 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 | **Scaling** | Leader-elected; scales with number of agent definitions, not traffic |
 | **Failure impact** | Temporary loss delays new agent starts and idle stops; already-running agents continue |
 
+## Metering
+
+The Orchestrator emits usage samples to the [Metering Service](metering.md) on a fixed interval (default 60 seconds). The sampling loop runs independently of the reconciliation loop and covers two resource types: compute for running workloads and storage for persistent volumes.
+
+**Compute** — one batch per running workload each interval:
+
+| unit | value | labels | idempotency_key |
+|------|-------|--------|-----------------|
+| `CORE_SECONDS` | allocated_cpu × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent | deterministic(workload_id+interval_start) |
+| `GB_SECONDS` | allocated_ram_gb × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, kind=ram | deterministic(workload_id+interval_start+"ram") |
+
+`allocated_cpu` and `allocated_ram_gb` are taken from the workload spec assembled at start time.
+
+**Storage** — one record per persistent volume each interval:
+
+| unit | value | labels | idempotency_key |
+|------|-------|--------|-----------------|
+| `GB_SECONDS` | size_gb × interval_s | resource_id=volume_id, resource=volume, identity_id, identity_type=agent, kind=storage | deterministic(volume_id+interval_start) |
+
+`size_gb` is taken from the volume definition in the [Agents](agents-service.md) service. `identity_id` is the platform identity ID of the agent that owns the volume.
+
+For both resource types, `identity_id` is resolved via the [Identity](identity.md) service from the agent's `agent_id`. Idempotency keys are derived deterministically from the resource ID and the interval start timestamp, making emission safe to retry.
+
 ## Runner Communication
 
 The Orchestrator communicates with runners over OpenZiti using the embedded [OpenZiti Go SDK](https://github.com/openziti/sdk-golang). It dials a specific runner by its per-runner OpenZiti service name via `zitiContext.Dial("runner-{runnerId}")`  and issues gRPC calls over the resulting connection.

@@ -78,6 +78,7 @@ Desired architecture state of the platform.
 
 - [Tracing](tracing.md)
 - [Token Counting](token-counting.md)
+- [Metering](metering.md)
 
 ### Operations
 

@@ -216,6 +216,23 @@ Traffic from agents inside the platform goes through OpenZiti (no ingress). The 
 
 The ingress route is defined as an Istio VirtualService in `agynio/bootstrap` (same pattern as the Gateway's subdomain route).
 
+## Metering
+
+The LLM Proxy emits usage records to the [Metering Service](metering.md) after each completed call, once the response has been returned to the caller. Records are sent as a batch in a single fire-and-forget `Record` call.
+
+| unit | value | labels | idempotency_key |
+|------|-------|--------|-----------------|
+| `TOKENS` | input token count | resource_id=model_id, resource=model, identity_id, identity_type, thread_id, kind=input | call_id+"input" |
+| `TOKENS` | cached token count | resource_id=model_id, resource=model, identity_id, identity_type, thread_id, kind=cached | call_id+"cached" |
+| `TOKENS` | output token count | resource_id=model_id, resource=model, identity_id, identity_type, thread_id, kind=output | call_id+"output" |
+| `COUNT` | 1 | resource_id=model_id, resource=model, identity_id, identity_type, thread_id, kind=request, status=success\|failed | call_id+"request" |
+
+The cached tokens record is omitted if the value is zero. On failure, only the `COUNT` record is emitted — no token records.
+
+Token counts are extracted from the provider response: from the `usage` object in non-streaming responses, or from the final SSE event in streaming responses (`message_delta` for Anthropic, `response.completed` for OpenAI).
+
+The `thread_id` label is populated from the `x-agyn-thread-id` request header, injected by [`agynd`](agynd-cli.md) when the LLM call is made on behalf of a thread.
+
 ## Configuration
 
 | Field | Source | Description |

@@ -34,6 +34,10 @@ Desired product state for the Agyn platform.
 
 - [Run Timeline](tracing/run-timeline.md)
 
+### Usage
+
+- [Usage](usage/usage.md)
+
 ## Maps
 
 - [Product to architecture map](../maps/product-to-architecture.md)
