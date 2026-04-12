@@ -80,7 +80,7 @@ sequenceDiagram
     ZC-->>ZM: Service ID
     ZM-->>ES: Service ID
 
-    ES->>ZM: CreateServicePolicy(type: Bind, identityRoles: ["#agent-<agentId>"], serviceRoles: ["@exposed-<id>"])
+    ES->>ZM: CreateServicePolicy(type: Bind, identityRoles: ["#workload-<workloadId>"], serviceRoles: ["@exposed-<id>"])
     ZM->>ZC: POST /service-policies
     ZC-->>ZM: Bind policy ID
     ZM-->>ES: Bind policy ID
@@ -102,10 +102,10 @@ For each port exposure, the Expose service creates three OpenZiti resources via 
 | Resource | Ziti Management RPC | Details |
 |----------|---------------------|---------|
 | **Service** | `CreateService` | Name: `exposed-<id>`. Role attributes: `["exposed-services"]`. Attached configs: `host.v1` and `intercept.v1` (see [Service Configs](#service-configs)) |
-| **Bind policy** | `CreateServicePolicy` | Type: Bind. Identity roles: `#agent-<agentId>`. Service roles: `@exposed-<id>`. Grants the agent's Ziti sidecar permission to host this service |
+| **Bind policy** | `CreateServicePolicy` | Type: Bind. Identity roles: `#workload-<workloadId>`. Service roles: `@exposed-<id>`. Grants the specific workload's Ziti sidecar permission to host this service |
 | **Dial policy** | `CreateServicePolicy` | Type: Dial. Identity roles: `#all`. Service roles: `@exposed-<id>`. Grants all identities on the OpenZiti network permission to connect |
 
-The Bind policy uses the `agent-<agentId>` role attribute that is already assigned to agent identities at creation time (see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). The Dial policy uses `#all` — any identity connected to the OpenZiti network can access exposed services.
+The Bind policy uses the `workload-<workloadId>` role attribute assigned to the specific workload's Ziti identity at creation time (see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). This scopes hosting to the exact workload that exposed the port — not all workloads of the same agent. The Dial policy uses `#all` — any identity connected to the OpenZiti network can access exposed services.
 
 The Expose service manages the orchestration of these calls. Ziti Management provides generic `CreateService`, `CreateServicePolicy`, `DeleteService`, and `DeleteServicePolicy` RPCs — it has no knowledge of the exposure concept.
 
@@ -252,7 +252,7 @@ One additional static policy is required at infrastructure provisioning:
 |--------|------|---------------|---------------|---------|
 | `agents-host-exposed` | Host | `#agents` | `#exposed-services` | All agents can host exposed services (traffic forwarded to localhost by sidecar) |
 
-**Note:** The per-exposure Bind policy uses identity role `#agent-<agentId>` to scope hosting to the specific agent. The `agents-host-exposed` Host policy is a broader fallback — it allows the Ziti sidecar to intercept exposed service traffic. The per-exposure Bind policy is the primary access control mechanism.
+**Note:** The per-exposure Bind policy uses identity role `#workload-<workloadId>` to scope hosting to the specific workload. This ensures that when an agent has multiple concurrent workloads (serving different threads), only the workload that exposed the port hosts the service. The `agents-host-exposed` Host policy is a broader fallback — it allows the Ziti sidecar to intercept exposed service traffic. The per-exposure Bind policy is the primary access control mechanism.
 
 ## Gateway Exposure
 

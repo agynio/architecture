@@ -56,7 +56,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 
 | RPC | Caller | Description |
 |-----|--------|-------------|
-| `CreateAgentIdentity` | Orchestrator | Create an OpenZiti identity for an agent, return enrollment JWT |
+| `CreateAgentIdentity` | Orchestrator | Create an OpenZiti identity for an agent workload, return enrollment JWT |
 | `CreateRunnerIdentity` | Runners Service | Create and enroll an OpenZiti identity for a runner, return enrolled identity (cert + key). If a previous identity exists for this runner, deletes it first |
 | `DeleteRunnerIdentity` | Runners Service | Delete a runner's OpenZiti identity, service, and platform mapping |
 | `CreateAppIdentity` | Apps Service | Create and enroll an OpenZiti identity for an app, return enrolled identity (cert + key). If a previous identity exists for this app, deletes it first |
@@ -123,7 +123,7 @@ sequenceDiagram
     participant A as Agent Pod
 
     Note over O: Reconciliation: thread needs agent
-    O->>ZM: CreateAgentIdentity(agentId)
+    O->>ZM: CreateAgentIdentity(agentId, workloadId)
     ZM->>ZC: POST /identities (name, type, roleAttributes, externalId, enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZM: Store mapping in PostgreSQL
@@ -151,8 +151,8 @@ When Ziti Management creates an agent identity, it sends:
   "name": "agent-<agentId>-<shortUuid>",
   "type": "Device",
   "isAdmin": false,
-  "roleAttributes": ["agents", "agent-<agentId>"],
-  "externalId": "<platformIdentityId>",
+  "roleAttributes": ["agents", "agent-<agentId>", "workload-<workloadId>"],
+  "externalId": "<workloadId>",
   "enrollment": { "ott": true }
 }
 ```
@@ -161,8 +161,8 @@ When Ziti Management creates an agent identity, it sends:
 |-------|---------|
 | `name` | Human-readable, unique per identity. Includes agent ID for debugging |
 | `type` | `Device` — represents a non-human endpoint |
-| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `agent-<agentId>` for future per-agent policies |
-| `externalId` | Platform identity UUID — the link between OpenZiti identity and platform identity |
+| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `agent-<agentId>` for per-agent policies, `workload-<workloadId>` for per-workload policies (used by port exposure Bind policies) |
+| `externalId` | Workload UUID — unique per workload, prevents collision when the same agent serves multiple threads concurrently |
 | `enrollment.ott` | One-time-token enrollment. Controller generates a JWT valid for 24 hours |
 
 ### Orphan Reconciliation
@@ -231,7 +231,7 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |
@@ -270,7 +270,7 @@ The [Expose Service](expose-service.md) creates per-exposure OpenZiti service po
 
 | Policy | Type | Identity Roles | Service Roles | Lifecycle |
 |--------|------|---------------|---------------|-----------|
-| Per-exposure Bind | Bind | `#agent-<agentId>` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
+| Per-exposure Bind | Bind | `#workload-<workloadId>` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
 | Per-exposure Dial | Dial | `#all` | `@exposed-<id>` | Created on `AddExposure`, deleted on `RemoveExposure` or workload stop |
 
 OpenZiti supports this natively:
@@ -529,7 +529,7 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>"]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>"]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps"]` |

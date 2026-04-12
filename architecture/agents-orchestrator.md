@@ -111,7 +111,7 @@ sequenceDiagram
     O->>O: Assemble workload spec — embed workload_key and volume_keys as labels
     O->>RS: Select runner (org scope + label match)
     RS-->>O: Runner
-    O->>ZM: CreateAgentIdentity(agentId)
+    O->>ZM: CreateAgentIdentity(agentId, workloadId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
     O->>RS: CreateWorkload(id=workload_key, runnerId, threadId, agentId, status=starting)
     RS-->>O: OK
