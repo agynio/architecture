@@ -18,7 +18,7 @@
 `agynd` implements the [agent contract](agent/overview.md):
 
 - Subscribes to `thread_participant:{agentId}` room via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming).
-- Pulls unacknowledged messages via `GetUnackedMessages(thread_id: AGYN_THREAD_ID)` (Gateway → [Threads](threads.md)), scoped to the thread the Orchestrator assigned this workload to process.
+- Pulls unacknowledged messages via `GetUnackedMessages(thread_id: THREAD_ID)` (Gateway → [Threads](threads.md)), scoped to the thread the Orchestrator assigned this workload to process.
 - Posts agent responses back to the thread via `SendMessage`.
 - Acknowledges processed messages via `AckMessages`.
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable message delivery.

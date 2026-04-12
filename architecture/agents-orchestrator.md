@@ -149,7 +149,7 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 | Variable | Injected into | Description |
 |----------|---------------|-------------|
 | `GATEWAY_ADDRESS` | Agent container, MCP sidecars | Gateway URL for platform API access |
-| `AGYN_THREAD_ID` | Agent container | Thread ID this workload is processing. `agynd` scopes all message reads to this thread |
+| `THREAD_ID` | Agent container | Thread ID this workload is processing. `agynd` scopes all message reads to this thread |
 | `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 

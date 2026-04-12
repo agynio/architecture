@@ -28,8 +28,8 @@
 
 ### agynd CLI
 
-- `agynd` does not scope `GetUnackedMessages` to `AGYN_THREAD_ID`. It processes messages across all threads.
-- `AGYN_THREAD_ID` environment variable is not injected by the Orchestrator.
+- `agynd` does not scope `GetUnackedMessages` to `THREAD_ID`. It processes messages across all threads.
+- `THREAD_ID` environment variable is not injected by the Orchestrator.
 
 ### Threads Service
 
@@ -65,7 +65,7 @@
 
 - An agent can call `agyn threads create --ref research --add @research_bot --message "..." --wait 120` and receive a response.
 - `agyn threads read --thread research --thread planning --unread --wait 60` returns messages from both threads, formatted as markdown by default and as JSON with `--json`.
-- `agynd` scopes message processing to `AGYN_THREAD_ID` — sub-thread messages are not fed into the main agent loop.
+- `agynd` scopes message processing to `THREAD_ID` — sub-thread messages are not fed into the main agent loop.
 - Passive participants receive messages but the Orchestrator does not start a workload for them.
 - `@nickname` resolution works across agents, users, and app installations within an org. Nicknames are unique per org.
 - Agent, user, and app installation nicknames can be set and updated via their respective service update methods.
