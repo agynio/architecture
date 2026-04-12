@@ -197,9 +197,15 @@ Each counter links to the corresponding section.
 
 **LLM Provider detail** — endpoint URL, auth method, token (masked, reveal on click). List of models using this provider.
 
-**Model list** — table of models. Columns: internal name, provider name, remote model name, agent count (how many agents reference this model).
+**Model list** — table of models. Columns: internal name, provider name, remote model name, agent count (how many agents reference this model). Each row has a **Test** action that opens the model test dialog.
 
 **Model detail** — internal name, provider (selector), remote model name. Shows which agents reference this model.
+
+**Model test dialog** — sends a predefined message (`"Hello, world"`) to the model via the LLM Proxy and displays the result inline:
+
+- **Pending** — a loading indicator while the request is in flight.
+- **Success** — the model's response text is displayed.
+- **Failure** — a clear error message is shown (e.g., invalid credentials, provider unreachable, model not found).
 
 ### Secret Providers and Secrets
 
