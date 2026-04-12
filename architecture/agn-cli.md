@@ -76,19 +76,23 @@ graph TB
         LLMLoop[LLM Loop]
         Summarization[Summarization]
         Persistence[State Persistence]
+        ShellTool[Built-in Shell Tool]
     end
 
     subgraph External
         LLM[LLM Endpoint]
         MCP[MCP Server]
         Disk[(Persistent Volume / Local FS)]
+        Shell[System Shell]
     end
 
     LLMLoop --> LLM
     LLMLoop --> MCP
+    LLMLoop --> ShellTool
     LLMLoop <--> Summarization
     LLMLoop <--> Persistence
     Persistence --> Disk
+    ShellTool --> Shell
 ```
 
 ## LLM Loop
@@ -244,11 +248,93 @@ mcp:
 
 Server names must match `^[a-z][a-z0-9_]{0,62}$`.
 
+### Tools configuration
+
+The built-in shell tool is enabled by default and can be disabled or constrained:
+
+```yaml
+# ~/.agyn/agn/config.yaml
+
+tools:
+  shell:
+    enabled: false       # default: true
+    timeout: 30          # default: 0 (no limit)
+    idle_timeout: 10     # default: 0 (no limit)
+    max_timeout: 120     # default: 0 (no limit)
+    max_idle_timeout: 60 # default: 0 (no limit)
+    max_output: 65536    # default: 0 (no limit)
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tools.shell.enabled` | bool | no | Enable the built-in shell tool (default: `true`) |
+| `tools.shell.timeout` | integer | no | Default `timeout` applied to every shell call when the LLM does not specify one. `0` = no limit (default: `0`) |
+| `tools.shell.idle_timeout` | integer | no | Default `idle_timeout` applied to every shell call when the LLM does not specify one. `0` = no limit (default: `0`) |
+| `tools.shell.max_timeout` | integer | no | Upper bound on `timeout` the LLM may request. A call with a higher value is capped silently. `0` = no limit (default: `0`) |
+| `tools.shell.max_idle_timeout` | integer | no | Upper bound on `idle_timeout` the LLM may request. A call with a higher value is capped silently. `0` = no limit (default: `0`) |
+| `tools.shell.max_output` | integer | no | Maximum combined stdout+stderr bytes returned inline. When exceeded, output is written to a temp file and the result contains the file path and total byte count instead. `0` = no limit (default: `0`) |
+
 ### Platform vs local
 
 When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform. It also writes MCP server entries under `mcp.servers`.
 
 When running locally, the developer writes `~/.agyn/agn/config.yaml` manually and lists MCP servers directly under `mcp.servers`. `agn exec` reads it on startup.
+
+## Built-in Tools
+
+`agn` includes a built-in shell tool that the LLM can call without any MCP server configuration. It is part of the `agn` binary — no external process or network connection is required.
+
+### Shell tool
+
+Executes a shell command and returns its output.
+
+| Aspect | Detail |
+|--------|--------|
+| Tool name | `shell` |
+| Shell | `$SHELL` environment variable, falling back to `/bin/sh` |
+| Output | stdout, stderr, and exit code as text |
+
+The command string is passed directly to the shell as-is, equivalent to `$SHELL -c "<command>"`. The LLM receives stdout, stderr, and the exit code in the tool result.
+
+#### Input
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | string | yes | Command string passed to the shell |
+| `cwd` | string | no | Working directory for the command. Defaults to the process working directory |
+| `timeout` | integer | no | Maximum seconds to wait for the command to complete. `0` means no limit. Capped by `tools.shell.max_timeout` when set |
+| `idle_timeout` | integer | no | Maximum seconds to wait without any output before terminating. `0` means no limit. Capped by `tools.shell.max_idle_timeout` when set |
+
+#### Tool result format
+
+```
+exit_code: 0
+stdout:
+total 12
+drwxr-xr-x  3 user group  96 Apr 12 10:00 .
+drwxr-xr-x 12 user group 384 Apr 12 09:00 ..
+-rw-r--r--  1 user group 128 Apr 12 10:00 main.go
+stderr:
+```
+
+If the command produces no stdout or no stderr, the respective field is present but empty.
+
+When the combined stdout+stderr byte count exceeds `tools.shell.max_output`, the full output is written to a file under the system temp directory and the inline result contains the path and byte count instead:
+
+```
+exit_code: 0
+output_truncated: true
+output_bytes: 524288
+output_file: /tmp/agn-shell-output-3f2a1b.txt
+```
+
+The LLM can read the file via a subsequent tool call if it needs the full content.
+
+### Tool dispatch
+
+Built-in tools are dispatched in the same **CallTools** stage as MCP tool calls. The LLM sees them as regular tools in the tool list alongside any MCP-provided tools. When the LLM emits a tool call, `agn` checks whether the tool name matches a built-in before routing to MCP.
+
+Built-in tool names are reserved — an MCP server cannot override them.
 
 ## State Persistence
 
@@ -263,3 +349,4 @@ When running locally, the developer writes `~/.agyn/agn/config.yaml` manually an
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
 | MCP Server | Configured by `agynd` (endpoint list) or manually; `agn` connects to each server over streamable HTTP for tool execution. See [MCP](mcp.md) |
+| System Shell | Invoked by the built-in shell tool via `$SHELL -c`. No configuration required |
