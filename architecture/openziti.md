@@ -401,6 +401,16 @@ The enrollment response includes the service name (`runner-{runnerId}`) that the
 1. Deletes the runner's current OpenZiti identity (if any) and the per-runner OpenZiti service (`runner-{runnerId}`) via Ziti Management `DeleteRunnerIdentity`.
 2. Removes the runner record from the Runners service database.
 
+### Enrollment Invariants
+
+These invariants apply to both runner enrollment (`CreateRunnerIdentity`) and app enrollment (`CreateAppIdentity`). They ensure that bootstrap re-apply, pod restart, and manual re-enrollment succeed without manual cleanup.
+
+1. **Idempotent by externalId.** Before creating a new OpenZiti identity, Ziti Management queries `GET /identities?filter=externalId="<platformId>"` and deletes any matching identities. This prevents the OpenZiti Controller's unique index on `externalId` from rejecting the new identity.
+2. **Managed identity record cleanup.** Before inserting the new `managed_identities` row, the server deletes any existing row for the same `identity_id`. The unique index on `identity_id` requires this — a stale row from a previous enrollment must not block the insert.
+3. **No service creation during enrollment.** Enrollment creates only the OpenZiti identity and the `managed_identities` mapping. The per-runner/per-app OpenZiti service is created during registration (`RegisterRunner` / `RegisterApp`), not enrollment. Re-enrollment must not attempt to re-create the service.
+4. **Enrollment is the only credential source.** Each enrollment produces a fresh x509 certificate and private key. Previous credentials are invalidated when the old identity is deleted. There is no certificate rotation without re-enrollment.
+5. **Atomic cleanup.** The delete-previous → create-new → insert-mapping sequence must leave no orphaned state. If identity creation fails after deleting the previous identity, the runner is left unenrolled (no identity) and can retry. If the mapping insert fails after identity creation, the newly created identity is deleted as cleanup.
+
 ### Addressing
 
 The Orchestrator and Terminal Proxy reach a specific runner by dialing its per-runner OpenZiti service:
@@ -479,7 +489,7 @@ sequenceDiagram
     App->>App: Dial Gateway for platform APIs
 ```
 
-This follows the same pattern as [runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity. `CreateAppIdentity` is idempotent — if a previous identity exists for this app, Ziti Management deletes it before creating the new one.
+This follows the same pattern as [runner enrollment](#runner-provisioning). The service token is long-lived — if the app restarts, it re-enrolls and receives a new OpenZiti identity. `CreateAppIdentity` is idempotent — if a previous identity exists for this app, Ziti Management deletes it before creating the new one. The same [enrollment invariants](#enrollment-invariants) apply.
 
 ### Identity Creation Request
 
