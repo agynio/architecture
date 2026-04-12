@@ -24,11 +24,14 @@ Nicknames are stored in a separate `org_nicknames` table, independent of the cor
 |-------|------|-------------|
 | `org_id` | string (UUID) | Organization scope. Always set — there are no global nicknames |
 | `identity_id` | string (UUID) | The identity this nickname belongs to |
+| `installation_id` | string (UUID), nullable | Set for app installations; null for users and agents |
 | `nickname` | string | The handle. Pattern: `^[a-z0-9_-]+$`, max 32 chars |
 
-Constraints: `UNIQUE(org_id, nickname)`, `UNIQUE(org_id, identity_id)` — one nickname per identity per org.
+Constraints: `UNIQUE(org_id, nickname)` — one nickname per handle per org. For users and agents: `UNIQUE(org_id, identity_id)` — one nickname per identity per org. For app installations: `UNIQUE(org_id, installation_id)` — one nickname per installation per org (the same app identity may appear multiple times in the same org with different installation IDs).
 
-All identity types use the same table. Users set a nickname when joining or first using an org. Agents and app installations register their nickname at creation time. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
+`ResolveNickname` returns `identity_id`, `identity_type`, and `installation_id`. Callers use `identity_type` to route profile fetches, and `installation_id` (when set) to identify which app installation configuration applies in a given thread context.
+
+All identity types use the same table. Users set a nickname when joining or first using an org. Agents register their nickname at creation time. App installations register a nickname per installation, defaulting to the app's slug. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
 
 ## Interface
 
@@ -39,7 +42,7 @@ All identity types use the same table. Users set a nickname when joining or firs
 | **RemoveNickname** | Remove a nickname entry for an identity within an org |
 | **GetIdentityType** | Return the type for a single identity ID |
 | **BatchGetIdentityTypes** | Return types for a list of identity IDs |
-| **ResolveNickname** | Resolve `@nickname` to an `identity_id` within a given org |
+| **ResolveNickname** | Resolve `@nickname` within a given org. Returns `identity_id`, `identity_type`, and `installation_id` (null for users and agents) |
 
 ## Registration
 
