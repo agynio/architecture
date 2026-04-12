@@ -47,6 +47,8 @@ The init container and the main container share an `emptyDir` volume mounted at 
 ```
 /agyn-bin/
 ├── agynd          # daemon binary
+├── cli/
+│   └── agyn       # platform CLI binary (on PATH in agent subprocess)
 ├── codex          # agent CLI binary (original name, e.g. codex, claude, agn)
 └── config.json    # runtime config for agynd
 ```
@@ -54,6 +56,7 @@ The init container and the main container share an `emptyDir` volume mounted at 
 | File | Description |
 |------|-------------|
 | `agynd` | The agent wrapper daemon. Static Go binary (`CGO_ENABLED=0`) |
+| `cli/agyn` | The platform CLI. Static Go binary (`CGO_ENABLED=0`). `agynd` prepends `/agyn-bin/cli` to `PATH` when spawning the agent subprocess, making `agyn` available by name without an absolute path |
 | Agent CLI binary | The agent CLI under its original name (`codex`, `claude`, `agn`). Not renamed |
 | `config.json` | Runtime configuration that tells agynd which SDK to use and where to find the agent CLI binary |
 
@@ -102,10 +105,11 @@ agynio/agent-init-codex/
     └── release.yml
 ```
 
-The `versions.env` file pins both dependency versions explicitly:
+The `versions.env` file pins all dependency versions explicitly:
 
 ```bash
 AGYND_VERSION=1.2.3
+AGYN_VERSION=0.4.1
 CODEX_VERSION=0.115.0
 ```
 
@@ -119,8 +123,9 @@ Updating a version = edit `versions.env`, tag, release. Nothing else changes.
 | Claude Code CLI version bump | `agent-init-claude` only |
 | agn CLI version bump | `agent-init-agn` only |
 | agynd version bump | All three init image repos |
+| agyn CLI version bump | All three init image repos |
 
-The agynd bump across three repos can be automated — a workflow in `agynio/agynd-cli` that opens PRs in each init image repo when a new agynd version is released.
+The agynd and agyn bumps across three repos can be automated — a workflow in each respective CLI repo that opens PRs in all three init image repos when a new version is released.
 
 #### Dockerfile
 
@@ -133,16 +138,22 @@ Example for `agent-init-codex`:
 FROM alpine:3.21
 
 ARG AGYND_VERSION
+ARG AGYN_VERSION
 ARG CODEX_VERSION
 ARG TARGETARCH
 
-RUN mkdir -p /tools
+RUN mkdir -p /tools/cli
 
 # Download agynd from agynio/agynd-cli releases
 RUN apk add --no-cache curl && \
     curl -fsSL "https://github.com/agynio/agynd-cli/releases/download/v${AGYND_VERSION}/agynd-linux-${TARGETARCH}" \
       -o /tools/agynd && \
     chmod +x /tools/agynd
+
+# Download agyn platform CLI from agynio/agyn-cli releases (placed in cli/ subdirectory)
+RUN curl -fsSL "https://github.com/agynio/agyn-cli/releases/download/v${AGYN_VERSION}/agyn-linux-${TARGETARCH}" \
+      -o /tools/cli/agyn && \
+    chmod +x /tools/cli/agyn
 
 # Download Codex CLI from upstream releases
 RUN case "${TARGETARCH}" in \
@@ -180,19 +191,20 @@ Each init image repo has its own CI workflow following the platform [CI/CD conve
 - **Trigger:** Push of a `v*.*.*` tag.
 - **Platforms:** `linux/amd64`, `linux/arm64`.
 - **Tags:** `sha-<short>`, `<semver>`, `latest`.
-- **Build args:** `AGYND_VERSION` and agent CLI version read from `versions.env`.
+- **Build args:** `AGYND_VERSION`, `AGYN_VERSION`, and agent CLI version read from `versions.env`.
 
 #### Image Size
 
 | Component | Size (approximate) |
 |-----------|--------------------|
 | `agynd` | ~15 MB |
+| `agyn` | ~10 MB |
 | Codex CLI (musl) | ~30 MB |
 | Claude Code CLI (musl) | ~225 MB |
 | agn CLI | ~15 MB |
 | Alpine base | ~5 MB |
 
-Codex and agn init images are ~50–70 MB compressed; the Claude init image is ~225 MB compressed. Pulled once per node via the Kubernetes image cache.
+Codex and agn init images are ~60–80 MB compressed; the Claude init image is ~235 MB compressed. Pulled once per node via the Kubernetes image cache.
 
 ## Startup Sequence
 
@@ -417,7 +429,8 @@ spec:
 | **Orchestrator** | `agynio/agents-orchestrator` | Build init container from `agent.init_image`, add `agyn-bin` volume, set main container command to `/agyn-bin/agynd`, replace `THREADS_ADDRESS` + `NOTIFICATIONS_ADDRESS` with `GATEWAY_ADDRESS` |
 | **Orchestrator config** | `agynio/agents-orchestrator` | Replace `DEFAULT_AGENT_IMAGE` with `DEFAULT_INIT_IMAGE` |
 | **agynd** | `agynio/agynd-cli` | Read `/agyn-bin/config.json` for SDK type and binary path, single `GATEWAY_ADDRESS`, rename teams → agents. Publish agynd binary as a release artifact for init image repos to consume |
-| **Init image: Codex** | `agynio/agent-init-codex` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + Codex versions |
-| **Init image: Claude** | `agynio/agent-init-claude` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + Claude versions |
-| **Init image: agn** | `agynio/agent-init-agn` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agn versions |
+| **agyn** | `agynio/agyn-cli` | Platform CLI available to agents for thread commands and other platform operations. Publish static binary as a release artifact for init image repos to consume |
+| **Init image: Codex** | `agynio/agent-init-codex` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + Codex versions |
+| **Init image: Claude** | `agynio/agent-init-claude` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + Claude versions |
+| **Init image: agn** | `agynio/agent-init-agn` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + agn versions |
 | **Architecture docs** | `agynio/architecture` | This document + updates to resource-definitions, runner, k8s-runner, agynd-cli, agents-orchestrator, open-questions |
