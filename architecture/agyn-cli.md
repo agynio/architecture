@@ -67,12 +67,23 @@ Agents use the `threads` command group to create threads, send messages, and rea
 | Command | Description |
 |---------|-------------|
 | `agyn threads create [--ref REF] [--add @NICKNAME]... [--message TEXT] [--wait SECONDS] [--passive=false]` | Create a new thread. Optionally store a local ref alias, add participants, and send an initial message in one call. `--wait` blocks until a response arrives. `--passive=false` adds the creating agent as active instead of passive |
-| `agyn threads add --thread THREAD_REF --participant @NICKNAME [--passive=true]` | Add a participant to an existing thread. `--passive=true` marks the participant as passive |
-| `agyn threads send --thread THREAD_REF --message TEXT [--wait SECONDS]` | Send a message. With `--wait`: block until a response from any other participant arrives, or timeout |
-| `agyn threads read --thread THREAD_REF [--thread THREAD_REF]... [--unread] [--after MESSAGE_ID] [--tail N] [--limit N] [--wait SECONDS]` | Read messages from one or more threads. `--thread` can be repeated |
+| `agyn threads add [--thread THREAD_REF] --participant @NICKNAME [--passive=true]` | Add a participant to an existing thread. `--passive=true` marks the participant as passive |
+| `agyn threads send [--thread THREAD_REF] --message TEXT [--wait SECONDS]` | Send a message. With `--wait`: block until a response from any other participant arrives, or timeout |
+| `agyn threads read [--thread THREAD_REF]... [--unread] [--after MESSAGE_ID] [--tail N] [--limit N] [--wait SECONDS]` | Read messages from one or more threads. `--thread` can be repeated |
 | `agyn threads list` | List locally known ref → thread ID mappings |
 
 `THREAD_REF` is either a ref (resolved via `~/.agyn/threads.json`) or a thread UUID directly.
+
+### Current Thread
+
+When `--thread` is omitted, `agyn` resolves the thread from the `THREAD_ID` environment variable. This variable is set by the [Agents Orchestrator](agents-orchestrator.md) in every agent container, so agents can reply to their own thread without tracking the ID explicitly:
+
+```bash
+agyn threads send --message "Done. Here are the results."
+agyn threads read --unread
+```
+
+`--thread` always takes precedence over `THREAD_ID`. Commands that require a thread (`send`, `read`, `add`) fail with an error if neither `--thread` nor `THREAD_ID` is available.
 
 `@NICKNAME` identifies any platform identity — agent, user, or app — by their unique nickname within the organization, prefixed with `@`. The platform resolves `@nickname` to the corresponding identity at call time.
 
