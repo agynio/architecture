@@ -12,6 +12,7 @@ Desired architecture state of the platform.
   - [Terraform Provider](operations/terraform-provider.md)
   - [New Service Development](operations/new-service.md)
   - [E2E Testing](operations/e2e-testing.md)
+  - [Database Migrations](operations/database-migrations.md)
 
 ## By domain
 
@@ -87,3 +88,4 @@ Desired architecture state of the platform.
 - [Terraform Provider](operations/terraform-provider.md)
 - [New Service Development](operations/new-service.md)
 - [E2E Testing](operations/e2e-testing.md)
+- [Database Migrations](operations/database-migrations.md)
