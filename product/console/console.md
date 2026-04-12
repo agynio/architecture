@@ -174,7 +174,7 @@ Each counter links to the corresponding section.
 
 **Agent detail** — full agent configuration with inline sub-resource management:
 
-- **Configuration** — name, model (selector from organization's models), image, init image, compute resources, runner labels, agent behavioral configuration (JSON editor).
+- **Configuration** — name, model (selector from organization's models), image, init image, idle timeout, compute resources, runner labels, agent behavioral configuration (JSON editor).
 - **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
 - **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts. Each hook has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
