@@ -113,6 +113,7 @@ Visible when an organization is selected in the context switcher. Available to o
 | **Models** | Model CRUD |
 | **Secret Providers** | Secret provider CRUD |
 | **Secrets** | Secret CRUD |
+| **Image Pull Secrets** | Image pull secret CRUD |
 | **Runners** | Org-scoped runner management |
 | **Apps** | App installations and published apps (see [Apps](#apps)) |
 | **Members** | Member and invite management |
@@ -174,12 +175,13 @@ Each counter links to the corresponding section.
 **Agent detail** — full agent configuration with inline sub-resource management:
 
 - **Configuration** — name, model (selector from organization's models), image, init image, compute resources, runner labels, agent behavioral configuration (JSON editor).
-- **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts.
+- **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
-- **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts.
+- **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts. Each hook has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
 - **ENVs** — environment variables attached directly to the agent. Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
 - **Init Scripts** — shell scripts attached directly to the agent.
 - **Volume Attachments** — volumes mounted on the agent container. Select from organization's volumes.
+- **Image Pull Secrets** — image pull secrets attached to the agent container. Select from organization's image pull secrets.
 
 ### Volumes
 
@@ -208,6 +210,23 @@ Each counter links to the corresponding section.
 **Secret list** — table of secrets. Columns: name, provider name, created date.
 
 **Secret detail** — provider reference, remote name. Shows which ENVs reference this secret.
+
+### Image Pull Secrets
+
+Registry credentials for pulling container images from private registries. Attached to agents, MCPs, and hooks via image pull secret attachments.
+
+**Image pull secret list** — table of image pull secrets in the organization. Columns: registry, username, description, created date. Default sort: creation time, newest first.
+
+**Create image pull secret** — registry (required), username (required), description (optional), password/token source: inline value or remote provider reference (provider selector + remote reference).
+
+**Delete image pull secret** — requires confirmation. Detaches from all agents, MCPs, and hooks.
+
+#### MCP and Hook Image Pull Secret Attachments
+
+Image pull secrets are attached to MCPs and hooks via the Manage menu on each row in the agent detail page. Selecting "Image Pull Secrets" opens a dialog showing:
+
+- A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
+- A list of currently attached secrets (registry + username) each with a "Detach" button.
 
 ### Runners
 
