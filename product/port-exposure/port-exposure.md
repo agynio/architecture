@@ -51,8 +51,9 @@ Users enroll their machines into the platform network through the Console. The D
 1. User opens the Console and navigates to Devices in the user menu.
 2. User clicks "Add Device" and provides a device name (e.g., "Work Laptop").
 3. The platform generates an enrollment JWT token.
-4. The user copies the JWT and uses it in their Ziti tunnel client (Ziti Desktop Edge or `ziti-edge-tunnel`) to enroll the device.
-5. Once enrolled, the device appears as "Enrolled" in the Devices list.
+4. The user downloads the JWT as a file or copies it. The file name is derived from the device name with a `.jwt` extension (e.g., `work-laptop.jwt`). The JWT is shown once and cannot be retrieved again.
+5. The user uses the JWT file or token in their Ziti tunnel client (Ziti Desktop Edge or `ziti-edge-tunnel`) to enroll the device.
+6. Once enrolled, the device appears as "Enrolled" in the Devices list.
 
 ### Device Management
 
@@ -67,7 +68,7 @@ The Devices section shows all registered devices for the user:
 Actions:
 - **Delete** — removes the device and revokes its network identity. Requires confirmation.
 
-The enrollment JWT is shown once at creation time and cannot be retrieved again. If the user loses the JWT before enrolling, they must delete the device and create a new one.
+The enrollment JWT is shown once at creation time and cannot be retrieved again. The creation dialog offers two ways to save it: copy to clipboard or download as a `.jwt` file named after the device. If the user loses the JWT before enrolling, they must delete the device and create a new one.
 
 ## Constraints
 
