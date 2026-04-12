@@ -57,7 +57,7 @@ graph LR
 ```
 
 1. On startup, the orchestrator subscribes to Notifications for `message.created` events and fetches the current state from Threads and the [Runners](runners.md) service.
-2. **Compare:** For each agent participant with unacked messages — check if a workload is running. For each running workload — check if it still has unacked messages or recent activity.
+2. **Compare:** For each **non-passive** agent participant with unacked messages — check if a workload is running. Passive participants are skipped — they consume messages via the API directly. For each running workload — check if it still has unacked messages or recent activity.
 3. **Act:**
    - **Start:** If an agent has unacked messages and no running workload → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
    - **Stop:** If a running workload has been idle beyond the configured timeout → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity.
@@ -149,6 +149,7 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 | Variable | Injected into | Description |
 |----------|---------------|-------------|
 | `GATEWAY_ADDRESS` | Agent container, MCP sidecars | Gateway URL for platform API access |
+| `AGYN_THREAD_ID` | Agent container | Thread ID this workload is processing. `agynd` scopes all message reads to this thread |
 | `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 

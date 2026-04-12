@@ -24,8 +24,9 @@ User records are system-wide — not scoped to an organization. User-to-organiza
 | `identity_id` | string (UUID) | Platform identity identifier |
 | `oidc_subject` | string | Subject claim (`sub`) from the IdP. Unique. Used to match returning users |
 | `name` | string | Display name |
-| `nickname` | string | Short name or handle |
 | `photo_url` | string | Profile photo URL |
+
+A user's `@mention` handle is per-organization and optional. It is updated via the standard profile update method with an `org_id` + `nickname` field. Uniqueness within the org is enforced by the [Identity](identity.md) service.
 | `created_at` | timestamp | When the user was first provisioned |
 | `updated_at` | timestamp | Last profile update |
 

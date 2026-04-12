@@ -57,6 +57,7 @@ An agent definition that determines how an agent workload behaves when processin
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | | Agent identity name (max 64 chars). Injected into the agent runtime |
+| `nickname` | string | `null` | Optional `@mention` handle within the organization (max 32 chars, pattern: `^[a-z0-9_-]+$`). Set via the Agents service; uniqueness enforced by the [Identity](identity.md) service |
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |

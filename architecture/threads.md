@@ -12,11 +12,11 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 |--------|-------------|
 | **CreateThread** | Create a new thread with initial participants |
 | **ArchiveThread** | Archive a thread (soft-delete) |
-| **AddParticipant** | Add a participant to an existing thread |
+| **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md) |
 | **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
 | **GetThreads** | List threads with pagination |
 | **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state |
-| **GetUnackedMessages** | List unacknowledged messages for a participant across all threads |
+| **GetUnackedMessages** | List unacknowledged messages for a participant. Supports optional `thread_id` filter to scope results to a single thread |
 | **AckMessages** | Acknowledge messages as processed by a participant |
 
 ## Data Model
@@ -36,6 +36,7 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Participant identifier |
+| `passive` | boolean | When `true`, the [Agents Orchestrator](agents-orchestrator.md) does not start a workload for this participant when there are unread messages. The participant is expected to consume messages via the API directly |
 | `joined_at` | timestamp | When the participant joined |
 
 ### Message
