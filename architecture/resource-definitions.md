@@ -79,6 +79,7 @@ A volume definition. Volumes exist independently of agents and sidecars. A volum
 | `persistent` | boolean | | `true` = named persistent volume (PVC). `false` = ephemeral (emptyDir) |
 | `mount_path` | string | | Absolute container path for the volume mount (e.g., `"/workspace"`) |
 | `size` | string | | Volume capacity (e.g., `"10Gi"`). Required when `persistent` is `true` |
+| `ttl` | duration string | `null` | How long after the last workload on a thread stops before the volume instance for that thread is deleted (e.g., `"7d"`, `"24h"`). `null` means the volume is never deleted automatically. Only applies when `persistent` is `true` |
 
 ---
 

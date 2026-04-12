@@ -40,7 +40,7 @@ Accepts a batch of usage records. Producers call this fire-and-forget — the op
 | Field | Type | Description |
 |-------|------|-------------|
 | `org_id` | string (UUID) | Organization that owns the usage |
-| `idempotency_key` | string | Unique key for this record emission. Duplicate keys are silently dropped |
+| `idempotency_key` | string | Unique key for this record emission — see [Deduplication](#deduplication) |
 | `producer` | string | Service that emitted the record (e.g., `"llm-proxy"`, `"orchestrator"`, `"threads"`) |
 | `timestamp` | Timestamp | When the usage occurred |
 | `labels` | map<string, string> | Dimensional metadata — see [Labels](#labels) |
@@ -70,6 +70,20 @@ Labels carry dimensional metadata. The Metering Service stores and indexes them 
 | `kind` | Subtype discriminator (e.g., `input`, `cached`, `output`, `ram`, `thread`, `message`) |
 | `status` | Outcome of the operation (e.g., `success`, `failed`) |
 
+## Deduplication
+
+`usage_events` is partitioned by month on `timestamp`. The `UNIQUE(idempotency_key, month)` constraint is expressed within each partition. Since both `timestamp` and the idempotency key are derived from `interval_start`, duplicate submissions of the same key always land in the same monthly partition — the constraint provides global uniqueness.
+
+On each ingest record:
+
+```sql
+INSERT INTO usage_events ...
+ON CONFLICT (idempotency_key, month)
+DO UPDATE SET value = EXCLUDED.value
+```
+
+**Crash scenario:** if a producer emits a record, the Metering Service stores it, but the producer crashes before updating its own `last_sampled_at` — on restart the producer recomputes the interval from the same `interval_start` but with a later `interval_end`, producing a larger value. The upsert updates the existing row in place. Once `last_sampled_at` is updated after a successful emit, subsequent cycles produce new keys and no conflict occurs.
+
 ## Query API
 
 The Metering Service exposes a query API for aggregating usage over time ranges and label dimensions.
@@ -86,9 +100,10 @@ The [Gateway](gateway.md) exposes the query API to authenticated callers. Access
 |-------|------|-------------|
 | `id` | UUID | Unique record identifier |
 | `org_id` | UUID | Organization that owns the usage |
-| `idempotency_key` | string | Deduplication key — records with a duplicate key are dropped |
+| `idempotency_key` | string | Deduplication key — see [Deduplication](#deduplication) |
 | `producer` | string | Service that emitted the record |
-| `timestamp` | timestamp | When the usage occurred |
+| `timestamp` | timestamp | When the usage occurred. For sampled resources, this is the start of the sampled interval — aligned with the idempotency key and the partition key |
+| `month` | timestamp (generated) | `date_trunc('month', timestamp)` — partition key and part of the dedup unique constraint |
 | `unit` | Unit | Unit of measurement |
 | `value` | NUMERIC(20, 6) | Measured quantity in the given unit. Converted from the wire int64 (÷ 10^6) on ingestion |
 | `resource_id` | UUID (nullable) | Label: UUID of the specific resource |
@@ -99,13 +114,14 @@ The [Gateway](gateway.md) exposes the query API to authenticated callers. Access
 | `kind` | string (nullable) | Label: subtype discriminator |
 | `status` | string (nullable) | Label: operation outcome |
 
-Label columns are denormalized from the `labels` map for query performance. The table is partitioned by month on `timestamp`, bounding time-range scans regardless of total history.
+Label columns are denormalized from the `labels` map for query performance. The table is partitioned by month on the generated `month` column, bounding time-range scans regardless of total history.
 
 ### Indexes
 
 | Index | Purpose |
 |-------|---------|
-| `UNIQUE (idempotency_key)` | Deduplication |
+| `UNIQUE(idempotency_key, month)` | Deduplication — enforced per partition |
+| `(org_id, timestamp)` | Base partition-local scan |
 | `(org_id, unit, timestamp)` | Base query scan |
 | `(org_id, identity_id, unit, timestamp)` | Per-identity queries |
 | `(org_id, resource_id, unit, timestamp)` | Per-resource queries |

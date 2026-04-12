@@ -30,7 +30,7 @@ graph TB
 | **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets. Resolve image pull secret credentials for private registry access |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
-| **Runner** | Start and stop agent workloads (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
+| **Runner** | Start and stop agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
 
 ## Reconciliation
@@ -60,7 +60,7 @@ graph LR
 2. **Compare:** For each agent participant with unacked messages — check if a workload is running. For each running workload — check if it still has unacked messages or recent activity.
 3. **Act:**
    - **Start:** If an agent has unacked messages and no running workload → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
-   - **Stop:** If a running workload has been idle beyond the configured timeout → stop workload via Runner → remove workload from [Runners](runners.md) service → delete OpenZiti identity.
+   - **Stop:** If a running workload has been idle beyond the configured timeout → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity.
 4. **Wait:** Block until a notification arrives or the poll interval expires, then repeat from step 2.
 
 The polling loop is a consistency fallback. Notifications handle the latency-sensitive path — when a new message arrives on a thread, the `message.created` event wakes the orchestrator to re-evaluate immediately.
@@ -69,7 +69,7 @@ Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) fo
 
 ### Idle Timeout
 
-The orchestrator owns idle timeout enforcement. During each reconciliation pass, it queries the [Runners](runners.md) service for running workloads and checks each workload's `last_activity_at` timestamp against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). Workloads where `now - last_activity_at > idle_timeout` are stopped via `Runner.StopWorkload` and removed from the [Runners](runners.md) service.
+The orchestrator owns idle timeout enforcement. During each reconciliation pass, it queries the [Runners](runners.md) service for running workloads (where `removed_at IS NULL`) and checks each workload's `last_activity_at` timestamp against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). Workloads where `now - last_activity_at > idle_timeout` are stopped — see [Agent Stop Flow](#agent-stop-flow).
 
 The `last_activity_at` timestamp is maintained by [`agynd`](agynd-cli.md), which calls `TouchWorkload` on the [Runners](runners.md) service (via [Gateway](gateway.md)) every 10 seconds while the agent is actively processing. When the agent is idle (waiting for new messages), `agynd` stops sending keepalives, and the idle clock begins. This ensures long-running tasks (which may take hours) are never prematurely terminated.
 
@@ -107,16 +107,23 @@ sequenceDiagram
     O->>S: Resolve image pull secrets (IDs from attachments)
     S-->>O: Resolved credentials (registry, username, password)
     O->>O: Merge image pull credentials, detect conflicts
-    O->>O: Assemble workload spec
+    O->>O: Generate workload_key and volume_key per persistent volume
+    O->>O: Assemble workload spec — embed workload_key and volume_keys as labels
     O->>RS: Select runner (org scope + label match)
     RS-->>O: Runner
     O->>ZM: CreateAgentIdentity(agentId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
-    O->>R: StartWorkload(spec, enrollmentJWT, image_pull_credentials)
-    R-->>O: workloadId
-    O->>RS: CreateWorkload(runnerId, workloadId, threadId, agentId, containers)
+    O->>RS: CreateWorkload(id=workload_key, runnerId, threadId, agentId, status=starting)
+    RS-->>O: OK
+    O->>RS: CreateVolume(id=volume_key, volumeId, threadId, runnerId, agentId, size_gb, status=provisioning) [per persistent volume]
+    RS-->>O: OK
+    O->>R: StartWorkload(spec with labels, enrollmentJWT, image_pull_credentials)
+    R-->>O: instance_id
+    O->>RS: UpdateWorkload(instance_id=instance_id, status=running)
     RS-->>O: OK
 ```
+
+Records are created in the Runners service before `StartWorkload` is called — this prevents the reconciliation loop from treating the workload or PVCs as orphans during the start sequence. The `workload_key` and `volume_key`s are Orchestrator-generated UUIDs embedded as labels in the spec. The runner assigns its own `instance_id` (Pod name for the workload, PVC name for volumes) and returns it. The workload `instance_id` is updated immediately; volume `instance_id`s are set by the reconciliation loop when it finds the PVCs by their `volume_key` labels.
 
 ### Runner Selection
 
@@ -166,13 +173,17 @@ sequenceDiagram
     participant RS as Runners Service
     participant ZM as Ziti Management
 
+    O->>RS: UpdateWorkload(status=stopping)
+    RS-->>O: OK
     O->>R: StopWorkload(workloadId)
     R-->>O: OK
-    O->>RS: DeleteWorkload(workloadId)
+    O->>RS: UpdateWorkload(status=stopped, removed_at=now)
     RS-->>O: OK
     O->>ZM: DeleteIdentity(openZitiIdentityId)
     ZM-->>O: OK
 ```
+
+`status=stopping` is set before the runner call so the console can show the workload as being stopped. `removed_at` is set after `StopWorkload` succeeds — it reflects the actual removal time. The metering sampling loop picks up the workload on its next tick (since `removed_at > last_metering_sampled_at`) and emits the tail sample. The workload record is retained for audit history.
 
 
 ## Leader Election
@@ -201,6 +212,36 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 
 The Orchestrator emits usage samples to the [Metering Service](metering.md) on a fixed interval (default 60 seconds). The sampling loop runs independently of the reconciliation loop and covers two resource types: compute for running workloads and storage for persistent volumes.
 
+### Sampling State
+
+Metering state is stored in the [Runners](runners.md) service alongside the workload and volume records — the Orchestrator is stateless and delegates all persistence there.
+
+| Field | Description |
+|-------|-------------|
+| `last_sampled_at` | Timestamp through which usage has been recorded. NULL if the resource has never been sampled |
+| `removed_at` | When the resource was stopped or deleted. NULL if still active |
+
+### Sampling Algorithm
+
+On each tick:
+
+1. Fix `tick_time = now()` once at the start of the iteration. All interval calculations in this tick use this value.
+2. Call `ListWorkloads(pending_sample: true)` and `ListVolumes(pending_sample: true)` on the [Runners](runners.md) service. Returns only resources where `removed_at IS NULL OR removed_at > last_metering_sampled_at` — active resources and stopped resources with a pending tail sample. The filter is applied in the DB.
+3. For each resource, compute the usage record:
+   - `interval_start = last_metering_sampled_at ?? created_at`
+   - `interval_end = removed_at ?? tick_time`
+   - `duration_s = interval_end − interval_start`
+   - `value = allocated × duration_s`
+   - `timestamp = interval_start` — used as the Metering record timestamp and partition key
+4. Publish all records to the [Metering Service](metering.md) in a single batch call.
+5. On success: call `BatchUpdateWorkloadSampledAt` and `BatchUpdateVolumeSampledAt` with `{id → interval_end}` for all successfully published resources.
+
+The publish-then-batch-update ordering ensures a failed publish leaves all state unchanged. On retry, `interval_start` is unchanged (same `last_sampled_at`) but `interval_end` advances to the new `tick_time`, producing a longer interval and a larger value. The idempotency key (derived from `resource_id + interval_start`) is the same, so the Metering Service upserts the existing event with the revised value. This means retries count usage precisely — no time is lost between a failed attempt and its retry. See [Metering — Deduplication](metering.md#deduplication).
+
+If the Orchestrator crashes, gaps in usage data equal the downtime duration. Missed intervals are not backfilled.
+
+### Records
+
 **Compute** — one batch per running workload each interval:
 
 | unit | value | labels | idempotency_key |
@@ -208,17 +249,59 @@ The Orchestrator emits usage samples to the [Metering Service](metering.md) on a
 | `CORE_SECONDS` | allocated_cpu × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent | deterministic(workload_id+interval_start) |
 | `GB_SECONDS` | allocated_ram_gb × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, kind=ram | deterministic(workload_id+interval_start+"ram") |
 
-`allocated_cpu` and `allocated_ram_gb` are taken from the workload spec assembled at start time.
-
 **Storage** — one record per persistent volume each interval:
 
 | unit | value | labels | idempotency_key |
 |------|-------|--------|-----------------|
 | `GB_SECONDS` | size_gb × interval_s | resource_id=volume_id, resource=volume, identity_id, identity_type=agent, kind=storage | deterministic(volume_id+interval_start) |
 
-`size_gb` is taken from the volume definition in the [Agents](agents-service.md) service. `identity_id` is the platform identity ID of the agent that owns the volume.
+`size_gb` comes from the actual volume record in the [Runners](runners.md) service, not the volume definition in the Agents service. Idempotency keys are derived deterministically — if the Metering Service call fails and the Orchestrator retries, duplicate records are dropped by the Metering Service without error. See [Metering — Deduplication](metering.md#deduplication).
 
-For both resource types, `identity_id` is resolved via the [Identity](identity.md) service from the agent's `agent_id`. Idempotency keys are derived deterministically from the resource ID and the interval start timestamp, making emission safe to retry.
+## Workload Reconciliation
+
+The Orchestrator reconciles workload state on a fixed interval (default 60 seconds), independently of the main reconciliation loop. The [Runners](runners.md) service is the source of truth — workload records are created there by the Orchestrator when a workload starts. The reconciliation loop syncs actual workload state on each runner against those records.
+
+On each tick, for each enrolled runner:
+
+1. Call `Runners.ListWorkloads(runner_id, status_in: [starting, running, stopping])` — only non-terminal records. Historical stopped/failed workloads are excluded; they need no reconciliation.
+2. Call `Runner.ListWorkloads()` to get workloads actually running on the runner.
+3. Match by `workload_key` (the label set on the Pod at creation time, equal to the Runners service record `id`) and reconcile:
+
+| Runners service status | Present on runner | Action |
+|------------------------|-------------------|--------|
+| `starting` | yes | `UpdateWorkload(status=running)` |
+| `starting` | no | `UpdateWorkload(status=failed, removed_at=now)` — `StartWorkload` failed or runner lost it |
+| `running` | yes | no-op |
+| `running` | no | `UpdateWorkload(status=failed, removed_at=now)` — workload crashed or was lost |
+| `stopping` | yes | retry `Runner.StopWorkload` |
+| `stopping` | no | `UpdateWorkload(status=stopped, removed_at=now)` |
+| not in Runners service | yes | orphan — `Runner.StopWorkload` |
+
+## Volume Reconciliation
+
+The Orchestrator reconciles volume state on a fixed interval (default 60 seconds). The [Runners](runners.md) service is the source of truth — volume records are created there by the Orchestrator when a workload starts. The reconciliation loop syncs actual PVC state on each runner against those records and enforces TTL.
+
+On each tick, for each enrolled runner:
+
+1. Call `Runners.ListVolumes(runner_id, status_in: [provisioning, active, deprovisioning])` — only non-terminal records. Historical deleted/failed volumes are excluded; they need no reconciliation.
+2. Call `Runner.ListVolumes()` to get PVCs actually present on the runner. Each entry includes `instance_id` (PVC name) and `volume_key` label (set at PVC creation time). Match against Runners service records by `volume_key`.
+3. Reconcile:
+
+| Runners service status | Present on runner | Action |
+|------------------------|-------------------|--------|
+| `provisioning` | yes | `UpdateVolume(status=active)` — PVC was created by `StartWorkload` |
+| `provisioning` | no | no-op — `StartWorkload` may still be in progress; `failed` after workload reaches `failed` |
+| `active` | yes | check TTL — if `volume.ttl` is set and no workload for this `(thread_id)` has been running or stopping since at least `ttl` ago (derived from `removed_at` of the most recent workload for this thread): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
+| `active` | no | `UpdateVolume(status=failed)` — PVC was lost or deleted externally |
+| `deprovisioning` | yes | retry `Runner.RemoveVolume` |
+| `deprovisioning` | no | `UpdateVolume(status=deleted, removed_at=now)` |
+| not in Runners service | yes | orphan — `Runner.RemoveVolume` |
+
+TTL is checked for `active` volumes where the thread has no running workload. TTL is read from the Agents service Volume definition. The clock starts from `removed_at` of the most recent workload on that thread, available from `Runners.ListWorkloadsByThread`. Volumes with `ttl: null` are never expired automatically.
+
+### Relationship to Metering
+
+The metering sampling loop reads volumes from the Runners service and uses `last_metering_sampled_at` and `removed_at` to compute intervals. It samples `active` and `deprovisioning` volumes; `deleted` and `failed` volumes with a pending tail sample are also included until fully sampled.
 
 ## Runner Communication
 

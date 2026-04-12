@@ -14,7 +14,7 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 
 | RPC | Description |
 |-----|-------------|
-| `StartWorkload` | Start a workload (init containers + main container + optional sidecars with shared network + optional image pull credentials) |
+| `StartWorkload` | Start a workload. The spec includes labels with the Orchestrator-generated `workload_key` and per-volume `volume_key`s. Returns a runner-assigned `instance_id` |
 | `StopWorkload` | Stop a running workload |
 | `RemoveWorkload` | Remove a workload and optionally its volumes |
 | `InspectWorkload` | Inspect workload state (id, image, labels, mounts, status) |
@@ -24,6 +24,7 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 
 | RPC | Description |
 |-----|-------------|
+| `ListWorkloads` | List all workloads on this runner. Returns `instance_id` and `workload_key` label (set from the spec at start time) for each |
 | `GetWorkloadLabels` | Get labels for a workload |
 | `FindWorkloadsByLabels` | Find workloads matching a label set |
 | `ListWorkloadsByVolume` | List workloads using a specific volume |
@@ -53,6 +54,7 @@ Exec supports:
 | RPC | Description |
 |-----|-------------|
 | `PutArchive` | Upload a tar archive into a workload filesystem |
+| `ListVolumes` | List all persistent volumes on this runner. Returns `instance_id` and `volume_key` label (set on the PVC at creation time) for each |
 | `RemoveVolume` | Remove a named volume |
 
 ## Workload Model

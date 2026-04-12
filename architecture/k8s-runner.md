@@ -97,6 +97,7 @@ All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This s
 
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
+| `ListWorkloads` | List all Pods in the runner's namespace. Returns Pod name as `instance_id` and the `workload_key` label set at Pod creation |
 | `GetWorkloadLabels` | Read Pod labels |
 | `FindWorkloadsByLabels` | List Pods with label selector |
 | `ListWorkloadsByVolume` | List Pods that mount a specific PVC |
@@ -122,6 +123,7 @@ The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
 | `PutArchive` | Exec `tar` inside the target container to extract the uploaded archive |
+| `ListVolumes` | List PVCs in the runner's namespace. Returns PVC name as `instance_id` and the `volume_key` label set at PVC creation |
 | `RemoveVolume` | Delete the PVC |
 
 `PutArchive` opens an exec session to the target container, pipes the tar archive into `tar -x`, and reports success or failure.
