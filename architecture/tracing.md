@@ -207,7 +207,7 @@ The Tracing service participates in the OpenZiti overlay. It obtains its identit
 | Enrollment | Self-enrollment via Ziti Management at pod startup |
 | SDK usage | `zitiContext.ListenWithOptions("tracing", ...)` — binds the `tracing` service |
 
-Agents connect to the Tracing service via the `tracing.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar. Authentication is mTLS — the Tracing service extracts the caller's OpenZiti identity from the connection via `conn.SourceIdentifier()` and resolves it to a platform identity via [Ziti Management](openziti.md) `ResolveIdentity`, the same mechanism as the [Gateway](gateway.md) and [LLM Proxy](llm-proxy.md).
+Agents connect to the Tracing service via the `tracing.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar. Authentication is mTLS — the Tracing service extracts the caller's OpenZiti identity from the connection via `conn.GetDialerIdentityId()` and resolves it to a platform identity via [Ziti Management](openziti.md) `ResolveIdentity`, the same mechanism as the [Gateway](gateway.md) and [LLM Proxy](llm-proxy.md).
 
 Any authenticated agent can export spans. There is no authorization check on the ingestion path — if the agent has a valid OpenZiti identity, it can export. Per-span attribute verification is described in [Attribute Injection and Verification](#attribute-injection-and-verification).
 

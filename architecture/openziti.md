@@ -299,7 +299,7 @@ sequenceDiagram
 
     A->>GW: Connect via OpenZiti mTLS
     GW->>GW: AcceptEdge() → edge.Conn
-    GW->>GW: conn.SourceIdentifier() → OpenZiti identity ID
+    GW->>GW: conn.GetDialerIdentityId() → OpenZiti identity ID
     GW->>ZM: ResolveIdentity(openZitiIdentityId)
     ZM->>ZM: Read mapping from PostgreSQL
     ZM->>GW: (identity_id, identity_type)
@@ -310,7 +310,7 @@ sequenceDiagram
 
 1. Gateway starts, obtains its OpenZiti identity via [self-enrollment](#service-identity-self-enrollment), calls `ctx.ListenWithOptions("gateway", ...)`.
 2. On each incoming connection: `conn, _ := listener.AcceptEdge()`.
-3. `conn.SourceIdentifier()` returns the dialing identity's name and ID. This is set by the OpenZiti router at circuit creation time — it is not self-asserted by the client and is therefore trustworthy.
+3. `conn.GetDialerIdentityId()` returns the OpenZiti identity UUID of the dialing identity. This is set by the router at circuit creation time and enforced by the OpenZiti infrastructure — it is not self-asserted by the client and is therefore trustworthy. Requires OpenZiti v2+. Note: `conn.SourceIdentifier()` is a different method that returns client-provided metadata and must not be used for authentication.
 4. Gateway calls `ZitiManagement.ResolveIdentity(openZitiIdentityId)`. Ziti Management reads the mapping from PostgreSQL (written when the identity was created). Returns `(identity_id, identity_type)`.
 5. Gateway injects these values into gRPC metadata for downstream services — same format as OIDC-authenticated user requests.
 
