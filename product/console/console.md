@@ -118,6 +118,7 @@ Visible when an organization is selected in the context switcher. Available to o
 | **Apps** | App installations and published apps (see [Apps](#apps)) |
 | **Members** | Member and invite management |
 | **Monitoring** | Active workloads (see [Monitoring](#monitoring)) |
+| **Usage** | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
 
 #### Cluster Administration Sections
 
