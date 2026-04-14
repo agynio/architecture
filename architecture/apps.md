@@ -9,7 +9,7 @@ Apps are services that interact with threads on behalf of external systems or pl
 | App | Description | Thread Interaction |
 |-----|-------------|-------------------|
 | **[Reminders](apps/reminders.md)** | Agent-initiated delayed messages | Write only |
-| **[Telegram Connector](apps/telegram-connector.md)** (future) | Bidirectional bridge to Telegram | Read + write (participant) |
+| **[Telegram Connector](apps/telegram-connector.md)** | Bidirectional bridge to Telegram | Read + write (participant) |
 | **GitHub** (future) | Agent-initiated event subscriptions | Write only |
 
 ## App Contract
