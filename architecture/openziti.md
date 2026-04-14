@@ -323,8 +323,10 @@ Ziti Management can cache resolved identities in-memory with a short TTL. Identi
 The canonical resolution path for OpenZiti identities is:
 
 ```
-OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type)
+OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type, workload_id)
 ```
+
+`workload_id` is populated only for agent identities — Ziti Management stores it alongside `identity_id` and `identity_type` when `CreateAgentIdentity(agentId, workloadId)` is called. For all other identity types (runner, app, service) `workload_id` is null.
 
 Organization context is not part of the OpenZiti identity. Services that need organization context accept `organization_id` as a request parameter. See [Organizations — Request Flow](organizations.md#request-flow).
 
@@ -336,6 +338,7 @@ After Gateway authenticates a request (OIDC for users, OpenZiti for agents/runne
 |-------------|------|-------------|
 | `x-identity-id` | string (UUID) | Platform identity ID |
 | `x-identity-type` | string | `user`, `agent`, `runner`, `app` |
+| `x-workload-id` | string (UUID) | Workload ID — set only for agent connections; absent for all other identity types |
 
 All internal services read these keys from incoming gRPC metadata. Services trust these values because:
 

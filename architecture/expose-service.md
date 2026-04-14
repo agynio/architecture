@@ -14,6 +14,16 @@ The Expose service runs its own [reconciliation loop](#reconciliation) to conver
 | **RemoveExposure** | Un-expose a port on an agent workload. Deletes the OpenZiti resources and the exposure record |
 | **ListExposures** | List active exposures for an agent workload |
 
+### AddExposure
+
+```
+AddExposure(port, workload_id?)
+```
+
+`workload_id` is optional. When absent, the Expose service reads it from the `x-workload-id` gRPC header injected by the Gateway. This is the standard path for agents calling on their own behalf.
+
+`workload_id` may only be specified explicitly by a cluster admin. This allows administrative operations (e.g., exposing a port on behalf of a running workload). Any non-admin caller that provides `workload_id` receives a permission error.
+
 ## Exposure Resource
 
 | Field | Type | Description |
@@ -66,8 +76,9 @@ sequenceDiagram
     participant ZM as Ziti Management
     participant ZC as OpenZiti Controller
 
-    A->>GW: AddExposure(workload_id, port)
-    GW->>ES: AddExposure(workload_id, port, agent_id)
+    A->>GW: AddExposure(port)
+    GW->>ES: AddExposure(port) + headers(x-identity-id, x-identity-type, x-workload-id)
+    ES->>ES: Read workload_id from x-workload-id header
     ES->>ES: Generate exposure ID
     ES->>ES: Store exposure record (status: provisioning)
     ES->>RS: GetWorkload(workload_id)
@@ -260,7 +271,7 @@ One additional static policy is required at infrastructure provisioning:
 |----------------------|---------|
 | `ExposeGateway` | `AddExposure`, `RemoveExposure`, `ListExposures` |
 
-Called by agents via the platform API. The Gateway resolves the agent's `workload_id` from request context.
+The Gateway proto interface mirrors the Expose service interface exactly — no parameters are added or rewritten. The Gateway injects `x-identity-id`, `x-identity-type`, and `x-workload-id` as gRPC metadata headers, resolved from the authenticated OpenZiti connection. The Expose service reads these headers directly.
 
 ## Data Store
 
