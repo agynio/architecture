@@ -41,7 +41,7 @@ The agent CLI has no knowledge of thread messages, file IDs, or the `files` arra
 
 ### 3. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform and prepares the runtime environment. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
+Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform via the Gateway (`gateway.ziti`) using its own agent OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads its `agent_id` from the `AGENT_ID` environment variable and passes it explicitly in each API call. The specific resources fetched are described in [Agents Service — agynd Startup Fetch](agents-service.md#agynd-startup-fetch). The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|

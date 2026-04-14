@@ -53,6 +53,22 @@ This method is used by the [Tracing](tracing.md) service to derive agent and org
 
 Returns `NOT_FOUND` if the identity does not correspond to an agent.
 
+## agynd Startup Fetch
+
+On startup, [`agynd`](agynd-cli.md) fetches the agent's full configuration from the Agents service via the Gateway. It authenticates using its own agent OpenZiti identity — the pod's Ziti sidecar handles mTLS transparently. `agynd` reads its own `agent_id` from the `AGENT_ID` environment variable (injected by the Orchestrator) and passes it explicitly in each API call.
+
+The following resources are fetched before the agent CLI is spawned:
+
+| Resource | Method | Purpose |
+|----------|--------|---------|
+| Agent | `GetAgent` | Base configuration: model, image, behavioral config |
+| ENVs | `ListENVs(agent_id)` | Environment variables injected into the agent subprocess |
+| Skills | `ListSkills(agent_id)` | Prompt fragments placed on the filesystem for the agent CLI |
+| MCPs | `ListMCPs(agent_id)` | MCP server definitions — used to configure agent CLI MCP endpoints |
+| InitScripts | `ListInitScripts(agent_id)` | Shell scripts executed before the agent CLI is spawned |
+
+Each sub-resource list is fetched as a separate call. Secret-backed ENVs are resolved via the [Secrets](secrets.md) service after the ENV list is retrieved.
+
 ## Entity Model
 
 All resources share a common `EntityMeta` base:
