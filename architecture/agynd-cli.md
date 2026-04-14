@@ -49,6 +49,7 @@ Before spawning the agent CLI, `agynd` fetches the agent configuration from the 
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
+| **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) attached to the agent from the platform via the Gateway, then executes each in creation order using the container's default shell. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
 | **PATH** | Prepends `/agyn-bin/cli` to `PATH` in the subprocess environment so the `agyn` platform CLI is available by name to the agent and any shell commands it runs. Only `/agyn-bin/cli` is added — `agynd` itself and the agent CLI binary are not placed on `PATH` |
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
@@ -240,6 +241,7 @@ sequenceDiagram
     D->>D: Fetch agent configuration (via Gateway at gateway.ziti)
     D->>D: Prepare environment (skills, LLM Proxy config)
     D->>D: Configure MCP endpoints for agent CLI
+    D->>D: Execute init scripts in order (/bin/sh -lc each)
     D->>GW: Subscribe to thread_participant:{agentId}
     D->>A: Spawn agent CLI via SDK
 

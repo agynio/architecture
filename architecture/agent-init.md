@@ -332,7 +332,6 @@ What the orchestrator passes to the main container:
 | `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint |
 | `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs (e.g., `filesystem:8100,github:8101`). See [MCP — Port Allocation](mcp.md#port-allocation) |
 | `AGENT_SKILLS` | Skills sub-resource | JSON-encoded skills array |
-| `INIT_SCRIPT` | InitScripts sub-resource | Concatenated init scripts |
 
 **Removed:** `THREADS_ADDRESS`, `NOTIFICATIONS_ADDRESS` (replaced by `GATEWAY_ADDRESS`).
 

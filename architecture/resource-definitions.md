@@ -183,16 +183,18 @@ Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set (the target). Exactly o
 
 ## InitScript
 
-A shell script executed during container initialization (`/bin/sh -lc`). Each InitScript belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook).
+A named shell script executed by [`agynd`](agynd-cli.md) during container initialization, before the agent CLI is spawned. Each InitScript belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `id` | string (UUID) | | Unique identifier |
+| `name` | string | | Human-readable name for visibility in logs and the Console |
 | `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
 | `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
 | `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
 | `script` | string | | Shell script content |
 
-When multiple init scripts target the same resource, they execute in creation order.
+When multiple init scripts target the same resource, they execute in creation order. Each script runs in its own shell invocation using the container's default shell. If a script exits with a non-zero code, the failure is printed to stderr and execution continues with the next script.
 
 ---
 
