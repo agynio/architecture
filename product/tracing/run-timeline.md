@@ -148,7 +148,6 @@ The Run Timeline can be opened in two ways:
 - Run timeline is read-only except for the terminate action.
 - Context items can be large; pagination prevents loading the entire context at once.
 - Tool output streaming may drop chunks under high throughput (dropped chunk count is displayed).
-- The view is accessed via a direct URL: `/agents/threads/{threadId}/runs/{runId}/timeline`.
 
 ## Related architecture
 

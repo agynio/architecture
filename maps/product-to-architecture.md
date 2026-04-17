@@ -56,6 +56,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 
 ### Product docs
 
+- [Tracing App](../product/tracing/tracing-app.md)
 - [Run Timeline](../product/tracing/run-timeline.md)
 
 ### Architecture docs
@@ -63,3 +64,4 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Tracing](../architecture/tracing.md)
 - [Notifications](../architecture/notifications.md)
 - [Token Counting](../architecture/token-counting.md)
+- [Runners](../architecture/runners.md)
