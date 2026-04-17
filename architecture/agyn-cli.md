@@ -28,6 +28,16 @@ agyn threads create --ref research --add @research_bot
 agyn threads send --thread research --message "Summarize X" --wait 120
 agyn threads read --thread research --unread
 
+# File upload/download
+agyn files upload ./report.pdf
+agyn files download <file-id> --output ./copy.pdf
+agyn files info <file-id>
+agyn files url <file-id>
+
+# Send message with file attachment
+FILE_ID=$(agyn files upload ./diagram.png)
+agyn threads send --message "See diagram" --file "$FILE_ID"
+
 # Port exposure (inside agent containers)
 agyn expose add 3000
 agyn expose remove 3000
@@ -66,9 +76,9 @@ Agents use the `threads` command group to create threads, send messages, and rea
 
 | Command | Description |
 |---------|-------------|
-| `agyn threads create [--ref REF] [--add @NICKNAME]... [--message TEXT] [--wait SECONDS] [--passive=false]` | Create a new thread. Optionally store a local ref alias, add participants, and send an initial message in one call. `--wait` blocks until a response arrives. `--passive=false` adds the creating agent as active instead of passive |
+| `agyn threads create [--ref REF] [--add @NICKNAME]... [--message TEXT] [--file FILE_ID]... [--wait SECONDS] [--passive=false]` | Create a new thread. Optionally store a local ref alias, add participants, and send an initial message in one call. `--wait` blocks until a response arrives. `--passive=false` adds the creating agent as active instead of passive |
 | `agyn threads add [--thread THREAD_REF] --participant @NICKNAME [--passive=true]` | Add a participant to an existing thread. `--passive=true` marks the participant as passive |
-| `agyn threads send [--thread THREAD_REF] --message TEXT [--wait SECONDS]` | Send a message. With `--wait`: block until a response from any other participant arrives, or timeout |
+| `agyn threads send [--thread THREAD_REF] --message TEXT [--file FILE_ID]... [--wait SECONDS]` | Send a message. With `--wait`: block until a response from any other participant arrives, or timeout. `--file` attaches a previously uploaded file (repeatable) |
 | `agyn threads read [--thread THREAD_REF]... [--unread] [--after MESSAGE_ID] [--tail N] [--limit N] [--wait SECONDS]` | Read messages from one or more threads. `--thread` can be repeated |
 | `agyn threads list` | List locally known ref → thread ID mappings |
 
@@ -163,6 +173,93 @@ agyn threads create --ref research --add @research_bot \
 agyn threads create --ref planning --add @planning_agent --message "Draft a timeline"
 agyn threads read --thread research --thread planning --unread --wait 120
 ```
+
+---
+
+## Files Commands
+
+Agents and developers use the `files` command group to upload and download files through the [Files service](media.md).
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `agyn files upload <path> [--filename NAME] [--type MIME_TYPE]` | Upload a local file. Returns the file ID. `--filename` overrides the name sent to the server (default: basename of `<path>`). `--type` overrides the detected MIME type |
+| `agyn files download <file-id> [--output PATH]` | Download a file by ID. Writes content to `PATH` if given, otherwise writes to the original filename in the current directory |
+| `agyn files info <file-id>` | Print file metadata (id, filename, content_type, size_bytes, created_at) |
+| `agyn files url <file-id>` | Print a pre-signed download URL for the file. The URL expires after one hour |
+
+### Upload
+
+```bash
+# Upload and capture the file ID
+FILE_ID=$(agyn files upload ./report.pdf)
+
+# Override filename and MIME type
+agyn files upload ./data.bin --filename export.bin --type application/octet-stream
+
+# Upload and attach to a thread message in one flow
+FILE_ID=$(agyn files upload ./diagram.png)
+agyn threads send --message "See the attached diagram" --file "$FILE_ID"
+```
+
+MIME type is inferred from the file extension when `--type` is omitted. If inference fails, `application/octet-stream` is used as the fallback.
+
+Upload streams the file to the server in 64 KiB chunks using client-streaming gRPC (via the Gateway). No full-file buffering occurs.
+
+### Download
+
+```bash
+# Write to the original filename in the current directory
+agyn files download f47ac10b-58cc-4372-a567-0e02b2c3d479
+
+# Write to an explicit path
+agyn files download f47ac10b-58cc-4372-a567-0e02b2c3d479 --output ./local-copy.pdf
+```
+
+Download uses the `GetFileContent` server-streaming RPC and assembles chunks locally. When `--output` is omitted, the filename is taken from the file's stored metadata.
+
+### Output
+
+`agyn files upload` prints the file ID as plain text.
+
+`agyn files download` writes the file to disk and prints the output path to stdout.
+
+`agyn files info` uses the default markdown format:
+
+```
+id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+filename: report.pdf
+content_type: application/pdf
+size_bytes: 204800
+created_at: 2025-11-15T10:30:00Z
+```
+
+With `--json`:
+
+```json
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "filename": "report.pdf",
+  "content_type": "application/pdf",
+  "size_bytes": 204800,
+  "created_at": "2025-11-15T10:30:00Z"
+}
+```
+
+`agyn files url` prints the pre-signed URL as plain text.
+
+### Attaching Files to Messages
+
+The `threads send` and `threads create` commands accept `--file <file-id>` (repeatable) to attach previously uploaded files to a message:
+
+```bash
+agyn threads send --message "Analyze these reports" \
+  --file f47ac10b-58cc-4372-a567-0e02b2c3d479 \
+  --file 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+```
+
+`--file` can be combined with `--wait` on `send` and `create`.
 
 ---
 
