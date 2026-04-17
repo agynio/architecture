@@ -134,15 +134,16 @@ Before starting a workload, the orchestrator selects a runner. See [Runners — 
 The orchestrator assembles the full workload specification from multiple sources:
 
 1. **Agent definition** (from Agents): image, compute resources, configuration.
-2. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
-3. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
-4. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
-5. **Environment variables** (from Agents + Secrets): plain-text values from Agents, secret-backed values resolved via Secrets service at start time.
-6. **Init scripts** (from Agents): shell scripts for container initialization.
-7. **Hooks** (from Agents): event-driven sidecar containers.
-8. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
-9. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
-10. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
+2. **Capabilities** (from Agents): named platform capabilities (e.g., `docker`). The orchestrator includes the capability list in the workload spec. The runner resolves each capability to its configured implementation — injecting the appropriate sidecars and environment variables. See [Resource Definitions — Capabilities](resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
+3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
+4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
+5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
+6. **Environment variables** (from Agents + Secrets): plain-text values from Agents, secret-backed values resolved via Secrets service at start time.
+7. **Init scripts** (from Agents): shell scripts for container initialization.
+8. **Hooks** (from Agents): event-driven sidecar containers.
+9. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
+10. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
+11. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
 
 In addition to user-defined environment variables, the orchestrator injects **platform-managed environment variables** into containers:
 

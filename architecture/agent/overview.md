@@ -106,6 +106,12 @@ All tools are provided via **MCP protocol** (Model Context Protocol). The goal i
 
 MCP servers are defined as agent resources (see [Agents](../agents-service.md)) and mounted into the agent pod as sidecars by the Runner.
 
+## Capabilities
+
+For well-known platform services, agents declare **capabilities** rather than configuring sidecars manually. The runner resolves each capability to the appropriate sidecar injection and environment variables — the agent only declares intent.
+
+The currently defined capability is `docker`: gives the agent a full Docker daemon on `localhost:2375`, injected as a DinD sidecar by the runner. See [Resource Definitions — Capabilities](../resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](../k8s-runner.md#capability-implementations).
+
 ## Wrapper Model
 
 Most 3rd-party agents are implemented as CLIs. The platform provides a **wrapper** that adapts any CLI agent to the platform contract:

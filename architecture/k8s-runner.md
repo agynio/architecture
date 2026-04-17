@@ -78,6 +78,78 @@ When `StartWorkload` includes `image_pull_credentials`, the k8s-runner:
 
 Kubernetes Secrets are created per-workload. They are not shared across workloads.
 
+## Capability Implementations
+
+When a workload spec includes `capabilities`, the k8s-runner resolves each capability to a concrete set of sidecars and environment variables before building the Pod spec. The implementation used for each capability is selected by runner configuration (`capability_implementations` map, e.g., `docker: rootless`). Different runners on the same platform can use different implementations — a dev runner can use `privileged` while a production runner uses `rootless`.
+
+### `docker`
+
+Injects a DinD sidecar into the pod and sets `DOCKER_HOST=tcp://localhost:2375` in the agent container. The agent gets a full Docker daemon reachable on localhost — same behaviour regardless of implementation. The four available implementations differ only in isolation:
+
+#### Rootless Docker *(supported)*
+
+Runs the Docker daemon as a non-root user inside a user namespace. No `privileged: true` on the pod spec. If the inner workload runs `docker run --privileged`, that privilege is scoped to the user namespace — it cannot reach the host.
+
+| | |
+|--|--|
+| **Sidecar image** | `docker:27-rootless` |
+| **Command** | `dockerd-rootless.sh` |
+| **Pod spec change** | `spec.hostUsers: false` (Kubernetes 1.25+ user namespace support) |
+| **Isolation** | User namespace — escape lands as unprivileged UID on host |
+| **Shared nodes** | Safe |
+| **k3d on Mac** | Works |
+
+This is the default implementation.
+
+#### Privileged DinD *(supported)*
+
+Runs the Docker daemon in a standard privileged container. Full Docker compatibility, no isolation — a process that escapes the container reaches the host kernel directly.
+
+| | |
+|--|--|
+| **Sidecar image** | `docker:27-dind` |
+| **Command** | `dockerd --host=tcp://0.0.0.0:2375 --tls=false` |
+| **Pod spec change** | `securityContext.privileged: true` on the sidecar container |
+| **Isolation** | None — host escapable |
+| **Shared nodes** | Unsafe. Only use on dedicated single-tenant runners |
+| **k3d on Mac** | Works |
+
+Intended for development environments and dedicated single-tenant runner node pools where the escape-to-host risk is acceptable. The workload namespace must permit privileged containers via Pod Security Admission.
+
+#### Sysbox *(potential future option)*
+
+Runs the Docker daemon inside a Sysbox-managed container. Sysbox uses user namespace remapping to make the container appear privileged internally while mapping all UIDs to unprivileged ranges on the host. No `privileged: true` on the pod spec.
+
+| | |
+|--|--|
+| **Sidecar image** | `docker:27-dind` |
+| **Pod spec change** | `runtimeClassName: sysbox-runc` |
+| **Isolation** | User namespace via Sysbox daemon — cannot escalate to host |
+| **Shared nodes** | Safe |
+| **Node requirement** | Sysbox daemon installed on each node |
+| **k3d on Mac** | Does not work (nested user namespace limitations) |
+
+Offers similar isolation to rootless Docker without requiring a rootless-specific image. The trade-off is the operational cost of installing and maintaining the Sysbox daemon on every node.
+
+#### Kata Containers / Firecracker *(potential future option)*
+
+Runs the entire pod inside a lightweight microVM (Firecracker or QEMU). The DinD sidecar is a standard privileged container, but `privileged` is relative to the VM's kernel — not the host. Escape from the container reaches the VM kernel, which is fully isolated from the host and from other pods.
+
+| | |
+|--|--|
+| **Sidecar image** | `docker:27-dind` |
+| **Pod spec change** | `runtimeClassName: kata-fc` (Firecracker) or `kata-qemu` (QEMU) |
+| **Isolation** | VM-level — hardware-enforced, separate kernel per pod |
+| **Shared nodes** | Safe |
+| **Node requirement** | Kata Containers runtime + `/dev/kvm` available on node |
+| **k3d on Mac** | Does not work (`/dev/kvm` not available via Docker Desktop) |
+
+Strongest isolation guarantee. Also improves isolation for all other containers in the pod, not just the DinD sidecar — each pod gets its own kernel, so kernel CVEs in one pod cannot affect another. Higher per-pod overhead (~100–200ms startup, ~50–100MB RAM per VM).
+
+---
+
+The implementation is a runner-level concern. The agent resource only declares `capabilities: ["docker"]`. Switching implementations requires no change to the agent definition — only runner reconfiguration.
+
 
 ## RPC Implementation
 
