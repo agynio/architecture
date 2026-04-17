@@ -90,6 +90,8 @@ Infinite scroll loads older conversations.
 
 Messages displayed chronologically. Each message shows sender, timestamp, and read/unread status. Messages can be deleted.
 
+Each message has a **"View trace"** link. Clicking it opens the Run Timeline for that message. The tracing app resolves the run from the message ID and displays it.
+
 Messages containing media (images, video, audio) — whether from external URLs or platform files — display the media inline. See [Inline Media](inline-media.md) for rendering behavior, security, and authentication details.
 
 When an agent is a participant, the conversation also shows:

@@ -136,6 +136,13 @@ While a run is active, the view receives updates via WebSocket:
 - Tool output streams in real time.
 - When the run completes or is terminated, the status updates and the live duration counter stops.
 
+## Entry Points
+
+The Run Timeline can be opened in two ways:
+
+- **Direct** — by run ID. Loads the run by ID.
+- **By message** — by message ID. The view calls `ListSpans(filter: {thread_id, message_id})`, extracts `agyn.workload.id` from the result to resolve the run, then loads the Run Timeline for that run with the message-attributed spans highlighted. If no spans are found (tracing data expired or agent produced no spans), an empty state is shown with an explanatory message.
+
 ## Constraints
 
 - Run timeline is read-only except for the terminate action.

@@ -95,6 +95,7 @@ Primary key: `(trace_id, span_id)`.
 | `(trace_id)` | Fetch all spans for a trace |
 | `(start_time_unix_nano)` | Time-range queries and ordering |
 | `(parent_span_id)` | Tree reconstruction |
+| `(agyn.thread.message.id)` partial | Look up spans by originating message |
 
 ## Query API
 
@@ -130,6 +131,7 @@ Returns a paginated list of spans matching the provided filters.
 | `start_time_min` | fixed64 | Start time lower bound (inclusive) |
 | `start_time_max` | fixed64 | Start time upper bound (inclusive) |
 | `in_progress` | optional bool | `true` = only in-progress, `false` = only completed, unset = both |
+| `message_id` | string (UUID), optional | Return only spans attributed to this thread message (`agyn.thread.message.id`) |
 
 **Response:**
 
@@ -248,13 +250,19 @@ These attributes are never trusted from the producer. The Tracing service always
 
 #### Verified by the Tracing service (from producer)
 
-The `agynd` tracing proxy (see [agynd Tracing Proxy](#agynd-tracing-proxy)) injects `agyn.thread.id` as a resource attribute on all exported spans. The Tracing service verifies this attribute against the [Authorization](authz.md) service:
+The `agynd` tracing proxy (see [agynd Tracing Proxy](#agynd-tracing-proxy)) injects the following producer-asserted resource attributes. The Tracing service verifies each one:
+
+**`agyn.thread.id`** — verified against the [Authorization](authz.md) service:
 
 ```
 Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
 ```
 
 If the check fails, the Tracing service rejects the entire `Export` request. If `agyn.thread.id` is absent, spans are stored without thread attribution.
+
+**`agyn.thread.message.id`** — verified against the [Threads](threads.md) service: the message must belong to the thread identified by `agyn.thread.id`. If the message does not belong to that thread, the entire `Export` request is rejected. If `agyn.thread.message.id` is absent, spans are stored without message attribution.
+
+`agyn.workload.id` is stored as-is without verification.
 
 #### Resolution Caching
 
@@ -318,6 +326,8 @@ graph LR
 | Resource Attribute | Source | Description |
 |--------------------|--------|-------------|
 | `agyn.thread.id` | `THREAD_ID` environment variable | Thread UUID this workload serves |
+| `agyn.thread.message.id` | current message being processed | UUID of the thread message that triggered the current agent turn. Updated by `agynd` each time it feeds a new message to the agent CLI |
+| `agyn.workload.id` | `WORKLOAD_ID` environment variable | Workload UUID for this execution |
 
 `agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only thread attribution, which is independently verified by the Tracing service.
 
