@@ -66,7 +66,7 @@ An agent definition that determines how an agent workload behaves when processin
 | `resources` | object | | Compute resources for the agent container (see [Compute Resources](#compute-resources)) |
 | `runner_labels` | map<string, string> | `{}` | Labels that a runner must match for this agent's workloads to be scheduled on it. The [Agents Orchestrator](agents-orchestrator.md) filters eligible runners to those whose labels contain all key-value pairs specified here (exact match). Empty means no runner label constraints. See [Runner Selection](runners.md#runner-selection) |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
-| `capabilities` | list<string> | `[]` | Named platform capabilities to enable for this agent. The runner injects the required sidecars and environment variables transparently — the agent does not configure them directly. See [Capabilities](#capabilities) for defined values |
+| `capabilities` | list<string> | `[]` | Named capabilities to enable for this agent. The runner injects the required sidecars and environment variables transparently — the agent does not configure them directly. Capability names are open strings; the runner is the registry. See [Capabilities](#capabilities) |
 
 The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Agents service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
 
@@ -151,15 +151,11 @@ A named, reusable prompt fragment. When belonging to an agent, the agent runtime
 
 ## Capabilities
 
-Named platform capabilities declared on an [Agent](#agent) via the `capabilities` field. Each capability is a platform-managed feature that the runner implements by injecting sidecars and environment variables — the agent resource only declares intent, not implementation details.
+Named capabilities declared on an [Agent](#agent) via the `capabilities` field. The runner injects the required sidecars and environment variables transparently — the agent resource only declares intent, not implementation details.
 
-The runner implementation of each capability is selected by runner configuration. Different runners may implement the same capability differently depending on what the node supports. See [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
+Capability names are **open strings** — the platform does not maintain a closed registry. Any runner can implement any capability name it chooses. The [Agents Orchestrator](agents-orchestrator.md) routes workloads to runners that advertise the required capabilities (see [Runner Selection](runners.md#runner-selection)); if no eligible runner advertises a required capability, scheduling fails with a descriptive error.
 
-### `docker`
-
-Gives the agent a Docker daemon accessible at `localhost:2375`. The runner injects a DinD sidecar and sets `DOCKER_HOST=tcp://localhost:2375` in the agent container. The agent can use the full Docker CLI and API — `docker run`, `docker build`, `docker compose`, etc. — the same as on a local machine.
-
-The isolation guarantee depends on the runner's configured implementation. See [k8s-runner — `docker` capability](k8s-runner.md#docker).
+Different runners may implement the same capability name differently depending on what the node supports. See [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations) for an example of how one runner implements the `docker` capability across multiple isolation levels.
 
 ---
 

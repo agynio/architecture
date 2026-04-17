@@ -51,7 +51,8 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `id` | string (UUID) | Unique runner identifier |
 | `name` | string | Display name |
 | `organization_id` | string (UUID), nullable | Organization scope. Null for cluster-scoped runners |
-| `labels` | map<string, string> | Key-value labels describing runner capabilities (e.g., `gpu: "true"`, `region: "eu-west-1"`). Used for [runner selection](#runner-selection). Set at registration time, mutable via `UpdateRunner` |
+| `labels` | map<string, string> | Key-value labels for routing and metadata (e.g., `region: "eu-west-1"`, `tier: "gpu"`). Used for [runner selection](#runner-selection). Set at registration time, mutable via `UpdateRunner` |
+| `capabilities` | list<string> | Capability names this runner implements (e.g., `["docker", "gpu"]`). The orchestrator uses this to match workloads that require specific capabilities. Set at registration time, mutable via `UpdateRunner` |
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
 | `openziti_service_name` | string | Per-runner OpenZiti service name (`runner-{id}`) |
@@ -65,13 +66,14 @@ Cluster-scoped runners (`organization_id: null`) are available to all organizati
 
 ## Runner Selection
 
-The [Agents Orchestrator](agents-orchestrator.md) selects a runner for each agent workload using organization scoping and label matching:
+The [Agents Orchestrator](agents-orchestrator.md) selects a runner for each agent workload using organization scoping, label matching, and capability matching:
 
 1. **Scope filtering** — collect eligible runners: org-scoped runners matching the agent's `organization_id`, plus all cluster-scoped runners. Only runners with status `enrolled` are eligible.
 2. **Label matching** — if the agent defines `runner_labels` (see [Agent — runner_labels](resource-definitions.md#agent)), filter eligible runners to those whose `labels` contain all key-value pairs from the agent's `runner_labels`. Exact string equality on both key and value. A runner may have additional labels beyond what the agent requires.
-3. **Random selection** — from the filtered set, pick one runner at random.
+3. **Capability matching** — if the agent defines `capabilities`, filter eligible runners to those whose `capabilities` list contains every capability the agent requires. A runner may advertise additional capabilities beyond what the agent requires.
+4. **Random selection** — from the filtered set, pick one runner at random.
 
-If the agent defines no `runner_labels`, step 2 is skipped — any eligible runner matches. If no runners remain after filtering, the workload fails to schedule.
+If the agent defines no `runner_labels`, step 2 is skipped. If the agent defines no `capabilities`, step 3 is skipped. If no runners remain after filtering, the workload fails to schedule with an error indicating which constraint could not be satisfied.
 
 ## Workload Resource
 
@@ -160,7 +162,8 @@ The [Terraform provider](operations/terraform-provider.md) exposes the `agyn_run
 | `id` | string | | ✓ | | UUID, assigned by the Runners service |
 | `name` | string | ✓ | | ✓ | Display name |
 | `organization_id` | string | | | | Organization scope. Omit for cluster-scoped runners. Immutable after creation |
-| `labels` | map(string) | | | ✓ | Key-value labels describing runner capabilities. Used for [runner selection](#runner-selection) |
+| `labels` | map(string) | | | ✓ | Key-value labels for routing and metadata. Used for [runner selection](#runner-selection) |
+| `capabilities` | list(string) | | | ✓ | Capability names this runner implements. Used for [runner selection](#runner-selection) |
 | `identity_id` | string | | ✓ | | Runner's identity in the [Identity](identity.md) service |
 | `service_token` | string (sensitive) | | ✓ | | Service token returned on creation. Stored in Terraform state. Used by the runner to [enroll](#enrollment) |
 

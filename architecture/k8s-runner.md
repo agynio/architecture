@@ -80,7 +80,7 @@ Kubernetes Secrets are created per-workload. They are not shared across workload
 
 ## Capability Implementations
 
-When a workload spec includes `capabilities`, the k8s-runner resolves each capability to a concrete set of sidecars and environment variables before building the Pod spec. The implementation used for each capability is selected by runner configuration (`capability_implementations` map, e.g., `docker: rootless`). Different runners on the same platform can use different implementations — a dev runner can use `privileged` while a production runner uses `rootless`.
+When a workload spec includes `capabilities`, the k8s-runner resolves each capability name it recognizes to a concrete set of sidecars and environment variables before building the Pod spec. Capability names are open strings — the k8s-runner implements the set listed below, but other runners may implement different or additional capabilities without any platform changes. The implementation used for each capability is selected by runner configuration (`capability_implementations` map, e.g., `docker: rootless`). Different runners on the same platform can use different implementations — a dev runner can use `privileged` while a production runner uses `rootless`.
 
 ### `docker`
 
@@ -148,7 +148,7 @@ Strongest isolation guarantee. Also improves isolation for all other containers 
 
 ---
 
-The implementation is a runner-level concern. The agent resource only declares `capabilities: ["docker"]`. Switching implementations requires no change to the agent definition — only runner reconfiguration.
+The implementation is a runner-level concern. The agent resource only declares `capabilities: ["docker"]`. Switching implementations requires no change to the agent definition — only runner reconfiguration. Custom runners can implement the `docker` capability differently, or introduce entirely new capability names, without any changes to the platform.
 
 
 ## RPC Implementation
