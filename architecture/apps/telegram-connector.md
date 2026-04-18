@@ -42,6 +42,14 @@ Subsequent messages from the same Telegram chat reuse the same thread. Thread li
 
 The connector polls Telegram using long polling (`getUpdates`). One polling loop runs per installation.
 
+### Installation Discovery
+
+On startup the connector calls `ListInstallations` to enumerate all installations and starts one polling loop per result. A reconciliation loop runs every 60 seconds — it diffs the running loops against the current `ListInstallations` result, starts loops for new installations, and stops loops for uninstalled ones. No notification-driven hot-reload is needed; a 60-second lag for a newly installed bot is acceptable.
+
+### Update Offset Persistence
+
+The connector persists the last processed `update_id` per installation. Each `getUpdates` call passes `offset = last_update_id + 1`, which also instructs Telegram to discard all earlier updates. The offset is written to the database after each batch is successfully processed. On restart, the connector resumes from the stored offset, preventing duplicate inbound messages.
+
 For each incoming Telegram update:
 
 1. Look up or create the thread mapping for the chat.
@@ -107,6 +115,20 @@ Text and files are delivered as separate Telegram messages.
 | `*` (voice, check filename) | `sendVoice` (if OGG/Opus) |
 | Everything else | `sendDocument` |
 
+## Delivery Failures
+
+### Telegram Rate Limits
+
+Telegram enforces a limit of 1 message per second per chat. When the API returns `429 Too Many Requests`, the response includes a `Retry-After` field indicating how many seconds to wait. The connector sleeps for that duration and retries the same send. If no `Retry-After` is present, exponential backoff is used (starting at 1 s, capped at 32 s).
+
+### Bot Blocked by User
+
+When a user blocks the bot, Telegram returns `403 Forbidden: bot was blocked by the user` on any outbound send attempt. The connector acknowledges the platform message immediately — retrying will never succeed and blocking the ack queue would stall delivery for all other chats. The chat mapping is marked as blocked. Outbound delivery to that chat is skipped until a new inbound message arrives from the user (which means they unblocked the bot), at which point the blocked state is cleared.
+
+### Other Failures
+
+Transient send failures (5xx, network errors) are retried up to 3 times with exponential backoff. If all retries fail, the message is acknowledged and the error is logged — a single failed delivery does not block the outbound queue.
+
 ## Data Model
 
 ### ChatMapping
@@ -118,9 +140,20 @@ Text and files are delivered as separate Telegram messages.
 | `telegram_chat_id` | integer | Telegram chat identifier |
 | `thread_id` | string (UUID) | Corresponding platform thread |
 | `telegram_user_id` | integer | Telegram user ID of the chat initiator (DMs only) |
+| `blocked_at` | timestamp | Set when the bot receives a "blocked by user" error; cleared on next inbound message |
 | `created_at` | timestamp | When the mapping was created |
 
 Index: `UNIQUE(installation_id, telegram_chat_id)` — used for all message routing lookups.
+
+### InstallationState
+
+Tracks per-installation polling state.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `installation_id` | string (UUID) | Platform installation |
+| `last_update_id` | integer | Last Telegram `update_id` successfully processed; used as `offset` on next `getUpdates` call |
+| `updated_at` | timestamp | When the offset was last written |
 
 ## Dependencies
 
