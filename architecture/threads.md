@@ -10,12 +10,13 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 
 | Method | Description |
 |--------|-------------|
-| **CreateThread** | Create a new thread with initial participants |
+| **CreateThread** | Create a new thread with initial participants. Requires `organization_id` |
 | **ArchiveThread** | Archive a thread (soft-delete) |
 | **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md) |
 | **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
-| **GetThreads** | List threads with pagination |
-| **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state |
+| **GetThreads** | List threads the caller participates in, with pagination |
+| **ListOrganizationThreads** | List all threads in an organization. Requires `can_view_threads` on the organization |
+| **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state. Accessible to thread participants and identities with `can_view_threads` on the thread's organization |
 | **GetUnackedMessages** | List unacknowledged messages for a participant. Supports optional `thread_id` filter to scope results to a single thread |
 | **AckMessages** | Acknowledge messages as processed by a participant |
 
@@ -26,6 +27,7 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique thread identifier |
+| `organization_id` | string (UUID) | Organization that owns the thread |
 | `participants` | list | Participants in the thread |
 | `status` | enum | `active`, `archived` |
 | `created_at` | timestamp | Creation time |

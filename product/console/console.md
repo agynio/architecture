@@ -24,6 +24,7 @@ The Console is the platform's management interface for organizations, users, age
 - As an organization owner, I want to publish apps from my organization so other organizations can install them.
 - As an organization owner, I want to invite users to my organization and assign roles so teammates can collaborate.
 - As an organization owner, I want to monitor active agent workloads so I can see what is running and troubleshoot issues.
+- As an organization owner, I want to list and read all threads in my organization so I can inspect agent conversations and troubleshoot issues.
 
 ### Any Authenticated User
 
@@ -117,6 +118,7 @@ Visible when an organization is selected in the context switcher. Available to o
 | **Runners** | Org-scoped runner management |
 | **Apps** | App installations and published apps (see [Apps](#apps)) |
 | **Members** | Member and invite management |
+| **Threads** | List and read all threads in the organization (see [Threads](#threads)) |
 | **Monitoring** | Active workloads (see [Monitoring](#monitoring)) |
 | **Usage** | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
 
@@ -294,6 +296,14 @@ Organization owners manage membership within their organization.
 **Change role** — inline action on the member list. Switches between owner and member. Available to organization owners.
 
 **Remove member** — inline action on the member list. Removes the member (any status). Available to organization owners.
+
+## Threads
+
+Read-only view of all threads in the organization. Available to organization owners.
+
+**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated), message count, status (`active` or `archived`), created date. Default sort: creation time, newest first.
+
+**Thread detail** — participant list and paginated message history (newest first). Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view.
 
 ## Monitoring
 

@@ -52,10 +52,11 @@ Identities have permissions within an organization via OpenFGA relationship tupl
 | **can_invite** | computed | Create pending memberships (invites) for the organization |
 | **can_manage_members** | computed | Remove members, update member roles, list members |
 | **can_add_member** | computed | Create active memberships directly (skip invite) |
+| **can_view_threads** | computed | List and read all threads in the organization, regardless of participation |
 
 #### Computed Relations
 
-- `owner` implies `member`, `can_invite`, and `can_manage_members`.
+- `owner` implies `member`, `can_invite`, `can_manage_members`, and `can_view_threads`.
 - `can_add_member` is computed from `cluster:global admin` — any identity with the `admin` relation on `cluster:global` has `can_add_member` on all organizations. This is modeled in OpenFGA as a cross-type computed relation (e.g., `define can_add_member: admin from cluster`), not as explicit per-organization tuples.
 
 Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `organization` type without changing the model structure.
