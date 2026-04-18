@@ -237,13 +237,22 @@ Image pull secrets are attached to MCPs and hooks via the Manage menu on each ro
 
 ### Runners
 
-In the organization context, the runners section shows org-scoped runners. In the Cluster Administration context, it shows cluster-scoped runners.
+In the organization context, the runners section is split into two lists:
 
-**Runner list** — table of runners. Columns: name, enrollment status (`pending`, `enrolled`, `offline`), labels (comma-separated summary), workload count, created date.
+- **Organization runners** — runners scoped to the selected organization. Includes an "Enroll runner" action.
+- **Cluster runners** — shared runners available to the organization. Organization owners can see the list but cannot open runner details. Cluster admins can view cluster runner details from the organization context, but edit and delete actions are only available in Cluster Administration.
 
-**Runner detail** — name, scope (cluster or org), enrollment status, labels (key-value editor), service token (shown once at registration, then masked). List of active workloads on this runner.
+In the Cluster Administration context, the runners section lists cluster-scoped runners and supports full management actions.
 
-**Register runner** — name (required), labels (optional key-value pairs). Returns the service token once. The user must copy it before navigating away.
+**Runner list** — each list shows runner name (with runner ID), enrollment status (`pending`, `enrolled`, `offline`), labels (comma-separated summary), a scope badge, and a View action.
+
+**Runner detail** — name, runner ID, enrollment status, scope, identity ID, labels, and active workloads on the runner.
+
+**Edit runner** — update runner name and labels. Available for org-scoped runners in organization context and cluster-scoped runners in Cluster Administration.
+
+**Delete runner** — confirmation required. Available for org-scoped runners in organization context and cluster-scoped runners in Cluster Administration.
+
+**Enroll runner** — name (required), labels (optional key-value pairs). Returns the service token once; the user must copy it before leaving the dialog.
 
 ### Apps
 
