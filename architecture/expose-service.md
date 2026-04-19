@@ -265,6 +265,19 @@ One additional static policy is required at infrastructure provisioning:
 
 **Note:** The per-exposure Bind policy uses identity role `#workload-<workloadId>` to scope hosting to the specific workload. This ensures that when an agent has multiple concurrent workloads (serving different threads), only the workload that exposed the port hosts the service. The `agents-host-exposed` Host policy is a broader fallback — it allows the Ziti sidecar to intercept exposed service traffic. The per-exposure Bind policy is the primary access control mechanism.
 
+## Authorization
+
+The standard path — an agent exposing its own workload's port — requires no OpenFGA check. The Gateway injects `x-workload-id` from the verified OpenZiti connection, and the Expose service validates that the caller's identity matches the workload's agent identity.
+
+| Operation | Check |
+|-----------|-------|
+| `AddExposure` (standard: no explicit `workload_id`) | `workload.agent_identity_id == caller.identity_id` (identity equality from `x-workload-id` header) |
+| `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
+| `RemoveExposure` | `workload.agent_identity_id == caller.identity_id` or `owner` on `organization:<workload.org_id>` |
+| `ListExposures` | `workload.agent_identity_id == caller.identity_id` or `member` on `organization:<workload.org_id>` |
+
+See [Authorization — Expose Service](authz.md#expose-service) for the full reference.
+
 ## Gateway Exposure
 
 | Gateway Proto Service | Methods |

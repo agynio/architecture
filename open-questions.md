@@ -27,17 +27,6 @@ Unresolved product and architectural decisions requiring discussion.
 
 ---
 
-## Authorization Model Completeness
-
-**Context:** The authorization approach is decided — OpenFGA with a dedicated Authorization service (see [Authorization](architecture/authz.md)). The initial model covers threads, files, and organization roles. The full model needs to cover all resource types and access patterns.
-
-**Questions:**
-- What are the complete relation definitions for all resource types (models, workspaces, MCP servers, secrets)? How do org-scoped vs independent resources differ in their relation definitions?
-- How are tracing data permissions modeled beyond the initial design? See [Tracing — Query Authorization](architecture/tracing.md#query-authorization) for the current approach.
-- How are Notifications subscriptions authorized? (Implicitly via participant membership, or explicit check?)
-- What is the relationship tuple cleanup strategy when resources are deleted?
-
----
 
 ## agn Configuration Structure
 

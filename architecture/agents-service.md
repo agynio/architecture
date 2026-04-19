@@ -53,21 +53,33 @@ This method is used by the [Tracing](tracing.md) service to derive agent and org
 
 Returns `NOT_FOUND` if the identity does not correspond to an agent.
 
+## Authorization
+
+All agent resources are org-scoped. Access is determined by the caller's relation on the organization:
+
+| Operation | Required relation on org |
+|-----------|--------------------------|
+| Create, Update, Delete (any resource) | `owner` |
+| Get, List (any resource) | `member` |
+
+Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. `ResolveAgentIdentity` is internal only (Istio) and has no OpenFGA check.
+
+See [Authorization — Agents Service](authz.md#agents-service) for the full reference.
+
 ## agynd Startup Fetch
 
-On startup, [`agynd`](agynd-cli.md) fetches the agent's full configuration from the Agents service via the Gateway. It authenticates using its own agent OpenZiti identity — the pod's Ziti sidecar handles mTLS transparently. `agynd` reads its own `agent_id` from the `AGENT_ID` environment variable (injected by the Orchestrator) and passes it explicitly in each API call.
+On startup, [`agynd`](agynd-cli.md) fetches agent configuration from the Agents service via the Gateway. It authenticates using its own agent OpenZiti identity — the pod's Ziti sidecar handles mTLS transparently. `agynd` reads its own `agent_id` from the `AGENT_ID` environment variable and passes it explicitly in each API call.
 
 The following resources are fetched before the agent CLI is spawned:
 
 | Resource | Method | Purpose |
 |----------|--------|---------|
 | Agent | `GetAgent` | Base configuration: model, image, behavioral config |
-| ENVs | `ListENVs(agent_id)` | Environment variables injected into the agent subprocess |
 | Skills | `ListSkills(agent_id)` | Prompt fragments placed on the filesystem for the agent CLI |
 | MCPs | `ListMCPs(agent_id)` | MCP server definitions — used to configure agent CLI MCP endpoints |
 | InitScripts | `ListInitScripts(agent_id)` | Shell scripts executed before the agent CLI is spawned |
 
-Each sub-resource list is fetched as a separate call. Secret-backed ENVs are resolved via the [Secrets](secrets.md) service after the ENV list is retrieved.
+Environment variables are **not** fetched via API. The Orchestrator injects all ENV values (both plain-text and resolved secret values) directly into the container at assembly time. `agynd` reads them from the process environment.
 
 ## Entity Model
 

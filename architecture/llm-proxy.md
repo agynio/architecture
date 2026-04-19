@@ -180,9 +180,13 @@ Both methods resolve to an `identity_id` and `identity_type`. The `identity_id` 
 
 ## Authorization
 
-The LLM Proxy delegates authorization to the [Authorization](authz.md) service, following the same pattern as all other platform services. After authentication and model resolution, the LLM Proxy calls `Check` on the Authorization service. If denied, returns `403 Forbidden`.
+After resolving the model, the LLM Proxy checks that the caller has explicit use permission on the model resource:
 
-The authorization logic — what relationships and permissions grant access to a model — is defined in the [authorization model](authz.md#authorization-model). The LLM Proxy does not implement or interpret authorization rules.
+```
+Check(identity:<callerId>, can_use, model:<model_id>) → allowed: bool
+```
+
+If denied, returns `403 Forbidden`. The `can_use` relation is defined on the `model` type in the authorization model — see [Authorization — LLM Service](authz.md#llm-service).
 
 ## OpenZiti Identity
 

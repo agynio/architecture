@@ -49,6 +49,20 @@ Model.id → Model.llmProvider → LLM Provider (endpoint + token) + Model.remot
 
 The LLM service looks up the model, follows the provider reference, and returns the combined result.
 
+## Authorization
+
+LLM providers and models are org-scoped. `ResolveModel` is an internal operation called by the LLM Proxy via Istio — it has no OpenFGA check.
+
+| Operation | Check |
+|-----------|-------|
+| Create, Update, Delete (providers, models) | `owner` on `organization:<org_id>` |
+| Get, List (providers, models) | `member` on `organization:<org_id>` |
+| `ResolveModel` | Internal only — LLM Proxy via Istio |
+
+On `CreateModel`, the LLM Service writes the tuple `organization:<org_id>, org, model:<model_id>` to the Authorization service. On `DeleteModel`, it deletes the same tuple. This grants org members implicit `can_use` on the model via the computed relation defined on the `model` type.
+
+See [Authorization — LLM Service](authz.md#llm-service) for the full reference.
+
 ## Provider Management
 
 CRUD operations for LLM provider resources. See [Providers, Models, and Secrets](providers.md#llm-provider) for the resource definition.

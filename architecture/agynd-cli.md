@@ -41,16 +41,18 @@ The agent CLI has no knowledge of thread messages, file IDs, or the `files` arra
 
 ### 3. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches the agent configuration from the platform via the Gateway (`gateway.ziti`) using its own agent OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads its `agent_id` from the `AGENT_ID` environment variable and passes it explicitly in each API call. The specific resources fetched are described in [Agents Service — agynd Startup Fetch](agents-service.md#agynd-startup-fetch). The preparation is agent-specific — different agent CLIs expect different configuration conventions:
+Before spawning the agent CLI, `agynd` fetches agent configuration from the platform via the Gateway (`gateway.ziti`) using its own agent OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads its `agent_id` from the `AGENT_ID` environment variable and passes it explicitly in each API call. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|
-| **Skills** | Loads [skill](resource-definitions.md#skill) content and places it into the filesystem in the directory structure expected by the agent CLI |
+| **Skills** | Fetches skills via `ListSkills(agent_id)` and writes content to the filesystem in the directory structure expected by the agent CLI |
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
-| **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
+| **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id`, `agyn.thread.message.id`, and `agyn.workload.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
-| **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) attached to the agent from the platform via the Gateway, then executes each in creation order using the container's default shell. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
+| **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(agent_id)` and executes each in creation order using the container's default shell. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
 | **PATH** | Prepends `/agyn-bin/cli` to `PATH` in the subprocess environment so the `agyn` platform CLI is available by name to the agent and any shell commands it runs. Only `/agyn-bin/cli` is added — `agynd` itself and the agent CLI binary are not placed on `PATH` |
+
+All user-defined environment variables — both plain-text values and resolved secret values — are injected directly into the container by the [Agents Orchestrator](agents-orchestrator.md) at workload assembly time. `agynd` reads them from the process environment and does not call `ListENVs`.
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
 
@@ -238,9 +240,9 @@ sequenceDiagram
 
     R->>D: Start pod (Ziti sidecar enrolls identity)
     Note over D: Ziti sidecar resolves OpenZiti hostnames and intercepts traffic (DNS + TPROXY)
-    D->>D: Fetch agent configuration (via Gateway at gateway.ziti)
-    D->>D: Prepare environment (skills, LLM Proxy config)
-    D->>D: Configure MCP endpoints for agent CLI
+    D->>GW: GetAgent(agent_id) + ListSkills + ListInitScripts + ListMCPs
+    GW-->>D: Agent config, skills, init scripts, MCP definitions
+    D->>D: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
     D->>D: Execute init scripts in order (/bin/sh -lc each)
     D->>GW: Subscribe to thread_participant:{agentId}
     D->>A: Spawn agent CLI via SDK

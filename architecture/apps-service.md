@@ -124,6 +124,27 @@ The service token is long-lived and can be reused. If the app restarts, it re-en
 
 When [Chat](chat.md) encounters a message with `sender_id` of type `app` (resolved via [Identity](identity.md)), it calls `GetAppProfile` to fetch the display profile (name, icon).
 
+## Authorization
+
+App management authorization is based on ownership of the app's organization. Installation authorization is based on ownership of the installing organization. App visibility controls read access to app records.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateApp` | `owner` on `organization:<org_id>` (owning org) |
+| `GetApp`, `GetAppBySlug` (public app) | Any authenticated identity |
+| `GetApp`, `GetAppBySlug` (internal app) | `member` on `organization:<app.org_id>` |
+| `ListApps` | Returns public apps (any authenticated) + filtered-by-org apps (`member` on that org) |
+| `UpdateApp`, `DeleteApp` | `owner` on `organization:<app.org_id>` |
+| `GetAppProfile` | Any authenticated identity |
+| `InstallApp` | `owner` on `organization:<install_org_id>` + app visibility allows it |
+| `GetInstallation`, `ListInstallations` | `member` on `organization:<install_org_id>` |
+| `GetInstallationByIdentityId` | Any authenticated identity (Gateway hot path) |
+| `UpdateInstallation`, `UninstallApp` | `owner` on `organization:<install_org_id>` |
+| `GetInstallationConfiguration` | App's own identity — `caller.identity_id == installation.app.identity_id` |
+| `EnrollApp` | Service token validation — no OpenFGA check |
+
+See [Authorization — Apps Service](authz.md#apps-service) for the full reference.
+
 ## Data Store
 
 PostgreSQL. Apps Service owns its database — `apps` and `app_installations` tables.

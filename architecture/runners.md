@@ -211,6 +211,27 @@ The Runners service supports idle timeout enforcement by tracking `last_activity
 
 This design ensures that long-running agent tasks (which may take hours) are never prematurely terminated — as long as the agent is working, `agynd` keeps touching. The idle clock only starts when the agent finishes processing and enters a wait state.
 
+## Authorization
+
+Runner management authorization depends on the runner's scope. Workload state operations are split between internal (Orchestrator) and external (Gateway-exposed) paths.
+
+| Operation | Check |
+|-----------|-------|
+| `RegisterRunner` (cluster-scoped) | `admin` on `cluster:global` |
+| `RegisterRunner` (org-scoped) | `owner` on `organization:<org_id>` |
+| `GetRunner`, `ListRunners` (org-scoped runners) | `member` on `organization:<org_id>` |
+| `GetRunner`, `ListRunners` (cluster-scoped runners) | Any authenticated identity |
+| `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
+| `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
+| `EnrollRunner` | Service token validation — no OpenFGA check |
+| `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
+| `GetWorkload`, `ListWorkloads`, `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `TouchWorkload` | Agent's own identity — `workload.agent_identity_id == caller.identity_id` |
+| `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
+| `GetVolume`, `ListVolumes`, `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+
+See [Authorization — Runners Service](authz.md#runners-service) for the full reference.
+
 ## Gateway Exposure
 
 The following methods are exposed through the [Gateway](gateway.md):

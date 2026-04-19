@@ -103,6 +103,21 @@ Consumers must follow this protocol to avoid duplicates and ordering races when 
 
 On reconnect, repeat from step 1. The fetch in step 3 guarantees no messages are lost — notifications only reduce latency between fetches.
 
+## Authorization
+
+The internal `Publish` RPC is Istio-only — only trusted platform services (Threads, Runners, Tracing, etc.) may publish events. No OpenFGA check is performed on publish.
+
+External `Subscribe` (Socket.IO) requires an authenticated caller. Room access is validated per subscription:
+
+| Room pattern | Access check |
+|--------------|-------------|
+| `thread_participant:{id}` | `id == caller.identity_id` (identity equality — only the participant subscribes to their own room) |
+| `workload:{id}` | `member` on `organization:<workload.org_id>` |
+| `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |
+
+See [Authorization — Notifications Service](authz.md#notifications-service) for the full reference.
+
 ## Internal Design
 
 - **Redis Pub/Sub** distributes envelopes across service instances.

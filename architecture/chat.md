@@ -35,6 +35,20 @@ Chat identifies participants by the authenticated `identity_id` from request con
 
 To display participant information, Chat resolves identity types via the [Identity](identity.md) service, then fetches profiles from the appropriate service — [Users](users.md) for users, [Agents](agents-service.md) for agents.
 
+## Authorization
+
+Chat delegates authorization to [Threads](threads.md) for all messaging operations. The checks are identical — Chat passes `organization_id` and `thread_id` from the request context to the underlying Threads calls, which perform the OpenFGA checks.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateChat` | `can_create_thread` on `organization:<org_id>` |
+| `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
+| `GetMessages` | `can_read` on `thread:<id>` |
+| `SendMessage` | `can_write` on `thread:<id>` |
+| `MarkAsRead` | Self only — caller must be a thread participant |
+
+See [Authorization — Chat Service](authz.md#chat-service) for the full reference.
+
 ## Classification
 
 The Chat service is a **data plane** service.

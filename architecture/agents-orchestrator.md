@@ -138,22 +138,23 @@ The orchestrator assembles the full workload specification from multiple sources
 3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
 4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
 5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
-6. **Environment variables** (from Agents + Secrets): plain-text values from Agents, secret-backed values resolved via Secrets service at start time.
-7. **Init scripts** (from Agents): shell scripts for container initialization.
+6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent ENVs into the agent container, MCP ENVs into the respective MCP sidecar, hook ENVs into the hook container. No container receives another container's resolved values. Agent ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
+7. **Init scripts** (from Agents): shell scripts for agent container initialization. Fetched by `agynd` at startup via the Gateway. MCP and hook init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
 8. **Hooks** (from Agents): event-driven sidecar containers.
-9. **Skills** (from Agents): prompt fragments — passed as part of agent configuration, not as separate containers.
-10. **OpenZiti enrollment JWT** (from Ziti Management): passed to the agent pod's Ziti sidecar container for network identity bootstrap.
+9. **Skills** (from Agents): prompt fragments. Fetched by `agynd` at startup via the Gateway and written to the filesystem in the layout expected by the agent CLI.
+10. **OpenZiti enrollment JWT** (from Ziti Management): injected as `ZITI_ENROLLMENT_JWT` into the **Ziti sidecar container**. The sidecar exchanges the JWT for an x509 certificate at startup, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace. MCP and hook sidecars share the pod network and can reach `.ziti` services via the sidecar, but receive no agent secrets or configuration — their env vars are injected separately and contain only what they need.
 11. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
 
 In addition to user-defined environment variables, the orchestrator injects **platform-managed environment variables** into containers:
 
 | Variable | Injected into | Description |
 |----------|---------------|-------------|
-| `GATEWAY_ADDRESS` | Agent container, MCP sidecars | Gateway URL for platform API access |
+| `ZITI_ENROLLMENT_JWT` | Ziti sidecar container | OpenZiti enrollment token. The sidecar exchanges this for an x509 certificate at startup and enables TPROXY for the pod |
+| `GATEWAY_ADDRESS` | Agent container | Gateway endpoint (e.g., `gateway.ziti`). `agynd` connects here for all platform API calls |
 | `THREAD_ID` | Agent container | Thread ID this workload is processing. `agynd` scopes all message reads to this thread |
 | `WORKLOAD_ID` | Agent container | Workload UUID (`workload_key`) for this execution. Used by `agynd` for activity keepalives and span attribution |
-| `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
+| `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 
 The orchestrator also wires the init container flow:
 

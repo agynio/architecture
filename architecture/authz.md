@@ -41,29 +41,333 @@ All platform identities (users, agents, runners, apps) are represented as a sing
 
 Any identity can hold any relationship that is modeled in OpenFGA. See [Identity](identity.md) for the identity registry.
 
-### Organization Permissions
+### Types and Relations
 
-Identities have permissions within an organization via OpenFGA relationship tuples. The permission model is designed for granular extension — individual capabilities can be granted or grouped into higher-level roles as needs emerge.
+#### cluster
+
+Singleton object `cluster:global`. Holds platform-wide administrative permissions.
+
+```
+type cluster
+  relations
+    define admin: [identity]
+```
+
+#### organization
+
+Organizations are the primary grouping unit. Resources (agents, models, secrets, threads) belong to an organization. Access to those resources derives from the caller's relation on the organization.
+
+```
+type organization
+  relations
+    define cluster: [cluster]
+    define member: [identity]
+    define owner: [identity]
+    define can_invite: owner
+    define can_manage_members: owner
+    define can_view_threads: owner
+    define can_add_member: admin from cluster
+    define can_create_thread: member or thread_create
+    define thread_create: [identity]
+    define thread_write: [identity]
+    define participant_add: [identity]
+```
+
+`owner` implies `member`, `can_invite`, `can_manage_members`, and `can_view_threads`. `owner` does **not** imply `can_create_thread` directly — instead `can_create_thread` is computed from `member`, and owners are also members, so owners can always create threads.
+
+`thread_create`, `thread_write`, and `participant_add` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions).
+
+#### thread
+
+Threads are independent objects in OpenFGA. Each thread holds its organization reference and its participant set as relationships.
+
+```
+type thread
+  relations
+    define org: [organization]
+    define participant: [identity]
+    define can_read: participant or can_view_threads from org
+    define can_write: participant or thread_write from org
+    define can_add_participant: participant or participant_add from org
+```
+
+When a thread is created, the Threads service writes:
+- `organization:<org_id>, org, thread:<thread_id>`
+- `identity:<id>, participant, thread:<thread_id>` for each initial participant
+
+When `AddParticipant` is called, the Threads service writes:
+- `identity:<id>, participant, thread:<thread_id>`
+
+#### model
+
+Models are org-scoped resources with explicit permissions for management and use.
+
+```
+type model
+  relations
+    define org: [organization]
+    define can_manage: owner from org
+    define can_use: member from org
+```
+
+When a model is created, the LLM service writes:
+- `organization:<org_id>, org, model:<model_id>`
+
+`can_manage` is computed from `owner` on the model's org. `can_use` is computed from `member` on the model's org. This makes it possible to grant or restrict model access independently in the future (e.g., writing a direct `identity:<id>, can_use, model:<model_id>` tuple) without changing the organization membership model.
+
+### Organization Permissions
 
 | Relation | Type | Capabilities |
 |----------|------|-------------|
 | **owner** | role (assignable) | Full access. Manage organization settings, membership, all resources. Delete organization |
-| **member** | role (assignable) | Chat. View tracing. View resources (read-only) |
+| **member** | role (assignable) | Chat. View tracing. View resources (read-only). Create threads |
 | **can_invite** | computed | Create pending memberships (invites) for the organization |
 | **can_manage_members** | computed | Remove members, update member roles, list members |
 | **can_add_member** | computed | Create active memberships directly (skip invite) |
 | **can_view_threads** | computed | List and read all threads in the organization, regardless of participation |
+| **can_create_thread** | computed | Create threads in the organization. Computed from `member` or `thread_create` |
+| **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
+| **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
+| **participant_add** | app permission | Written for app installations that declare the `participant:add` permission |
 
-#### Computed Relations
+#### Computed relations
 
 - `owner` implies `member`, `can_invite`, `can_manage_members`, and `can_view_threads`.
-- `can_add_member` is computed from `cluster:global admin` — any identity with the `admin` relation on `cluster:global` has `can_add_member` on all organizations. This is modeled in OpenFGA as a cross-type computed relation (e.g., `define can_add_member: admin from cluster`), not as explicit per-organization tuples.
-
-Additional granular permissions (e.g., manage agents, manage models, view tracing) can be added as relations on the `organization` type without changing the model structure.
-
-Any identity type can hold organization permissions. For example, an agent that creates an organization becomes its owner.
+- `can_add_member` is computed from `cluster:global admin` — any identity with the `admin` relation on `cluster:global` has `can_add_member` on all organizations. Modeled as a cross-type computed relation (`define can_add_member: admin from cluster`), not as explicit per-organization tuples.
+- `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
+
+### Cluster Permissions
+
+The authorization model includes a `cluster` type with a singleton object `cluster:global`:
+
+| Permission | Capabilities |
+|------------|-------------|
+| **admin** | Register and manage cluster-scoped apps and runners. Platform administration. Add members to any organization directly |
+
+Cluster admin permissions are stored as relationship tuples:
+
+```
+identity:<userId>, admin, cluster:global
+```
+
+See [Cluster Permissions — Bootstrap](#bootstrap) for how the initial admin is seeded.
+
+### App Installation Permissions
+
+Apps declare the permissions they need in their definition. When an app is installed into an organization, the Apps Service writes one OpenFGA tuple per declared permission:
+
+| App permission | Tuple written |
+|----------------|---------------|
+| `thread:create` | `identity:<app_identity_id>, thread_create, organization:<org_id>` |
+| `thread:write` | `identity:<app_identity_id>, thread_write, organization:<org_id>` |
+| `participant:add` | `identity:<app_identity_id>, participant_add, organization:<org_id>` |
+
+These tuples flow into thread-level computed relations:
+- An app with `thread_write` on an org satisfies `can_write` on any thread in that org (via `thread_write from org` in the thread type).
+- An app with `participant_add` on an org satisfies `can_add_participant` on any thread in that org.
+- An app with `thread_create` on an org satisfies `can_create_thread` on the org.
+
+When the app is uninstalled, the Apps Service deletes all tuples written at install time.
+
+See [Apps — Permissions](apps.md#permissions) for the permission vocabulary.
+
+## Tuple Lifecycle
+
+Services own the tuples for the resources they manage. Tuples are written and deleted synchronously with the state changes that drive them.
+
+| Event | Tuple written | Written by |
+|-------|---------------|-----------|
+| Organization membership becomes active | `identity:<id>, <role>, organization:<org_id>` | Organizations |
+| Organization membership removed | Delete `identity:<id>, <role>, organization:<org_id>` | Organizations |
+| Membership role updated | Delete old role tuple, write new | Organizations |
+| Model created | `organization:<org_id>, org, model:<model_id>` | LLM Service |
+| Model deleted | Delete `organization:<org_id>, org, model:<model_id>` | LLM Service |
+| Thread created | `organization:<org_id>, org, thread:<thread_id>` + participant tuples | Threads |
+| Participant added to thread | `identity:<id>, participant, thread:<thread_id>` | Threads |
+| App installed | Permission tuples per declared permission (see above) | Apps Service |
+| App uninstalled | Delete all install-time permission tuples | Apps Service |
+| Cluster admin granted | `identity:<id>, admin, cluster:global` | Users (via gateway) / bootstrap |
+| Cluster admin revoked | Delete `identity:<id>, admin, cluster:global` | Users (via gateway) |
+
+Resources that are deleted (threads archived, organizations deleted) do not require explicit tuple cleanup beyond what is listed above — thread tuples become orphaned but are harmless since the thread record no longer exists to authorize against. For organizations, membership tuples are deleted as part of the deletion flow.
+
+## Per-Service Authorization Reference
+
+This table summarizes the authorization check applied to each Gateway-exposed operation. Internal-only operations (not exposed through the Gateway) use Istio mTLS for caller trust and do not require OpenFGA checks.
+
+### Users Service
+
+| Operation | Check |
+|-----------|-------|
+| `GetMe` | Authenticated (no OpenFGA check; returns caller's own profile) |
+| `CreateUser`, `GetUser`, `GetUserByOIDCSubject`, `ListUsers`, `UpdateUser`, `DeleteUser` | `admin` on `cluster:global` |
+| `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | Self only (`identity_id` from request context == token owner) |
+| `CreateDevice`, `ListDevices`, `DeleteDevice` | Self only |
+
+### Organizations Service
+
+| Operation | Check |
+|-----------|-------|
+| `CreateOrganization` | Any authenticated identity (creator becomes owner) |
+| `GetOrganization` | `member` on `organization:<id>` |
+| `ListOrganizations` | Returns organizations where caller is a `member` (uses `ListObjects`) |
+| `UpdateOrganization`, `DeleteOrganization` | `owner` on `organization:<id>` |
+| `CreateMembership` | `can_add_member` on `organization:<id>` (→ active) or `can_invite` (→ pending) |
+| `AcceptMembership`, `DeclineMembership` | Self only (invitee's `identity_id` matches the membership target) |
+| `RemoveMembership`, `UpdateMembershipRole`, `ListMembers` | `can_manage_members` on `organization:<id>` |
+| `ListMyMemberships` | Self only (returns caller's own memberships) |
+
+### Agents Service
+
+All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, VolumeAttachments, ImagePullSecretAttachments) are org-scoped. Sub-resources inherit their parent's organization.
+
+| Operation | Check |
+|-----------|-------|
+| Create, Update, Delete (any resource) | `owner` on `organization:<org_id>` |
+| Get, List (any resource) | `member` on `organization:<org_id>` |
+| `ResolveAgentIdentity` | Internal only (Istio) |
+
+Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time.
+
+### Runners Service
+
+Runners can be cluster-scoped (`organization_id` null) or org-scoped.
+
+| Operation | Check |
+|-----------|-------|
+| `RegisterRunner` (cluster-scoped) | `admin` on `cluster:global` |
+| `RegisterRunner` (org-scoped) | `owner` on `organization:<org_id>` |
+| `GetRunner`, `ListRunners` | `member` on `organization:<org_id>` for org-scoped runners; any authenticated identity for cluster-scoped runners |
+| `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
+| `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
+| `EnrollRunner` | Runner's own identity (service token verification, not OpenFGA) |
+| `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
+| `GetWorkload`, `ListWorkloads`, `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `TouchWorkload` | Agent's own identity (`workload.agent_identity_id == caller.identity_id`) |
+| Volume operations (internal) | Internal only (Orchestrator via Istio) |
+| `GetVolume`, `ListVolumes`, `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+
+### Threads Service
+
+| Operation | Check |
+|-----------|-------|
+| `CreateThread` | `can_create_thread` on `organization:<org_id>` |
+| `ArchiveThread` | `participant` on `thread:<id>` or `owner` on `organization:<thread.org_id>` |
+| `AddParticipant` | `can_add_participant` on `thread:<id>` |
+| `SendMessage` | `can_write` on `thread:<id>` |
+| `GetThreads` | No OpenFGA check — returns threads where `caller.identity_id` is a participant (DB filter) |
+| `ListOrganizationThreads` | `can_view_threads` on `organization:<org_id>` |
+| `GetMessages` | `can_read` on `thread:<id>` |
+| `GetUnackedMessages` | Self only — returns unacked messages for `caller.identity_id` as participant |
+| `AckMessages` | Self only — caller must be the recipient |
+
+### Chat Service
+
+Chat wraps Threads. Thread-level authorization checks apply.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateChat` | `can_create_thread` on `organization:<org_id>` |
+| `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
+| `GetMessages` | `can_read` on `thread:<id>` |
+| `SendMessage` | `can_write` on `thread:<id>` |
+| `MarkAsRead` | Self only — caller must be a participant |
+
+### Files Service
+
+Files are org-scoped. Access is determined by organization membership. No separate OpenFGA type is needed.
+
+| Operation | Check |
+|-----------|-------|
+| `UploadFile` | `member` on `organization:<org_id>` |
+| `GetFileMetadata`, `GetDownloadURL`, `GetFileContent` | `member` on `organization:<file.org_id>` |
+| `DeleteFile` | File uploader (`file.uploader_id == caller.identity_id`) or `owner` on `organization:<file.org_id>` |
+
+### Secrets Service
+
+| Operation | Check |
+|-----------|-------|
+| Create, Update, Delete (providers, secrets, image pull secrets) | `owner` on `organization:<org_id>` |
+| Get, List (providers, secrets, image pull secrets) | `member` on `organization:<org_id>` |
+| `ResolveSecretValue` (via Gateway) | `admin` on `cluster:global` |
+| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only (Orchestrator via Istio) |
+
+### LLM Service
+
+| Operation | Check |
+|-----------|-------|
+| Create, Update, Delete (providers, models) | `owner` on `organization:<org_id>` |
+| Get, List (providers, models) | `member` on `organization:<org_id>` |
+| `ResolveModel` | Internal only (LLM Proxy via Istio) |
+
+Model access at call time (checked by the LLM Proxy, not the LLM Service):
+
+| Operation | Check |
+|-----------|-------|
+| Use a model (LLM API call) | `can_use` on `model:<model_id>` |
+
+### Apps Service
+
+App visibility affects who can read app records: `public` apps are visible to any authenticated identity; `internal` apps are visible only to members of the owning organization.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateApp` | `owner` on `organization:<org_id>` (owning org) |
+| `GetApp`, `GetAppBySlug` (public app) | Any authenticated identity |
+| `GetApp`, `GetAppBySlug` (internal app) | `member` on `organization:<app.org_id>` |
+| `ListApps` | Returns public apps (any authenticated) + own-org apps (`member` on org, via filter) |
+| `UpdateApp`, `DeleteApp` | `owner` on `organization:<app.org_id>` |
+| `GetAppProfile` | Any authenticated identity (used by Chat for message display) |
+| `InstallApp` | `owner` on `organization:<install_org_id>` (installing org) + app visibility allows it |
+| `GetInstallation`, `ListInstallations` | `member` on `organization:<install_org_id>` |
+| `GetInstallationByIdentityId` | Internal (Gateway app proxy hot path, authenticated) |
+| `UpdateInstallation`, `UninstallApp` | `owner` on `organization:<install_org_id>` |
+| `GetInstallationConfiguration` | App's own identity (`caller.identity_id == installation.app.identity_id`) |
+
+### Tracing Service
+
+| Operation | Check |
+|-----------|-------|
+| `Export` (span ingestion via OpenZiti) | Any agent with a valid OpenZiti identity (network-level auth, no OpenFGA check) |
+| `agyn.thread.id` attribute verification | `can_read` on `thread:<thread_id>` |
+| `ListSpans` | `member` on `organization:<org_id>` (required request parameter) |
+| `GetTrace`, `GetSpan` | `member` on `organization:<span.org_id>` (resolved from stored `agyn.organization.id`) |
+
+### Expose Service
+
+| Operation | Check |
+|-----------|-------|
+| `AddExposure` (standard: no `workload_id` in request) | Agent's own identity — `workload.agent_identity_id == caller.identity_id` (from `x-workload-id` header) |
+| `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
+| `RemoveExposure` | Agent's own identity or `owner` on `organization:<workload.org_id>` |
+| `ListExposures` | Agent's own identity or `member` on `organization:<workload.org_id>` |
+
+### Notifications Service
+
+The internal `Publish` RPC is Istio-only (trusted internal services). The external `Subscribe` (Socket.IO) validates room access per subscription:
+
+| Room pattern | Access check |
+|--------------|-------------|
+| `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA) |
+| `workload:{id}` | `member` on `organization:<workload.org_id>` |
+| `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
+
+### Token Counting Service
+
+| Operation | Check |
+|-----------|-------|
+| All counting operations | `member` on `organization:<org_id>` (counting is scoped per org) |
+
+### Metering Service
+
+Internal only. Producers are internal services (LLM Proxy, Orchestrator, Threads) communicating via Istio. No OpenFGA checks.
+
+### Ziti Management Service
+
+Internal only (Istio). Not exposed through the Gateway. Istio `AuthorizationPolicy` is the enforcement mechanism — only specific service accounts (Orchestrator, Runners service, Agents service, Gateway, LLM Proxy, Tracing service) may call `ZitiManagement`. Application-level guards prevent callers from requesting identity role attributes beyond their own scope (e.g., only the Orchestrator may call `CreateAgentIdentity`).
 
 ## How Services Use Authorization
 
@@ -120,27 +424,7 @@ OpenFGA runs as a service within the Kubernetes cluster. It uses PostgreSQL as i
 | Deployment | Kubernetes (Helm chart) |
 | Local development | Part of the bootstrap cluster |
 
-## Cluster Permissions
-
-In addition to organization-scoped permissions, the platform has cluster-level permissions for administrative operations that span all organizations.
-
-### Cluster Type
-
-The authorization model includes a `cluster` type with a singleton object `cluster:global`:
-
-| Permission | Capabilities |
-|------------|-------------|
-| **admin** | Register and manage cluster-scoped [apps](apps.md). Register and manage cluster-scoped runners. Platform administration |
-
-### Tuples
-
-Cluster admin permissions are stored as relationship tuples in OpenFGA:
-
-```
-identity:<userId>, admin, cluster:global
-```
-
-### Bootstrap
+## Bootstrap
 
 The initial cluster admin is seeded during platform bootstrap. Terraform writes directly to PostgreSQL:
 
@@ -150,13 +434,3 @@ The initial cluster admin is seeded during platform bootstrap. Terraform writes 
 4. Terraform writes the OpenFGA tuple: `identity:<userId>, admin, cluster:global`.
 
 The generated API token is stored as a Terraform output (sensitive) and is used for cluster-level operations — registering cluster-scoped apps and runners.
-
-### Usage
-
-Services that handle cluster-level operations check the `admin` relation on `cluster:global`:
-
-```
-Check(identity:<callerId>, admin, cluster:global) → allowed: bool
-```
-
-If denied, the service returns a permission error.

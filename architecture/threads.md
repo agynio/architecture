@@ -88,6 +88,23 @@ The Threads service emits usage records to the [Metering Service](metering.md) o
 | `COUNT` | 1 | resource_id=thread_id, resource=thread, kind=thread | thread_id |
 | `COUNT` | 1 | resource_id=message_id, resource=message, kind=message, thread_id | message_id |
 
+## Authorization
+
+Thread access is enforced via [OpenFGA](authz.md). Each thread is an OpenFGA object (`thread:<id>`) with relations to its organization and its participant set.
+
+| Relation | Who holds it |
+|----------|-------------|
+| `participant` | Identities explicitly added via `CreateThread` or `AddParticipant` |
+| `can_read` | Participants; identities with `can_view_threads` on the thread's org (i.e., org owners) |
+| `can_write` | Participants; app identities with `thread_write` on the org |
+| `can_add_participant` | Participants; app identities with `participant_add` on the org |
+
+**Tuple writes:**
+- `CreateThread`: writes `organization:<org_id>, org, thread:<id>` and `identity:<id>, participant, thread:<id>` for each initial participant.
+- `AddParticipant`: writes `identity:<id>, participant, thread:<id>`.
+
+There are no tuple deletes when participants leave or when threads are archived (threads are soft-deleted; tuples become orphaned but harmless).
+
 ## Non-Participant Senders
 
 Threads allows identities of type `app` to send messages without being thread participants. This supports [write-only apps](apps.md#write-only-apps) (e.g., Reminders) that post to threads but do not need to receive notifications or acknowledge messages.

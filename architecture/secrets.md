@@ -81,6 +81,19 @@ sequenceDiagram
 
 The caller receives the full credential triple needed to construct a Docker registry authentication entry.
 
+## Authorization
+
+All secret resources are org-scoped. Resolution calls are split between an internal path (trusted) and the Gateway-exposed path (authorized).
+
+| Operation | Check |
+|-----------|-------|
+| Create, Update, Delete (providers, secrets, image pull secrets) | `owner` on `organization:<org_id>` |
+| Get, List (providers, secrets, image pull secrets) | `member` on `organization:<org_id>` |
+| `ResolveSecretValue` (via Gateway) | `admin` on `cluster:global` |
+| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only — Orchestrator via Istio, no OpenFGA check |
+
+See [Authorization — Secrets Service](authz.md#secrets-service) for the full reference.
+
 ## Provider Management
 
 CRUD operations for secret provider resources. See [Providers, Models, and Secrets](providers.md#secret-provider) for the resource definition.

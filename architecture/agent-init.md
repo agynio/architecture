@@ -228,9 +228,10 @@ sequenceDiagram
     Note over MC: command: /agyn-bin/agynd
 
     MC->>MC: Read /agyn-bin/config.json → sdk type, bin path
-    MC->>GW: Connect (single gRPC connection)
-    MC->>GW: GetAgent(agent_id) → agent definition
-    MC->>MC: Prepare environment (skills, MCP config, LLM endpoint)
+    MC->>GW: GetAgent + ListSkills + ListInitScripts + ListMCPs
+    GW-->>MC: Agent config, skills, init scripts, MCP definitions
+    MC->>MC: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
+    MC->>MC: Execute init scripts in order (/bin/sh -lc each)
     MC->>MC: Spawn agent CLI at bin path (via SDK module)
     MC->>GW: Subscribe to notifications
     MC->>MC: Begin message sync loop
@@ -329,9 +330,9 @@ What the orchestrator passes to the main container:
 | `AGENT_MODEL` | Agent resource | Model UUID reference |
 | `AGENT_CONFIG` | Agent resource | Opaque configuration JSON |
 | `THREAD_ID` | Reconciler | Thread UUID this workload serves |
-| `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint |
+| `WORKLOAD_ID` | Reconciler | Workload UUID for activity keepalives and span attribution |
+| `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.ziti`) |
 | `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs (e.g., `filesystem:8100,github:8101`). See [MCP — Port Allocation](mcp.md#port-allocation) |
-| `AGENT_SKILLS` | Skills sub-resource | JSON-encoded skills array |
 
 **Removed:** `THREADS_ADDRESS`, `NOTIFICATIONS_ADDRESS` (replaced by `GATEWAY_ADDRESS`).
 
@@ -339,7 +340,7 @@ What the orchestrator passes to the main container:
 
 1. **Read config:** On startup, read `/agyn-bin/config.json` to determine the SDK type and agent CLI binary path.
 2. **Single Gateway connection:** Replace three separate gRPC connections (`ThreadsAddress`, `NotificationsAddress`, `TeamsAddress`) with a single connection to `GATEWAY_ADDRESS`. All service calls (Threads, Notifications, Agents) go through the Gateway.
-3. **Rename teams → agents:** Import `agynio/api/agents/v1` (via Gateway). Call `AgentsServiceClient.GetAgent()` instead of `TeamsServiceClient.GetAgent()`.
+3. **Rename teams → agents:** Import `agynio/api/agents/v1` (via Gateway). Fetch agent config via `GetAgent`, `ListSkills`, `ListInitScripts`, `ListMCPs` at startup. ENVs are not fetched — they are already present in the container environment (injected by the Orchestrator).
 4. **Agent CLI path:** Read from `config.json` `bin` field. The SDK module uses this path to spawn the agent CLI subprocess.
 5. **SDK dispatch:** Based on `sdk` field from `config.json`, select the SDK module (`codex-sdk-go`, `claude-sdk-go`, `agn-sdk-go`) that manages the agent CLI subprocess.
 
@@ -401,7 +402,13 @@ spec:
           value: "<uuid>"
         - name: GATEWAY_ADDRESS
           value: "<gateway-addr>"
-        # ... remaining env vars
+        - name: THREAD_ID
+          value: "<uuid>"
+        - name: WORKLOAD_ID
+          value: "<uuid>"
+        - name: AGENT_MCP_SERVERS
+          value: "filesystem:8100,github:8101"
+        # ... user-defined agent ENVs (resolved secret values included)
       volumeMounts:
         - name: agyn-bin
           mountPath: /agyn-bin
@@ -409,7 +416,7 @@ spec:
 
     - name: mcp-<short-id>                              # MCP sidecars (existing pattern)
       image: ghcr.io/agynio/mcp-filesystem:latest
-      # ...
+      # ... (only receives its own MCP ENVs — no agent secrets)
 
   volumes:
     - name: agyn-bin
