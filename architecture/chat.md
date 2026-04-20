@@ -49,6 +49,10 @@ Chat delegates authorization to [Threads](threads.md) for all messaging operatio
 
 See [Authorization — Chat Service](authz.md#chat-service) for the full reference.
 
+## Degraded Threads
+
+When `SendMessage` fails with a `thread degraded` error, the UI displays an inline banner in the chat view explaining that the thread is unavailable due to an infrastructure failure and that no new messages can be sent. Read access to message history remains available.
+
 ## Classification
 
 The Chat service is a **data plane** service.

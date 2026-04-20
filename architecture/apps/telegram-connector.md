@@ -38,6 +38,8 @@ When a message arrives from a Telegram chat that has no mapping:
 
 Subsequent messages from the same Telegram chat reuse the same thread. Thread lifecycle is indefinite — threads are never archived by the connector.
 
+If `SendMessage` returns a `thread degraded` error, the connector treats the existing thread as permanently unusable: it deletes the `(installation_id, telegram_chat_id)` mapping and creates a new thread as if no mapping existed. The user's next message (the one that triggered the error) is then forwarded to the new thread. From the Telegram user's perspective, the conversation continues without interruption.
+
 ## Inbound Flow (Telegram → Platform)
 
 The connector polls Telegram using long polling (`getUpdates`). One polling loop runs per installation.

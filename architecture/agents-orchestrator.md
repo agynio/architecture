@@ -127,7 +127,11 @@ Records are created in the Runners service before `StartWorkload` is called — 
 
 ### Runner Selection
 
-Before starting a workload, the orchestrator selects a runner. See [Runners — Runner Selection](runners.md#runner-selection) for the full algorithm. In summary: filter enrolled runners by organization scope, then by label match against the agent's `runner_labels`, then pick one at random. If no runner matches, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
+Before starting a workload, the orchestrator selects a runner:
+
+1. **Check for existing volumes** — call `Runners.ListVolumesByThread(thread_id)` to find any active volumes already provisioned for this thread. If any exist, the runner is predetermined: all volumes for a thread reside on the same runner (recorded as `runner_id` on each volume record).
+2. **Validate the predetermined runner** — call `Runners.GetRunner(runner_id)` and verify its status is `enrolled`. If the runner is no longer registered or not enrolled, the thread cannot be recovered: call `Threads.DegradeThread(thread_id, reason="runner_deprovisioned")` and abort the start sequence.
+3. **No existing volumes** — apply the standard selection algorithm: filter enrolled runners by organization scope, then by label match against the agent's `runner_labels`, then pick one at random. If no runner matches, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
 
 ### Workload Spec Assembly
 
@@ -296,7 +300,7 @@ On each tick, for each enrolled runner:
 | `provisioning` | yes | `UpdateVolume(status=active)` — PVC was created by `StartWorkload` |
 | `provisioning` | no | no-op — `StartWorkload` may still be in progress; `failed` after workload reaches `failed` |
 | `active` | yes | check TTL — if `volume.ttl` is set and no workload for this `(thread_id)` has been running or stopping since at least `ttl` ago (derived from `removed_at` of the most recent workload for this thread): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
-| `active` | no | `UpdateVolume(status=failed)` — PVC was lost or deleted externally |
+| `active` | no | `UpdateVolume(status=failed)` → `Threads.DegradeThread(thread_id, reason="volume_lost")` — PVC was lost or deleted externally (e.g., runner deprovisioned) |
 | `deprovisioning` | yes | retry `Runner.RemoveVolume` |
 | `deprovisioning` | no | `UpdateVolume(status=deleted, removed_at=now)` |
 | not in Runners service | yes | orphan — `Runner.RemoveVolume` |
