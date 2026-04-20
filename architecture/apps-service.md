@@ -22,6 +22,9 @@ The Apps Service manages apps and installations — the configuration entities t
 | **UpdateInstallation** | Update an installation (nickname, configuration) |
 | **UninstallApp** | Delete an installation. Removes authorization tuples |
 | **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation |
+| **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status |
+| **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only |
+| **ListInstallationAuditLogEntries** | List audit log entries for an installation. Paginated, newest first |
 
 ## App Resource
 
@@ -48,8 +51,19 @@ The Apps Service manages apps and installations — the configuration entities t
 | `app_id` | string (UUID) | Reference to the app |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
 | `configuration` | JSON object | App-specific configuration. Opaque to the platform |
+| `status` | string (markdown) | Current status reported by the app. Free text, rendered as markdown in the Console. Optional — absent until the app first calls `ReportInstallationStatus` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
+
+## Installation Audit Log Entry Resource
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Entry identifier |
+| `installation_id` | string (UUID) | Installation this entry belongs to |
+| `message` | string | Log message (free text) |
+| `level` | enum | `info`, `warning`, `error` |
+| `created_at` | timestamp | Server-assigned time when the entry was received |
 
 ## App Flow
 
@@ -141,13 +155,16 @@ App management authorization is based on ownership of the app's organization. In
 | `GetInstallationByIdentityId` | Any authenticated identity (Gateway hot path) |
 | `UpdateInstallation`, `UninstallApp` | `owner` on `organization:<install_org_id>` |
 | `GetInstallationConfiguration` | App's own identity — `caller.identity_id == installation.app.identity_id` |
+| `ReportInstallationStatus` | App's own identity — `caller.identity_id == installation.app.identity_id` |
+| `AppendInstallationAuditLogEntry` | App's own identity — `caller.identity_id == installation.app.identity_id` |
+| `ListInstallationAuditLogEntries` | `member` on `organization:<install_org_id>` |
 | `EnrollApp` | Service token validation — no OpenFGA check |
 
 See [Authorization — Apps Service](authz.md#apps-service) for the full reference.
 
 ## Data Store
 
-PostgreSQL. Apps Service owns its database — `apps` and `app_installations` tables.
+PostgreSQL. Apps Service owns its database — `apps`, `app_installations`, and `installation_audit_log_entries` tables.
 
 ## Classification
 

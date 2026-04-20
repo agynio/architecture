@@ -21,6 +21,7 @@ The Console is the platform's management interface for organizations, users, age
 - As an organization owner, I want to manage secret providers and secrets so agents can access sensitive credentials.
 - As an organization owner, I want to register org-scoped runners so I can control where my organization's agents execute.
 - As an organization owner, I want to install apps into my organization and configure them so agents can use app capabilities.
+- As an organization owner, I want to see the status and audit log reported by an installed app so I can diagnose configuration problems and understand what the app is doing.
 - As an organization owner, I want to publish apps from my organization so other organizations can install them.
 - As an organization owner, I want to invite users to my organization and assign roles so teammates can collaborate.
 - As an organization owner, I want to monitor active agent workloads so I can see what is running and troubleshoot issues.
@@ -267,6 +268,9 @@ Apps installed into this organization. Each installation grants the app permissi
 **Installation list** — table of installations. Columns: app name, installation slug, app address (`{org-slug}/{app-slug}`), created date. Default sort: creation time, newest first.
 
 **Installation detail** — installation slug, app name and address, app description, permissions granted, configuration (JSON editor). Actions: update configuration, update slug, uninstall.
+
+- **Status** — if the app has reported a status, it is displayed as a markdown-rendered block at the top of the detail view. If no status has been reported, this section is hidden.
+- **Audit Log** — a table of events reported by the app. Columns: time, level (badge: info / warning / error), message. Newest first, paginated with "load more". If no entries exist, the section is hidden.
 
 **Install app** — search for available apps by name or address. The search returns public apps from any organization and internal apps from the current organization. Selecting an app shows its description and required permissions. The user sets the installation slug (defaults to the app's slug) and provides configuration (JSON). Submitting creates the installation and writes authorization tuples for the app's declared permissions.
 

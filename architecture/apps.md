@@ -169,6 +169,24 @@ sequenceDiagram
     AS-->>Admin: Installation record
 ```
 
+## Installation Status and Audit Log
+
+Apps can report operational information about their installations back to the platform. This information is visible to org admins in the Console and helps diagnose configuration issues or runtime problems.
+
+### Installation Status
+
+The app calls `ReportInstallationStatus` with a free-text markdown string describing its current state. Each call replaces the previous status — it represents the app's current condition, not a history. The Console renders the status as markdown in the installation detail view.
+
+Typical uses: confirming the app started successfully, reporting missing or invalid configuration keys, indicating that a required external service is unreachable.
+
+### Audit Log
+
+The app calls `AppendInstallationAuditLogEntry` to record a notable event. Each entry has a message and a severity level (`info`, `warning`, `error`). Entries are append-only — the platform assigns the timestamp server-side. The Console displays entries newest-first in the installation detail view.
+
+Typical uses: logging startup and shutdown, recording configuration validation failures, noting successful connections to external systems, and surfacing errors that affect functionality.
+
+Both APIs are authorized to the app's own identity — an app can only report status and append entries for installations of itself. Org members can read the status and audit log via the standard installation read APIs.
+
 ## Thread Interaction
 
 Apps interact with threads through the standard [Threads](threads.md) API via the [Gateway](gateway.md). Two modes:
