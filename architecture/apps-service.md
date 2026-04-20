@@ -22,8 +22,8 @@ The Apps Service manages apps and installations — the configuration entities t
 | **UpdateInstallation** | Update an installation (nickname, configuration) |
 | **UninstallApp** | Delete an installation. Removes authorization tuples |
 | **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation |
-| **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status |
-| **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only |
+| **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status. An empty or whitespace-only string clears the status (stores NULL) |
+| **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only. Accepts an optional `idempotency_key` (deduped server-side for 24h) to make client retries safe |
 | **ListInstallationAuditLogEntries** | List audit log entries for an installation. Paginated, newest first |
 
 ## App Resource
@@ -63,7 +63,16 @@ The Apps Service manages apps and installations — the configuration entities t
 | `installation_id` | string (UUID) | Installation this entry belongs to |
 | `message` | string | Log message (free text) |
 | `level` | enum | `info`, `warning`, `error` |
+| `idempotency_key` | string | Optional. Client-supplied key for dedup. A `(installation_id, idempotency_key)` tuple seen within the dedup window returns the existing entry instead of creating a new one |
 | `created_at` | timestamp | Server-assigned time when the entry was received |
+
+### Retention
+
+Audit log entries are retained per-installation with a **count-based ring buffer**: the most recent 1000 entries per installation are kept; older entries are dropped on insert. Apps needing durable long-term history ship logs to their own sink — the platform's audit log is a diagnostic surface, not a system of record.
+
+### Idempotency
+
+`AppendInstallationAuditLogEntry` accepts an optional `idempotency_key`. When provided, the service deduplicates within a **24-hour window**: if a `(installation_id, idempotency_key)` tuple has already been recorded within that window, the existing entry is returned instead of creating a new one. Omitting the key disables dedup — every call creates a new entry.
 
 ## App Flow
 

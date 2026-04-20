@@ -25,10 +25,13 @@ Specifically:
 
 - App can call `ReportInstallationStatus(installation_id, status)` to set a markdown status string on its installation.
 - Calling `ReportInstallationStatus` again replaces the previous status.
-- App can call `AppendInstallationAuditLogEntry(installation_id, message, level)` to append an entry.
+- Calling `ReportInstallationStatus` with an empty or whitespace-only string clears the status (stores NULL).
+- App can call `AppendInstallationAuditLogEntry(installation_id, message, level, idempotency_key?)` to append an entry.
+- Repeated calls with the same `(installation_id, idempotency_key)` within 24h return the existing entry without creating duplicates.
 - `ListInstallationAuditLogEntries(installation_id)` returns entries newest first, paginated.
+- Per-installation retention is capped at 1000 entries (ring buffer — oldest dropped on insert).
 - Both write RPCs are authorized to the app's own identity only.
-- `ListInstallationAuditLogEntries` is authorized to org members.
+- `ListInstallationAuditLogEntries` is authorized to org members (cluster admins inherit via existing authz).
 - `GetInstallation` response includes the `status` field.
 - Console installation detail renders the status as markdown when present.
 - Console installation detail shows the audit log table when entries exist.

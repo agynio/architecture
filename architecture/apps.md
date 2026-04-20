@@ -175,7 +175,7 @@ Apps can report operational information about their installations back to the pl
 
 ### Installation Status
 
-The app calls `ReportInstallationStatus` with a free-text markdown string describing its current state. Each call replaces the previous status — it represents the app's current condition, not a history. The Console renders the status as markdown in the installation detail view.
+The app calls `ReportInstallationStatus` with a free-text markdown string describing its current state. Each call replaces the previous status — it represents the app's current condition, not a history. Passing an empty or whitespace-only string clears the status. The Console renders the status as markdown in the installation detail view.
 
 Typical uses: confirming the app started successfully, reporting missing or invalid configuration keys, indicating that a required external service is unreachable.
 
@@ -185,7 +185,9 @@ The app calls `AppendInstallationAuditLogEntry` to record a notable event. Each 
 
 Typical uses: logging startup and shutdown, recording configuration validation failures, noting successful connections to external systems, and surfacing errors that affect functionality.
 
-Both APIs are authorized to the app's own identity — an app can only report status and append entries for installations of itself. Org members can read the status and audit log via the standard installation read APIs.
+The platform retains the most recent 1000 entries per installation (count-based ring buffer). The audit log is a diagnostic surface, not a durable log — apps needing long-term retention ship to their own sink. To make retries safe, callers may supply an `idempotency_key`; duplicates for the same `(installation_id, idempotency_key)` within 24 hours return the existing entry.
+
+Both write APIs are authorized to the app's own identity — an app can only report status and append entries for installations of itself. Org members (and cluster admins, via existing authz rules) can read the status and audit log via the standard installation read APIs.
 
 ## Thread Interaction
 
