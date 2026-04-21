@@ -76,17 +76,28 @@ ENTRYPOINT ["/app/service"]
 
 ### E2E Job
 
-Services with in-cluster E2E suites add a dedicated e2e job to `ci.yml`. The job provisions a k3d-backed bootstrap cluster, installs tooling, and runs DevSpace tests against the cluster. The job follows this algorithm:
+Every service's `ci.yml` includes an e2e job that composes two composite actions — one from [`agynio/bootstrap`](https://github.com/agynio/bootstrap) to provision the cluster, one from [`agynio/e2e`](https://github.com/agynio/e2e) to run the tests — with a service-specific deploy step in between:
 
-1. Run on ubuntu-latest with permissions limited to repository contents read and packages write.
-2. Reclaim disk space by removing preinstalled toolchains (Java/JDKs, .NET SDKs, Swift toolchain, Haskell/GHC, Julia, Android SDKs).
-3. Checkout the service repository and the bootstrap repository, with bootstrap placed in a subdirectory.
-4. Install tooling at fixed versions: kubectl v1.28.7, k3d v5.7.5, Terraform 1.6.6, DevSpace v6.3.20.
-5. Provision the cluster by running the bootstrap apply script in auto-approve mode. The script applies Terraform stacks in order (k8s, system, routing, deps, ziti, data, platform, apps), installs the CA between system and routing, and writes kubeconfig to bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml.
-6. Verify platform health with the bootstrap verification script, which polls ArgoCD applications, checks pod and job health, and validates Ziti overlay readiness.
-7. Invoke the DevSpace dev workflow to patch the service deployment with source and sync.
-8. Run the DevSpace test-e2e pipeline against the cluster using the bootstrap kubeconfig so tests execute inside the cluster against the currently deployed services.
-9. Upload test artifacts when produced by the suite (Playwright report on every run, Playwright traces on failures).
+```yaml
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: agynio/bootstrap/.github/actions/provision@main
+      - name: Deploy this service from source
+        run: devspace dev
+      - uses: agynio/e2e/.github/actions/run-tests@main
+        with:
+          service: <service-name>
+```
+
+Three logical blocks: cluster provisioning (owned by `agynio/bootstrap`), service deployment from source (owned by the service — typically `devspace dev`, but a service with custom bring-up needs does its own thing here), and test execution (owned by `agynio/e2e`). Cluster-level concerns (kubectl/k3d/Terraform versions, stack order, verification) live in `agynio/bootstrap` and propagate via the `provision` action. E2E-level concerns (suite discovery, test selection, pod lifecycle, artifacts) live in `agynio/e2e` and propagate via the `run-tests` action. No image is built or pushed.
+
+See [E2E Testing — CI Integration](e2e-testing.md#ci-integration) for the full action definitions and rationale for the two-action split.
 
 ## Base Helm Chart
 

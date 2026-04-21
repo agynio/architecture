@@ -63,10 +63,8 @@ agynio/<service>/
 ├── cmd/<service>/
 │   └── main.go            # Entrypoint
 ├── internal/              # Application code
-├── test/
-│   └── e2e/               # E2E tests
 ├── buf.gen.yaml           # Proto code generation config
-├── devspace.yaml          # DevSpace config: dev mode + E2E tests
+├── devspace.yaml          # DevSpace config: dev mode
 ├── Dockerfile
 ├── README.md
 └── go.mod
@@ -140,12 +138,16 @@ devspace dev
 devspace dev -w
 ```
 
-### Run tests
+### Run E2E tests
 
-Runs E2E tests in a separate test pod. This command only manages the test pod — it does not deploy or modify the service. Tests run against whatever is currently deployed: pinned release images by default, or source code if `devspace dev` was called first.
+E2E tests live in [agynio/e2e](https://github.com/agynio/e2e). Clone it alongside this repo and run:
 
 ```bash
-devspace run test-e2e
+# In the service repo: deploy this service from source
+devspace dev
+
+# In the agynio/e2e checkout: run suites with tests tagged for this service
+devspace run test-e2e --tag svc_<service-name>
 ```
 
 See [E2E Testing](https://github.com/agynio/architecture/blob/main/architecture/operations/e2e-testing.md).
@@ -174,17 +176,16 @@ The base chart (`agynio/base-chart`) provides templates for Deployment, Service,
 
 ### DevSpace
 
-Each service provides a `devspace.yaml` with three commands:
+Each service provides a `devspace.yaml` with two commands:
 
 | Command | Purpose |
 |---------|---------|
 | `devspace dev` | Deploy once: patch the service pod with a dev container, sync source, start the service, exit when healthy. Used by CI and scripts. |
 | `devspace dev -w` | Watch mode: same as `devspace dev` but keeps running, streams logs, and re-syncs on file changes. Used during local development. |
-| `devspace run test-e2e` | Run E2E tests in a separate test pod inside the cluster. Self-contained: deploys test pod → syncs source → runs tests → cleans up. |
 
 `devspace dev` and `devspace dev -w` patch the existing service deployment with a dev container image, replacing the released image with source-based hot-reload. The `-w` flag is implemented via a pipeline flag (see gateway's `devspace.yaml` for the pattern).
 
-`devspace run test-e2e` does not touch the service pod. It deploys a separate test pod, syncs test code into it, and executes the tests. See [E2E Testing](e2e-testing.md).
+E2E tests are not part of the service's `devspace.yaml`. They live in [`agynio/e2e`](https://github.com/agynio/e2e) and are driven by its own DevSpace config. See [E2E Testing](e2e-testing.md).
 
 ---
 
@@ -224,27 +225,35 @@ Register the service in `agynio/bootstrap` so it is deployed in the local cluste
 
 ## E2E Tests
 
-Each service includes end-to-end tests that verify behavior against a running environment provisioned by bootstrap. Tests run **inside the cluster** in a dedicated test pod via DevSpace — the service pods run whatever is deployed in the cluster, and the test pod is managed separately. See [E2E Testing](e2e-testing.md) for the full methodology.
+E2E tests for every service live in a single repository: [`agynio/e2e`](https://github.com/agynio/e2e). The service repo contains no `test/e2e/` directory. When adding a new service:
 
-### Structure
+1. Add cross-service scenarios as tests in `agynio/e2e` under the appropriate suite (`suites/go-core/tests/`, `suites/playwright/tests/`, …). If the new service's tests need a runtime no existing suite provides, add a new suite directory with its own `suite.yaml`.
+2. Tag each test with `svc_<name>` for every service it exercises. The new service's PRs will re-run every test tagged with its `svc_<name>`.
+3. Add the service's Kubernetes DNS address as a constant in the relevant suite's setup (e.g., `main_test.go` for a Go suite).
 
-- Tests live in `test/e2e/` within the service repo.
-- Tests connect to services via Kubernetes DNS (e.g., `agents:50051`, `threads:50051`).
-- A separate test pod is deployed by DevSpace using `component-chart`. The dev container image depends on the test language (Go, Node, Playwright, etc.).
-
-### DevSpace Setup
-
-Add E2E sections to `devspace.yaml`: a `deployments.e2e-runner` (component-chart), a `dev.e2e-runner` (sync), and a `pipelines.test-e2e` (deploy → sync → exec → cleanup). The user-facing command is `devspace run test-e2e`. Follow the pattern in [E2E Testing](e2e-testing.md).
+See [E2E Testing](e2e-testing.md) for the full methodology: repo layout, suite manifests, tagging, breaking-change model, DevSpace pipeline.
 
 ### E2E Tests in CI
 
-CI provisions the environment using bootstrap and runs E2E tests inside the cluster. No custom docker-compose or Kind-based setups — bootstrap is the single source of truth for the test environment. The GitHub Actions job structure is defined in [CI/CD](ci-cd.md#e2e-job).
+The service's `ci.yml` e2e job composes two composite actions with a service-specific deploy step between them:
 
-CI uses the same two-step sequence for pull requests and `main`:
-
-```bash
-devspace dev           # patch service pod with source code
-devspace run test-e2e  # run tests against the modified cluster
+```yaml
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: agynio/bootstrap/.github/actions/provision@main
+      - name: Deploy this service from source
+        run: devspace dev
+      - uses: agynio/e2e/.github/actions/run-tests@main
+        with:
+          service: <service-name>
 ```
 
-Bootstrap pins the rest of the platform images; CI overlays the service under test via `devspace dev` before running the test pod. These are separate sequential steps. The `test-e2e` command never deploys or modifies the service pod — it only manages the test pod. See [E2E Testing](e2e-testing.md) for the full rationale.
+The first action — owned by [`agynio/bootstrap`](https://github.com/agynio/bootstrap) — stands up the cluster with every service at its pinned image and exports `KUBECONFIG`. The middle step is owned by the service: most services use `devspace dev`, but a service with custom bring-up (local image build, migrations, fixtures) does that here. The third action — owned by [`agynio/e2e`](https://github.com/agynio/e2e) — runs the suites tagged for this service and uploads artifacts. No image is built or pushed for the service under test.
+
+See [CI/CD — E2E Job](ci-cd.md#e2e-job) and [E2E Testing — CI Integration](e2e-testing.md#ci-integration).
