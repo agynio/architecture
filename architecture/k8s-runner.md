@@ -92,7 +92,7 @@ Runs the Docker daemon as a non-root user inside a user namespace. No `privilege
 
 | | |
 |--|--|
-| **Sidecar image** | `docker:27-rootless` |
+| **Sidecar image** | `docker:27-dind-rootless` |
 | **Command** | `dockerd-rootless.sh` |
 | **Pod spec change** | `spec.hostUsers: false` (Kubernetes 1.25+ user namespace support) |
 | **Isolation** | User namespace — escape lands as unprivileged UID on host |
