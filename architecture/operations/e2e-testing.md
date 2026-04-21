@@ -74,33 +74,25 @@ No service repository contains a `test/e2e/` directory. Every E2E test — wheth
 
 ### `suite.yaml`
 
-Each suite declares its image, a `select` command (prints matching test identifiers given the requested tags; empty output means nothing matches), and a `run` command (executes the matching tests). Both commands receive the requested tags via the `TAGS` environment variable as a whitespace-separated list.
+Each suite's `suite.yaml` declares four fields:
+
+| Field | Purpose |
+|-------|---------|
+| `image` | Container image the suite runs in. Chosen for the suite's runtime needs (Go toolchain, Playwright, Terraform CLI, …). |
+| `workdir` | Absolute path inside the image where the suite's sources land after sync. |
+| `select` | Shell snippet that prints one line per matching test identifier given `TAGS`. Empty output = suite is skipped, no pod deployed. |
+| `run` | Shell snippet that executes the matching tests. Must write JUnit output to `./junit.xml` inside `workdir`. |
+
+Both commands read the requested tags from the `TAGS` environment variable (whitespace-separated). Each suite translates `TAGS` into its runner's native form — Go build tags via `||`, Playwright `--grep` alternation. Empty `TAGS` means "run every test in this suite".
+
+Skeleton:
 
 ```yaml
-# suites/go-core/suite.yaml
-image: ghcr.io/agynio/devcontainer-go:1
+image: <registry>/<image>:<tag>
 workdir: /opt/app/data
-select: |-
-  # Print a non-empty line per matching package; empty output = skip the suite.
-  go list -tags "e2e ${TAGS}" ./tests/... 2>/dev/null
-run: |-
-  go test -v -count=1 -tags "e2e ${TAGS}" ./tests/...
+select: <shell snippet that prints matching test IDs, empty if none>
+run:    <shell snippet that runs tests and writes ./junit.xml>
 ```
-
-```yaml
-# suites/playwright/suite.yaml
-image: mcr.microsoft.com/playwright:v1.47.0-jammy
-workdir: /opt/app/data
-select: |-
-  GREP=$(echo "${TAGS}" | tr ' ' '\n' | sed 's/^/@/' | paste -sd'|' -)
-  [ -n "${GREP}" ] && npx playwright test --list --grep "${GREP}" 2>/dev/null || npx playwright test --list
-run: |-
-  GREP=$(echo "${TAGS}" | tr ' ' '\n' | sed 's/^/@/' | paste -sd'|' -)
-  pnpm install --frozen-lockfile
-  if [ -n "${GREP}" ]; then npx playwright test --grep "${GREP}"; else npx playwright test; fi
-```
-
-When no `--tag` is passed, `TAGS` is empty and both commands run the suite's entire test set.
 
 ## Service Tagging
 
@@ -108,15 +100,21 @@ Each test declares which services it exercises using the native tagging mechanis
 
 ### Go build tags
 
-One tag per service, all required. The `e2e` tag gates the whole tree:
+The `e2e` tag gates the whole tree. Service tags are joined with `||` so a file runs when **any** of its declared services is in the selected set:
 
 ```go
-//go:build e2e && svc_threads && svc_chat
+//go:build e2e && (svc_threads || svc_chat)
 
 package tests
 ```
 
-Selecting a subset: `go test -tags 'e2e svc_threads' ./go/tests/...` compiles and runs only tests that declare `svc_threads`.
+Selecting a subset: `go test -tags 'e2e svc_threads' ./tests/...` compiles files whose constraint is satisfied by that tag set — including cross-service files that list `svc_threads` as one option.
+
+A single-service test uses one tag:
+
+```go
+//go:build e2e && svc_threads
+```
 
 ### Playwright tags
 
@@ -146,21 +144,26 @@ Every test runs unconditionally within the selected subset. No `t.Skip()`, no `t
 
 ## Test Selection
 
-`--tag` is the only filter. It can be passed multiple times, or comma-separated. The pipeline collects the tags into the `TAGS` environment variable and hands them to each suite's `select` / `run` commands.
+`--tag` is the only filter. It can be passed multiple times or comma-separated. The pipeline collects the tags into the `TAGS` environment variable and hands them to each suite's `select` / `run` commands.
+
+Tag semantics are **OR (union) at the pipeline level**: a test runs if at least one of its declared tags is in the requested set. `--tag svc_threads --tag smoke` runs every test tagged `svc_threads`, every test tagged `smoke`, and every test that carries both. Each suite's `select` / `run` commands translate `TAGS` into their runner's native form — Go build tags via `||`, Playwright `--grep` as alternation — preserving the same OR semantics.
 
 ```bash
 # Run every test tagged svc_threads
 devspace run test-e2e --tag svc_threads
 
-# Run tests tagged with BOTH svc_threads AND smoke (suite-specific semantics —
-# Go treats multi-tag as AND via build tags; Playwright uses regex OR by default)
+# Run the union of svc_threads and smoke
 devspace run test-e2e --tag svc_threads --tag smoke
 
 # Full set of suites (used by agynio/e2e's own main)
 devspace run test-e2e
 ```
 
-The `service-e2e` reusable workflow translates its `service:` input into `--tag svc_<service>` when it invokes the pipeline. There is no `--service` flag on the pipeline itself — service tags are ordinary tags, and the suite's runner decides how to interpret them natively (Go build tags, Playwright `--grep`, etc.).
+The `run-tests` composite action translates its `service:` input into `--tag svc_<service>` and always appends `--tag smoke`. There is no `--service` flag on the pipeline itself — service tags are ordinary tags, and the suite's runner decides how to interpret them natively.
+
+### Smoke on every run
+
+`run-tests` unconditionally appends `--tag smoke`. Every service PR runs its own service tests **and** the smoke subset — smoke is the shared floor that catches regressions any service could cause (auth, sign-in, thread creation). A test joins the smoke set by declaring `smoke` alongside its service tags. Because selection is OR, tagging `smoke svc_threads svc_chat` means the test runs on Threads PRs, Chat PRs, and in any smoke run — no separate smoke-only copy.
 
 ### Skip suites with no matching tests
 
@@ -181,217 +184,54 @@ At no point does `agynio/e2e@main` reference behavior that is absent from any se
 
 If a change genuinely cannot be expressed as expand-contract (rare, e.g. a security-driven rotation), ship the new path behind a feature flag, merge everything, then flip the flag. "Merge a breaking change across N repos atomically" is not a supported workflow.
 
-## DevSpace Configuration (`agynio/e2e`)
+## The `test-e2e` Pipeline
 
-`agynio/e2e/devspace.yaml` is a thin orchestrator. It contains no per-suite deployments — suites are auto-discovered by scanning `suites/*/suite.yaml`. For each suite with matching tests, the pipeline dynamically creates a test pod (via `helm install component-chart`), syncs the suite's source, runs the suite's `run` command, and tears the pod down.
+`agynio/e2e/devspace.yaml` exposes a single pipeline: `test-e2e`. Its contract:
 
-```yaml
-# agynio/e2e/devspace.yaml
-version: v2beta1
+| Aspect | Behavior |
+|--------|----------|
+| Flag | `--tag <name>` — repeatable, comma-separated. Absent = run every suite. |
+| Input to suites | Requested tags exported as whitespace-separated `TAGS` env var. |
+| Suite discovery | Scans `suites/*/suite.yaml` at runtime — no static registration. |
+| Pre-scan | For each discovered suite, runs `select` in an ephemeral container (suite's image). Empty output → suite is skipped entirely, no pod deployed. |
+| Execution | For each surviving suite, deploys a single test pod from the suite's image, syncs the suite directory into it, runs `run` inside the pod. |
+| Post-run | Copies `junit.xml` (and any runner-specific report directories) back out before teardown. |
+| Teardown | Unconditional — the pod is destroyed whether `run` succeeded or failed. |
+| Concurrency | Suites run sequentially. May parallelize later; not a contract. |
+| Exit code | Non-zero if any suite's `run` exited non-zero. |
 
-vars:
-  TEST_NAMESPACE: platform
+The pipeline touches only test pods. It never patches, deploys, or modifies a service pod — service pods are whatever is currently deployed in the namespace (pinned bootstrap images, or a service running from source if a prior `devspace dev` call patched it).
 
-commands:
-  test-e2e: |-
-    devspace run-pipeline test-e2e $@
+Adding a suite is adding a `suites/<name>/` directory with a `suite.yaml`. No pipeline change, no central registry.
 
-pipelines:
-  test-e2e:
-    flags:
-      - name: tag
-        description: "Filter tests by tag. Repeatable. Empty = run every suite."
-        type: stringArray
-    run: |-
-      TAGS=$(get_flag "tag" | tr ',' ' ')
-      export TAGS
-
-      SUITES=$(find suites -mindepth 2 -maxdepth 2 -name suite.yaml | sort)
-      EXIT_CODE=0
-
-      for SUITE_MANIFEST in $SUITES; do
-        SUITE_DIR=$(dirname "$SUITE_MANIFEST")
-        SUITE_NAME=$(basename "$SUITE_DIR")
-        IMAGE=$(yq '.image' "$SUITE_MANIFEST")
-        WORKDIR=$(yq '.workdir // "/opt/app/data"' "$SUITE_MANIFEST")
-        SELECT_CMD=$(yq '.select' "$SUITE_MANIFEST")
-        RUN_CMD=$(yq '.run' "$SUITE_MANIFEST")
-
-        # Pre-scan: does this suite have any matching tests? Run locally with
-        # docker, using the suite's image. Skip the suite entirely if empty.
-        MATCHES=$(docker run --rm \
-          -v "$PWD/$SUITE_DIR:$WORKDIR" \
-          -w "$WORKDIR" \
-          -e TAGS \
-          "$IMAGE" \
-          bash -c "$SELECT_CMD" | tr -d '[:space:]')
-
-        if [ -z "$MATCHES" ]; then
-          echo "[skip] suite '$SUITE_NAME' — no tests match tags: ${TAGS:-<all>}"
-          continue
-        fi
-
-        echo "[run] suite '$SUITE_NAME' with tags: ${TAGS:-<all>}"
-
-        # Deploy the test pod for this suite.
-        helm install "e2e-$SUITE_NAME" component-chart \
-          --repo https://charts.devspace.sh \
-          --namespace "${TEST_NAMESPACE}" \
-          --set "containers[0].image=$IMAGE" \
-          --set "containers[0].command[0]=sleep" \
-          --set "containers[0].args[0]=infinity" \
-          --set "labels.app\.kubernetes\.io/name=e2e-$SUITE_NAME" \
-          --wait
-
-        # Sync source into the pod, then execute the suite's run command.
-        POD=$(kubectl get pod -n "${TEST_NAMESPACE}" \
-          -l "app.kubernetes.io/name=e2e-$SUITE_NAME" \
-          -o jsonpath='{.items[0].metadata.name}')
-        kubectl cp "$SUITE_DIR/." "${TEST_NAMESPACE}/${POD}:${WORKDIR}"
-        kubectl exec -n "${TEST_NAMESPACE}" "$POD" -- \
-          bash -c "cd ${WORKDIR} && export TAGS='${TAGS}' && ${RUN_CMD}" \
-          || EXIT_CODE=$?
-
-        # Teardown.
-        helm uninstall "e2e-$SUITE_NAME" --namespace "${TEST_NAMESPACE}" --wait
-      done
-
-      exit $EXIT_CODE
-```
-
-Key properties:
-
-- No static per-suite deployments. Adding a suite means dropping a directory under `suites/` with a `suite.yaml` — the pipeline picks it up on the next run.
-- Suites with no matching tests are skipped before any pod is deployed.
-- Suites are run sequentially in the pipeline above for readability. The pipeline may parallelize them once stable.
-- The pipeline touches only test pods. It never patches, deploys, or modifies a service pod. Service pods run whatever is currently deployed (pinned bootstrap images, or source code if a service repo called `devspace dev` first).
-- `--tag <name>` is the only filter. No environment guards, no conditional skipping inside tests.
-
-## Test Code
+## Test Conventions
 
 ### Go
 
-Go tests use standard `go test` with the project's gRPC clients generated from `buf.build/agynio/api`. Cross-service gRPC tests live in the `go-core` suite (standard Go toolchain).
+Go tests use standard `go test` with gRPC clients generated from `buf.build/agynio/api`. Cross-service gRPC tests live in the `go-core` suite. Service addresses are read from environment variables (`AGENTS_ADDR`, `THREADS_ADDR`, …), each defaulting to the in-cluster DNS name.
+
+Tagging:
 
 ```go
-// agynio/e2e/suites/go-core/tests/main_test.go
-//go:build e2e
-
-package tests
-
-import (
-    "os"
-    "testing"
-)
-
-var (
-    agentsAddr  = envOrDefault("AGENTS_ADDR", "agents:50051")
-    threadsAddr = envOrDefault("THREADS_ADDR", "threads:50051")
-    gatewayAddr = envOrDefault("GATEWAY_ADDR", "gateway-gateway:8080")
-    chatAddr    = envOrDefault("CHAT_ADDR", "chat:50051")
-)
-
-func envOrDefault(key, fallback string) string {
-    if v := os.Getenv(key); v != "" {
-        return v
-    }
-    return fallback
-}
-
-func TestMain(m *testing.M) { os.Exit(m.Run()) }
+//go:build e2e && svc_agents                                   // single-service
+//go:build e2e && (svc_agents || svc_threads || svc_chat)      // cross-service (OR)
 ```
 
-A single-service test:
-
-```go
-// agynio/e2e/suites/go-core/tests/agents_crud_test.go
-//go:build e2e && svc_agents
-
-package tests
-
-import (
-    "context"
-    "testing"
-    "time"
-
-    agentsv1 "github.com/agynio/api/gen/agynio/api/agents/v1"
-    "github.com/stretchr/testify/require"
-    "google.golang.org/grpc"
-    "google.golang.org/grpc/credentials/insecure"
-)
-
-func TestAgentCRUD(t *testing.T) {
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-
-    conn, err := grpc.NewClient(agentsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-    require.NoError(t, err)
-    defer conn.Close()
-
-    client := agentsv1.NewAgentsServiceClient(conn)
-    createResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{ /* ... */ })
-    require.NoError(t, err)
-    agentID := createResp.GetAgent().GetId()
-
-    getResp, err := client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID})
-    require.NoError(t, err)
-    require.Equal(t, agentID, getResp.GetAgent().GetId())
-
-    _, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
-    require.NoError(t, err)
-}
-```
-
-A cross-service test — tagged with every service it touches:
-
-```go
-// agynio/e2e/suites/go-core/tests/chat_with_agent_test.go
-//go:build e2e && svc_agents && svc_threads && svc_chat
-
-package tests
-
-// Setup: create agent (agents), create thread (threads).
-// Act:   post message (chat).
-// Assert: message visible via threads.
-```
-
-This file runs when Agents, Threads, **or** Chat is the service under test. A PR to any of the three re-executes it.
+A cross-service file runs when any of its declared services is selected — a PR to Agents, Threads, **or** Chat re-executes it.
 
 ### Playwright
 
-```typescript
-// agynio/e2e/suites/playwright/tests/console_sign_in.spec.ts
-import { test, expect } from '@playwright/test';
+Playwright uses native `test.describe` tags:
 
-test.describe('Console sign-in', { tag: ['@svc_console', '@svc_authn', '@smoke'] }, () => {
-  test('redirects to chat on success', async ({ page }) => {
-    await page.goto(process.env.CONSOLE_URL ?? 'http://console:3000');
-    // ...
-  });
-});
+```typescript
+test.describe('Console sign-in', { tag: ['@svc_console', '@svc_authn', '@smoke'] }, () => { /* ... */ });
 ```
 
-Service URLs come from environment variables resolved through Kubernetes DNS.
+Service URLs come from environment variables resolved through Kubernetes DNS (e.g. `CONSOLE_URL=http://console:3000`).
 
 ### Terraform provider
 
-Terraform provider tests live in their own suite — `suites/go-terraform/` — whose `suite.yaml` declares an image that includes the `terraform` CLI (a `devcontainer-go-tf` variant, or installed via the suite's run command). Keeping these tests in a separate suite means they don't bloat the core Go image and only deploy when a PR actually touches gateway or agents.
-
-```go
-// agynio/e2e/suites/go-terraform/tests/agent_resource_test.go
-//go:build e2e && svc_gateway && svc_agents
-
-package tests
-
-func TestAccAgentResource(t *testing.T) {
-    resource.Test(t, resource.TestCase{
-        ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-        Steps: []resource.TestStep{ /* ... */ },
-    })
-}
-```
-
-The provider connects to the Gateway at `gateway-gateway:8080` inside the cluster. Dev override for the provider binary is configured in the suite's `run` command so `terraform` uses the locally-built binary.
+Acceptance tests live in `suites/go-terraform/`. The suite's image includes the `terraform` CLI. Tests connect to the Gateway at the in-cluster DNS address and exercise the `terraform-provider-agyn` binary. How the binary gets into the suite is covered in [Non-service repos](#non-service-repos).
 
 ## Deterministic LLM (TestLLM)
 
@@ -463,209 +303,86 @@ Unit and integration tests stay in the service repo — they do not touch other 
 
 CI orchestration is split into two composite actions — one per repository that owns the concern. The service's CI job composes them with its own deploy-from-source step in between.
 
-### Service repo CI (`agynio/<service>/.github/workflows/ci.yml`)
+### Service CI job shape
 
-```yaml
-jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
+Three explicit steps, in order:
 
-      # Stands up the bootstrap cluster with every service at its pinned
-      # image. Exports KUBECONFIG into the job environment for subsequent
-      # steps. Owned by agynio/bootstrap.
-      - name: Provision bootstrap cluster
-        uses: agynio/bootstrap/.github/actions/provision@main
+1. **Provision** — `uses: agynio/bootstrap/.github/actions/provision@main`. Cluster comes up with all services at pinned images.
+2. **Deploy** — service-owned. Default is `run: devspace dev`, which patches the service's pod to run from synced source. A service with custom bring-up (local image build + `k3d image import`, data migrations, fixture priming) replaces this step with whatever it needs.
+3. **Test** — `uses: agynio/e2e/.github/actions/run-tests@main` with `service: <name>`. Runs the service's tagged subset plus smoke.
 
-      # Service-specific. The default for most services is `devspace dev`,
-      # which patches the service pod to run from synced source. A service
-      # that needs something different — loading a locally-built image into
-      # k3d, running data migrations, priming fixtures — owns that logic
-      # here. This step is the reason CI is not a single reusable workflow.
-      - name: Deploy this service from source
-        run: devspace dev
+No wrapping reusable workflow. The middle step is inherently service-specific — parameterizing it away would mean either forcing every service to deploy the same way or adding a half-dozen optional inputs. Composing three primitives in the service's own `ci.yml` is simpler and keeps ownership boundaries clean: bootstrap owns provisioning, the service owns bring-up, e2e owns execution.
 
-      # Runs the E2E suites tagged for this service. Owned by agynio/e2e.
-      - name: Run E2E suites
-        uses: agynio/e2e/.github/actions/run-tests@main
-        with:
-          service: <service-name>
-```
+### Composite action: `agynio/bootstrap/.github/actions/provision`
 
-Three logical blocks: **provision** (owned by bootstrap), **deploy** (owned by the service), **test** (owned by e2e). The middle block is where service-specific bring-up lives — this is exactly why there is no single wrapping workflow.
+**Responsibility.** Stand up the bootstrap cluster with every service at its pinned image, verify platform health, export `KUBECONFIG` into the job environment so subsequent steps pick it up automatically.
 
-### Composite action (`agynio/bootstrap/.github/actions/provision`)
+**Inputs.** `ref` — optional `agynio/bootstrap` ref (default `main`). Nothing else.
 
-Encapsulates end-to-end cluster bring-up. Callers know nothing about stacks, scripts, or tool versions.
+**Outputs.** `kubeconfig` — absolute path to the generated kubeconfig (also exported via `$GITHUB_ENV`).
 
-```yaml
-# agynio/bootstrap/.github/actions/provision/action.yml
-name: Provision bootstrap cluster
-description: Check out bootstrap, install pinned tooling, apply all Terraform stacks, verify platform health.
+**What it encapsulates (caller doesn't see).** Pinned versions of `kubectl`, `k3d`, and `terraform`; disk reclaim on the GitHub runner; the `apply.sh` / `verify.sh` invocation; the exact location of the kubeconfig file.
 
-inputs:
-  ref:
-    description: "Ref of agynio/bootstrap to use."
-    required: false
-    default: main
+### Composite action: `agynio/e2e/.github/actions/run-tests`
 
-outputs:
-  kubeconfig:
-    description: "Absolute path to the kubeconfig written by bootstrap."
-    value: ${{ steps.locate.outputs.path }}
+**Responsibility.** Check out `agynio/e2e`, install DevSpace, invoke the `test-e2e` pipeline with the resolved tag set, capture JUnit + on-failure cluster diagnostics, upload everything as a single artifact.
 
-runs:
-  using: composite
-  steps:
-    - name: Reclaim disk space
-      shell: bash
-      run: |
-        sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
-                     /opt/ghc /opt/hostedtoolcache/CodeQL
+**Inputs.**
 
-    - name: Checkout bootstrap
-      uses: actions/checkout@v4
-      with:
-        repository: agynio/bootstrap
-        ref: ${{ inputs.ref }}
-        path: bootstrap
+| Input | Purpose |
+|-------|---------|
+| `service` | Service name. Translated to `--tag svc_<service>`. Empty = no service tag. |
+| `tag` | Extra tags. Comma-separated or repeated. |
+| `provider-binary` | Optional path to a prebuilt binary in the caller's workspace. Used only by repos that test a Terraform-provider-style artifact against the platform (see [Non-service repos](#non-service-repos)). |
+| `ref` | `agynio/e2e` ref (default `main`). |
 
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v4
-      with:
-        version: v1.28.7
+**Always-on behavior.**
 
-    - name: Install k3d
-      shell: bash
-      run: |
-        curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \
-          | TAG=v5.7.5 bash
+- Appends `--tag smoke` to every invocation — smoke is the shared floor that runs on every PR regardless of service.
+- Captures each suite's `junit.xml` as the primary test report.
+- On failure, captures cluster state (`kubectl get pods`, `describe pods`, `logs --all-containers --prefix`, events) and uploads alongside test reports.
+- Artifact is named `e2e-artifacts[-<service>]` so parallel jobs don't collide.
 
-    - name: Install Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: 1.6.6
-
-    - name: Apply stacks and verify
-      shell: bash
-      run: |
-        cd bootstrap && ./apply.sh -y && ./verify.sh
-
-    - name: Export KUBECONFIG
-      id: locate
-      shell: bash
-      run: |
-        KC="$PWD/bootstrap/stacks/k8s/.kube/agyn-local-kubeconfig.yaml"
-        echo "path=$KC" >> "$GITHUB_OUTPUT"
-        echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
-```
-
-The action exports `KUBECONFIG` into the job environment via `$GITHUB_ENV` so every subsequent step — including the service's own deploy step and the `run-tests` action — picks it up automatically without passing it explicitly.
-
-### Composite action (`agynio/e2e/.github/actions/run-tests`)
-
-Encapsulates test execution. Callers pass the service name (or tag set) and nothing else.
-
-```yaml
-# agynio/e2e/.github/actions/run-tests/action.yml
-name: Run E2E suites
-description: Check out agynio/e2e, install DevSpace, run the test pipeline filtered by tags, upload artifacts.
-
-inputs:
-  service:
-    description: "Service name. Translated to --tag svc_<service>. Leave empty to run every suite."
-    required: false
-    default: ""
-  tag:
-    description: "Additional tag(s) to pass. Comma-separated or repeated."
-    required: false
-    default: ""
-  ref:
-    description: "Ref of agynio/e2e to use."
-    required: false
-    default: main
-
-runs:
-  using: composite
-  steps:
-    - name: Checkout e2e
-      uses: actions/checkout@v4
-      with:
-        repository: agynio/e2e
-        ref: ${{ inputs.ref }}
-        path: e2e
-
-    - name: Install DevSpace
-      shell: bash
-      run: |
-        curl -sL https://github.com/loft-sh/devspace/releases/download/v6.3.20/devspace-linux-amd64 \
-          -o /usr/local/bin/devspace
-        chmod +x /usr/local/bin/devspace
-
-    - name: Run pipeline
-      shell: bash
-      run: |
-        TAGS=""
-        if [ -n "${{ inputs.service }}" ]; then TAGS="--tag svc_${{ inputs.service }}"; fi
-        for t in $(echo "${{ inputs.tag }}" | tr ',' ' '); do
-          [ -n "$t" ] && TAGS="$TAGS --tag $t"
-        done
-        cd e2e && devspace run test-e2e $TAGS
-
-    - name: Upload artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: e2e-artifacts${{ inputs.service && format('-{0}', inputs.service) || '' }}
-        path: |
-          e2e/suites/playwright/playwright-report/
-          e2e/suites/playwright/test-results/
-```
+**What it encapsulates.** DevSpace version, tag concatenation rules, artifact glob, diagnostic capture.
 
 ### `agynio/e2e` main CI
 
-`agynio/e2e`'s own workflow runs every suite against pinned bootstrap images by composing the same two actions in its own repo's CI:
+`agynio/e2e`'s own workflow composes the same two actions with no deploy step in between: provision → run-tests (no `service:` input, so no service tag is added; the pipeline runs every suite). Every suite executes against a cluster where every service is running its pinned bootstrap image.
 
-```yaml
-jobs:
-  full-suite:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: agynio/bootstrap/.github/actions/provision@main
-      - uses: ./.github/actions/run-tests  # self-reference; no service input → full suite
-```
+### Secrets
 
-No `devspace dev` step, no `service:` input — every service runs its pinned bootstrap image, and every suite runs.
+Composite actions cannot read `${{ secrets.* }}` directly — secrets must be piped in by the caller. The convention:
 
-### Why two composite actions, not one reusable workflow
+- **`agynio/bootstrap/.github/actions/provision`** — needs nothing beyond `GITHUB_TOKEN` (pulls from public GHCR for bootstrap images; private images, if any, are fetched via the runner's login from the workflow step). The action itself does not declare secret inputs.
+- **`agynio/e2e/.github/actions/run-tests`** — needs no secrets. TestLLM, the only external dependency in the happy path, runs inside the cluster and is reached over in-cluster DNS. If a future suite needs an external credential (e.g. a third-party API key), the action grows an explicit input rather than reading a well-known secret name; the caller maps `${{ secrets.X }}` → that input.
+- **Service deploy step (middle)** — owned by the service; secrets are injected via the `env:` block on that step, scoped to that step alone.
 
-Cluster provisioning and test execution are two distinct concerns owned by two different repos. Between them sits a **third** concern — how this specific service gets its source into the cluster — which is inherently service-specific:
+Neither `agynio/bootstrap` nor `agynio/e2e` stores secrets. Any credentials that E2E needs live as organization-level GitHub Actions secrets in the calling repo's org, referenced by name from the service's workflow. This keeps the two library repos free of credential contracts.
 
-- Most services: `devspace dev` patches the pod to run from synced source.
-- A service with a custom build: build a local image, load it into k3d with `k3d image import`, then redeploy the chart pointing at the local tag.
-- A service that needs data prep: run migrations or seed scripts after the pod is up but before tests start.
+## Non-service repos
 
-A single reusable workflow that wraps provision + deploy + test has to either (a) assume every service deploys the same way, or (b) accept a half-dozen optional inputs to parameterize the middle step. Both are worse than letting the service's own CI compose three explicit steps. The two actions are the primitives; the service orchestrates.
+The convention for repos that are not a deployable service:
 
-### Service repo CI (`agynio/<service>/.github/workflows/ci.yml`)
+| Repo | E2E on PR | Why |
+|------|-----------|-----|
+| [`agynio/api`](https://github.com/agynio/api) | Full suite | A proto change can break any consumer |
+| [`agynio/base-chart`](https://github.com/agynio/base-chart) | Smoke only | Chart changes exercised by bootstrap CI; smoke catches common breakage |
+| [`agynio/bootstrap`](https://github.com/agynio/bootstrap) | Full suite | Bootstrap defines the platform |
+| [`agynio/e2e`](https://github.com/agynio/e2e) | Full suite | Catches regressions in the tests themselves |
+| [`agynio/terraform-provider-agyn`](https://github.com/agynio/terraform-provider-agyn) | `go-terraform` suite, PR-built binary | See [Testing the Terraform provider](#testing-the-terraform-provider) |
+| Any other repo | Smoke by default | Small blast radius; opt into full suite only when warranted |
 
-The service's e2e job is a single `uses:` call:
+### Testing the Terraform provider
 
-```yaml
-jobs:
-  e2e:
-    uses: agynio/e2e/.github/workflows/service-e2e.yml@main
-    with:
-      service: <service-name>
-```
+`terraform-provider-agyn` needs to run `go-terraform` against its own PR source, not against `agynio/e2e@main`'s pinned version of the provider — otherwise a provider change cannot be validated until after it ships.
 
-That is the entire e2e-related surface in the service repo. No checkout steps, no tooling install, no DevSpace invocations. Onboarding a new service's CI is one block of YAML; cluster-provisioning changes land in `agynio/bootstrap`, E2E execution changes land in `agynio/e2e`, and both propagate to every service automatically.
+The contract: `run-tests` accepts a `provider-binary` input pointing at a built binary in the caller's workspace. When set, the `go-terraform` suite configures Terraform's dev override against that binary instead of building from a pinned ref. The provider repo's CI builds the binary and passes its path:
 
+1. `provision` — cluster up.
+2. `go build -o ./provider` in the provider repo.
+3. `run-tests` with `tag: svc_gateway` and `provider-binary: ./provider`.
+
+How the binary gets from the runner filesystem into the test pod is an implementation detail of `run-tests` — not a spec concern. The spec guarantee is: if `provider-binary` is set, the suite runs against that binary.
 
 ## Summary
 
@@ -676,8 +393,7 @@ That is the entire e2e-related surface in the service repo. No checkout steps, n
 | Where tests run | Dedicated test pods inside the bootstrap cluster — one pod per executing suite |
 | Service under test | Deployed from source via `devspace dev` from the service repo — no image build |
 | Other services | Run from pinned bootstrap images |
-| How test pods are created | Auto-discovered from `suites/*/suite.yaml`; each suite's pod is created via `helm install component-chart` at runtime |
-| How source reaches test pods | `kubectl cp` of the suite directory, then the suite's `run` command inside the pod |
+| How test pods are created | Auto-discovered from `suites/*/suite.yaml`; one pod per executing suite, created at pipeline runtime |
 | How tests are triggered | `devspace run test-e2e [--tag <name>]...` |
 | How tests reach services | Kubernetes DNS (`<service>:<port>`) |
 | Filter mechanism | `--tag` only — repeatable, comma-separated; service selection is `--tag svc_<name>` |
