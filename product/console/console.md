@@ -104,24 +104,47 @@ The sidebar lists navigation sections for the currently selected context. Select
 
 #### Organization Sections
 
-Visible when an organization is selected in the context switcher. Available to organization owners and cluster admins.
+Visible when an organization is selected in the context switcher. Available to organization owners and cluster admins. Sections are grouped and always expanded — groups are separated by headers and spacing.
+
+**Organization**
 
 | Section | Description |
 |---------|-------------|
-| **Overview** | Organization summary (see [Overview](#overview)) |
-| **Agents** | Agent CRUD and sub-resource management |
-| **Volumes** | Volume CRUD |
-| **LLM Providers** | LLM provider CRUD |
-| **Models** | Model CRUD |
-| **Secret Providers** | Secret provider CRUD |
-| **Secrets** | Secret CRUD |
-| **Image Pull Secrets** | Image pull secret CRUD |
-| **Runners** | Org-scoped runner management |
-| **Apps** | App installations and published apps (see [Apps](#apps)) |
-| **Members** | Member and invite management |
-| **Threads** | List and read all threads in the organization (see [Threads](#threads)) |
-| **Monitoring** | Active workloads (see [Monitoring](#monitoring)) |
-| **Usage** | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
+| Overview | Organization summary (see [Overview](#overview)) |
+| Members | Member and invite management (see [Members](#members)) |
+
+**Agents**
+
+| Section | Description |
+|---------|-------------|
+| Agents | Agent CRUD and sub-resource management |
+| Volumes | Volume CRUD |
+| Runners | Org-scoped runner management |
+| Apps | App installations and published apps (see [Apps](#apps)) |
+
+**Models**
+
+| Section | Description |
+|---------|-------------|
+| LLM Providers | LLM provider CRUD |
+| Models | Model CRUD |
+
+**Secrets**
+
+| Section | Description |
+|---------|-------------|
+| Secret Providers | Secret provider CRUD |
+| Secrets | Secret CRUD |
+| Image Pull Secrets | Image pull secret CRUD |
+
+**Activity**
+
+| Section | Description |
+|---------|-------------|
+| Workloads | Active agent workloads (see [Workloads](#workloads)) |
+| Storage | Persistent volumes in use (see [Storage](#storage)) |
+| Threads | List and read all threads in the organization (see [Threads](#threads)) |
+| Usage | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
 
 #### Cluster Administration Sections
 
@@ -172,6 +195,18 @@ The overview is the landing page when an organization is selected. It displays s
 
 Each counter links to the corresponding section.
 
+### Members
+
+Organization owners manage membership within their organization.
+
+**Member list** — members in the organization (active and pending). Columns: name, role (owner or member), status (active or pending), joined date. Default sort: active members first, then pending; within each group by join date.
+
+**Invite member** — search existing platform users by name or email. Assign role (owner or member). Creates a pending membership (invite). The invited user must accept the invite via the Console's user menu before gaining access. Cluster admins can add members directly (active immediately, no invite step).
+
+**Change role** — inline action on the member list. Switches between owner and member. Available to organization owners.
+
+**Remove member** — inline action on the member list. Removes the member (any status). Available to organization owners.
+
 ### Agents
 
 **Agent list** — table of agents in the organization. Columns: name, model (resolved name), status (has active workloads or not), created date. Default sort: creation time, newest first.
@@ -194,49 +229,6 @@ Each counter links to the corresponding section.
 **Volume detail** — name, size, mount path. Shows current attachment (if any) with a link to the parent resource.
 
 **Create volume** — name (required), size (required), mount path (required).
-
-### LLM Providers and Models
-
-**LLM Provider list** — table of providers. Columns: name, endpoint URL, model count, created date.
-
-**LLM Provider detail** — endpoint URL, auth method, token (masked, reveal on click). List of models using this provider.
-
-**Model list** — table of models. Columns: internal name, provider name, remote model name, agent count (how many agents reference this model). Each row has a **Test** action that opens the model test dialog.
-
-**Model detail** — internal name, provider (selector), remote model name. Shows which agents reference this model.
-
-**Model test dialog** — sends a predefined message (`"Hello, world"`) to the model via the LLM Proxy and displays the result inline:
-
-- **Pending** — a loading indicator while the request is in flight.
-- **Success** — the model's response text is displayed.
-- **Failure** — a clear error message is shown (e.g., invalid credentials, provider unreachable, model not found).
-
-### Secret Providers and Secrets
-
-**Secret Provider list** — table of providers. Columns: name, type, secret count, created date.
-
-**Secret Provider detail** — type (Vault), connection configuration (address, token masked). List of secrets using this provider.
-
-**Secret list** — table of secrets. Columns: name, provider name, created date.
-
-**Secret detail** — provider reference, remote name. Shows which ENVs reference this secret.
-
-### Image Pull Secrets
-
-Registry credentials for pulling container images from private registries. Attached to agents, MCPs, and hooks via image pull secret attachments.
-
-**Image pull secret list** — table of image pull secrets in the organization. Columns: registry, username, description, created date. Default sort: creation time, newest first.
-
-**Create image pull secret** — registry (required), username (required), description (optional), password/token source: inline value or remote provider reference (provider selector + remote reference).
-
-**Delete image pull secret** — requires confirmation. Detaches from all agents, MCPs, and hooks.
-
-#### MCP and Hook Image Pull Secret Attachments
-
-Image pull secrets are attached to MCPs and hooks via the Manage menu on each row in the agent detail page. Selecting "Image Pull Secrets" opens a dialog showing:
-
-- A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
-- A list of currently attached secrets (registry + username) each with a "Detach" button.
 
 ### Runners
 
@@ -284,6 +276,49 @@ Apps created and owned by this organization. These apps can be installed by othe
 
 **Create app** — name (required), slug (required, unique within the organization), description (optional), icon (optional), visibility (`public` or `internal`), permissions (multi-select from the permission vocabulary: `thread:create`, `thread:write`, `participant:add`). Returns the service token once.
 
+### LLM Providers and Models
+
+**LLM Provider list** — table of providers. Columns: name, endpoint URL, model count, created date.
+
+**LLM Provider detail** — endpoint URL, auth method, token (masked, reveal on click). List of models using this provider.
+
+**Model list** — table of models. Columns: internal name, provider name, remote model name, agent count (how many agents reference this model). Each row has a **Test** action that opens the model test dialog.
+
+**Model detail** — internal name, provider (selector), remote model name. Shows which agents reference this model.
+
+**Model test dialog** — sends a predefined message (`"Hello, world"`) to the model via the LLM Proxy and displays the result inline:
+
+- **Pending** — a loading indicator while the request is in flight.
+- **Success** — the model's response text is displayed.
+- **Failure** — a clear error message is shown (e.g., invalid credentials, provider unreachable, model not found).
+
+### Secret Providers and Secrets
+
+**Secret Provider list** — table of providers. Columns: name, type, secret count, created date.
+
+**Secret Provider detail** — type (Vault), connection configuration (address, token masked). List of secrets using this provider.
+
+**Secret list** — table of secrets. Columns: name, provider name, created date.
+
+**Secret detail** — provider reference, remote name. Shows which ENVs reference this secret.
+
+### Image Pull Secrets
+
+Registry credentials for pulling container images from private registries. Attached to agents, MCPs, and hooks via image pull secret attachments.
+
+**Image pull secret list** — table of image pull secrets in the organization. Columns: registry, username, description, created date. Default sort: creation time, newest first.
+
+**Create image pull secret** — registry (required), username (required), description (optional), password/token source: inline value or remote provider reference (provider selector + remote reference).
+
+**Delete image pull secret** — requires confirmation. Detaches from all agents, MCPs, and hooks.
+
+#### MCP and Hook Image Pull Secret Attachments
+
+Image pull secrets are attached to MCPs and hooks via the Manage menu on each row in the agent detail page. Selecting "Image Pull Secrets" opens a dialog showing:
+
+- A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
+- A list of currently attached secrets (registry + username) each with a "Detach" button.
+
 ### Users (Cluster Admin)
 
 **User list** — all platform users. Columns: name, email, organizations (with roles), cluster admin status. Default sort: creation time, newest first.
@@ -298,29 +333,9 @@ Apps created and owned by this organization. These apps can be installed by othe
 
 **Organization detail** — name, member count, agent count, runner count. Cluster admin can update the organization name or delete the organization.
 
-### Members
+## Activity
 
-Organization owners manage membership within their organization.
-
-**Member list** — members in the organization (active and pending). Columns: name, role (owner or member), status (active or pending), joined date. Default sort: active members first, then pending; within each group by join date.
-
-**Invite member** — search existing platform users by name or email. Assign role (owner or member). Creates a pending membership (invite). The invited user must accept the invite via the Console's user menu before gaining access. Cluster admins can add members directly (active immediately, no invite step).
-
-**Change role** — inline action on the member list. Switches between owner and member. Available to organization owners.
-
-**Remove member** — inline action on the member list. Removes the member (any status). Available to organization owners.
-
-## Threads
-
-Read-only view of all threads in the organization. Available to organization owners.
-
-**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated), message count, status (`active` or `archived`), created date. Default sort: creation time, newest first.
-
-**Thread detail** — participant list and paginated message history (newest first). Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view.
-
-## Monitoring
-
-### Active Workloads
+### Workloads
 
 Real-time view of running agent workloads in the organization.
 
@@ -338,13 +353,39 @@ Default sort: start time, newest first.
 
 Workload detail shows container-level information: container name, image, state, resource usage.
 
+### Storage
+
+Real-time view of persistent volumes in use across the organization.
+
+| Column | Description |
+|--------|-------------|
+| Name | Volume name (link to volume detail) |
+| Size | Provisioned size |
+| Used | Current usage |
+| Attached to | Resource holding the volume (agent, MCP, or hook — or "unattached") |
+| Status | Volume status (`bound`, `pending`, `released`, `failed`) |
+
+Default sort: name.
+
+### Threads
+
+Read-only view of all threads in the organization. Available to organization owners.
+
+**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated), message count, status (`active` or `archived`), created date. Default sort: creation time, newest first.
+
+**Thread detail** — participant list and paginated message history (newest first). Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view.
+
+### Usage
+
+Resource consumption metrics — LLM tokens, compute, storage, and platform activity. See [Usage](../usage/usage.md) for the full specification.
+
 ## Real-Time Updates
 
 The Console receives real-time updates via WebSocket for data that changes during a session:
 
 - **Runner enrollment status** — updates when a runner enrolls or goes offline.
 - **Active workloads** — new workloads appear, status transitions update in place, completed workloads update without requiring a refresh.
-- **Monitoring counters** — the overview page and monitoring section refresh workload counts on each update.
+- **Workload counters** — the overview page and Workloads view refresh workload counts on each update.
 
 On WebSocket disconnection, the Console reconnects automatically and re-fetches the current view's data.
 
