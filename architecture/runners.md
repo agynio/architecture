@@ -121,6 +121,14 @@ Tracks persistent volumes actually provisioned on runners. Each record represent
 | `role` | enum | `main`, `sidecar`, `init` |
 | `image` | string | Container image |
 | `status` | enum | `running`, `terminated`, `waiting` |
+| `reason` | string, nullable | Short machine-readable cause reported by the runtime (e.g., `ContainerCreating`, `ImagePullBackOff`, `CrashLoopBackOff`, `Completed`, `Error`, `OOMKilled`). NULL when the runtime does not provide one |
+| `message` | string, nullable | Human-readable detail from the runtime (e.g., the image pull error body). NULL when none |
+| `exit_code` | int32, nullable | Exit code of the last termination. NULL unless `status=terminated` |
+| `restart_count` | int32 | Number of times the container has restarted inside the workload |
+| `started_at` | timestamp, nullable | When the container last entered `running`. NULL if it has never started |
+| `finished_at` | timestamp, nullable | When the container last entered `terminated`. NULL unless `status=terminated` |
+
+Per-container fields are refreshed by the [Agents Orchestrator](agents-orchestrator.md#workload-reconciliation) — on each reconciliation tick it calls `Runner.InspectWorkload` for every workload present on the runner and persists the refreshed container list via `UpdateWorkload`.
 
 ## Registration Flow
 
@@ -226,6 +234,7 @@ Runner management authorization depends on the runner's scope. Workload state op
 | `EnrollRunner` | Service token validation — no OpenFGA check |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `GetWorkload`, `ListWorkloads`, `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `StreamWorkloadLogs` | `member` on `organization:<workload.org_id>` |
 | `TouchWorkload` | Agent's own identity — `workload.agent_identity_id == caller.identity_id` |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `GetVolume`, `ListVolumes`, `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
@@ -238,11 +247,13 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`, `TouchWorkload`, `GetVolume`, `ListVolumes`, `ListVolumesByThread` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`, `TouchWorkload`, `StreamWorkloadLogs`, `GetVolume`, `ListVolumes`, `ListVolumesByThread` |
 
 Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
 
 Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is called by [`agynd`](agynd-cli.md) to report agent activity for [idle timeout](#idle-timeout) enforcement.
+
+`StreamWorkloadLogs` is a server-streaming method for reading container logs. The Gateway resolves the workload via `GetWorkload` to locate the hosting runner, authorizes the caller as a member of the workload's organization, dials the runner via OpenZiti (`zitiContext.Dial("runner-{runnerId}")`), and forwards [`Runner.StreamWorkloadLogs`](runner.md#streaming) output to the client.
 
 Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByThread`) provide external access to provisioned volume state. Used by the Console's Storage view to list persistent volumes across the organization.
 

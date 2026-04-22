@@ -285,6 +285,8 @@ On each tick, for each enrolled runner:
 | `stopping` | no | `UpdateWorkload(status=stopped, removed_at=now)` |
 | not in Runners service | yes | orphan — `Runner.StopWorkload` |
 
+4. For each workload still present on the runner, call `Runner.InspectWorkload(instance_id)` and persist the refreshed container list via `UpdateWorkload(containers=...)`. This refreshes per-container fields (`status`, `reason`, `message`, `exit_code`, `restart_count`, `started_at`, `finished_at`) so the Console sees runtime state — `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, exit codes — within one reconciliation interval. Workloads absent from the runner have already been marked terminal above; their container arrays are left as-is.
+
 ## Volume Reconciliation
 
 The Orchestrator reconciles volume state on a fixed interval (default 60 seconds). The [Runners](runners.md) service is the source of truth — volume records are created there by the Orchestrator when a workload starts. The reconciliation loop syncs actual PVC state on each runner against those records and enforces TTL.

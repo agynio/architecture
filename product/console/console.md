@@ -345,13 +345,21 @@ Real-time view of running agent workloads in the organization.
 | Runner | Runner name (link to runner detail) |
 | Thread | Thread ID |
 | Status | Workload status (`starting`, `running`, `stopping`, `stopped`, `failed`) |
-| Containers | Container count and states |
+| Containers | Counts grouped by container state (e.g., `3 running`, `1 waiting (ImagePullBackOff)`). Non-`running` counts include the runtime reason so problems are visible at a glance |
 | Started | Workload start time |
 | Duration | Time since start (live counter for running workloads) |
 
 Default sort: start time, newest first.
 
-Workload detail shows container-level information: container name, image, state, resource usage.
+#### Workload Detail
+
+The workload detail view shows:
+
+- Workload metadata — agent, runner, thread, status, started, duration.
+- A list of containers (init, main, sidecars). Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
+- A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload. There are no tail-length or since-time controls — the fixed window keeps the UI simple. If the container no longer exists on the runner (workload already removed), the viewer shows an empty state explaining that logs are only available while the container exists.
+
+Container state refreshes within one reconciliation interval — a crash, image pull failure, or successful completion appears in the detail view and in the list's container summary without a manual refresh.
 
 ### Storage
 

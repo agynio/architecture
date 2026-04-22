@@ -46,7 +46,7 @@ Exec supports:
 
 | RPC | Description |
 |-----|-------------|
-| `StreamWorkloadLogs` | Server-streaming log output (follow mode) |
+| `StreamWorkloadLogs` | Server-streaming log output for a specific container in a workload. Accepts `tail_lines`, `since_time`, and `follow` parameters — snapshot and follow modes are the same RPC, identical to `kubectl logs` semantics. Logs are only available while the container exists on the runner (no external persistence) |
 | `StreamEvents` | Server-streaming runtime events |
 
 ### Storage
