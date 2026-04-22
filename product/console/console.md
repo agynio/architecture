@@ -356,10 +356,12 @@ Default sort: start time, newest first.
 The workload detail view shows:
 
 - Workload metadata — agent, runner, thread, status, started, duration.
-- A list of containers (init, main, sidecars). Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
-- A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload. There are no tail-length or since-time controls — the fixed window keeps the UI simple. If the container no longer exists on the runner (workload already removed), the viewer shows an empty state explaining that logs are only available while the container exists.
+- A list of containers, ordered init containers first (in declaration order), then the main container, then sidecars. Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
+- A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload (init containers included). There are no tail-length or since-time controls — the fixed window keeps the UI simple.
+  - If the container cannot be reached (unknown workload or container, or the Pod has already been deleted), the viewer shows an empty state: "Container no longer exists on the runner. Logs are only available while the container exists."
+  - When the runtime closes the stream cleanly (logs exhausted, or the container terminated with the Pod still present), the viewer stays visible with a "Stream ended" marker so the user can scroll through what was captured; it does not clear or auto-close.
 
-Container state refreshes within one reconciliation interval — a crash, image pull failure, or successful completion appears in the detail view and in the list's container summary without a manual refresh.
+Container state refreshes within one reconciliation interval — a crash, image pull failure, or successful completion appears in the detail view and in the list's container summary without a manual refresh, even when the workload-level status is unchanged.
 
 ### Storage
 
@@ -393,6 +395,7 @@ The Console receives real-time updates via WebSocket for data that changes durin
 
 - **Runner enrollment status** — updates when a runner enrolls or goes offline.
 - **Active workloads** — new workloads appear, status transitions update in place, completed workloads update without requiring a refresh.
+- **Container state** — changes to per-container state (e.g., `waiting → running`, `running → waiting (CrashLoopBackOff)`, restart count increments) update the Workloads list summary and the open Workload detail, even when the workload-level status is unchanged.
 - **Workload counters** — the overview page and Workloads view refresh workload counts on each update.
 
 On WebSocket disconnection, the Console reconnects automatically and re-fetches the current view's data.

@@ -46,7 +46,7 @@ Exec supports:
 
 | RPC | Description |
 |-----|-------------|
-| `StreamWorkloadLogs` | Server-streaming log output for a specific container in a workload. Accepts `tail_lines`, `since_time`, and `follow` parameters — snapshot and follow modes are the same RPC, identical to `kubectl logs` semantics. Logs are only available while the container exists on the runner (no external persistence) |
+| `StreamWorkloadLogs` | Server-streaming log output for a specific container in a workload, addressed by `container_name` (unique within the workload, stable across restarts — matches the Pod container name in Kubernetes). Accepts `tail_lines`, `since_time`, and `follow` parameters — snapshot and follow modes are the same RPC, identical to `kubectl logs` semantics. Returns `NotFound` for unknown workload or container; closes cleanly (OK) when logs are exhausted or the container terminates with the Pod still present; returns `Unavailable` if the Pod is deleted mid-stream. Logs are only available while the container exists on the runner (no external persistence) |
 | `StreamEvents` | Server-streaming runtime events |
 
 ### Storage

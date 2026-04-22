@@ -24,10 +24,11 @@ Specifically:
 
 ## Acceptance Signal
 
-- `Container` carries `reason`, `message`, `exit_code`, `restart_count`, `started_at`, and `finished_at` alongside `status`.
+- `Container` carries `reason`, `message`, `exit_code`, `restart_count`, `started_at`, and `finished_at` alongside `status`. `name` is documented as the stable addressing key (unique within the workload, matches the Pod container name); `container_id` is documented as a runtime identifier used for audit only.
 - On each workload reconciliation tick, the Orchestrator calls `Runner.InspectWorkload` for every workload present on the runner and persists the refreshed container list via `UpdateWorkload`. Per-container runtime state (including `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, and exit codes) is visible within one reconciliation interval.
-- `Runner.StreamWorkloadLogs` accepts `tail_lines`, `since_time`, and `follow` parameters and streams logs for a named container — snapshot and follow are the same RPC.
+- `Runner.StreamWorkloadLogs` accepts `tail_lines`, `since_time`, and `follow` parameters and streams logs for a container addressed by `container_name`. The error contract is: `NotFound` for unknown workload or container; clean end-of-stream (OK) when logs are exhausted or the container terminates with the Pod still present; `Unavailable` when the Pod is deleted mid-stream.
 - `RunnersGateway.StreamWorkloadLogs` is exposed through the Gateway and authorized to members of the workload's organization. The Gateway resolves the hosting runner via `GetWorkload` and forwards the stream over OpenZiti.
+- `UpdateWorkload` emits a `workload.updated` notification on the organization's topic whenever `status` or `containers` changed. The Console subscribes and refreshes the Workloads list and the open Workload detail without polling, even when only container state changed.
 - Console Workloads list summarizes container states per workload (e.g., `3 running, 1 waiting (ImagePullBackOff)`).
-- Console Workload detail shows a per-container panel with state, reason, message, exit code, restart count, and started/finished timestamps, plus a log viewer that loads the last 1000 lines and then follows new output with a container selector. No tail-length or since-time controls.
-- Log viewer shows a clear empty state when the container no longer exists on the runner.
+- Console Workload detail shows a per-container panel (init containers first, then main, then sidecars) with state, reason, message, exit code, restart count, and started/finished timestamps, plus a log viewer that loads the last 1000 lines and then follows new output with a container selector. No tail-length or since-time controls.
+- Log viewer renders the specified empty state when the container cannot be reached, and renders a "Stream ended" marker (viewer stays visible, scrollable) when the runtime closes the stream cleanly.

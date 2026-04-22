@@ -26,7 +26,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | Method | Description |
 |--------|-------------|
 | **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID and sets `status=starting`. Called before `Runner.StartWorkload` to avoid a reconciliation race |
-| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at` |
+| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status` or any element of `containers` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
 | **ListWorkloads** | List workloads. Supports filtering by `organization_id`, `runner_id`, `status_in`, and `pending_sample` (boolean — when true, returns only workloads where `removed_at IS NULL OR removed_at > last_metering_sampled_at`) |
@@ -116,8 +116,8 @@ Tracks persistent volumes actually provisioned on runners. Each record represent
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `container_id` | string | Container identifier within the workload |
-| `name` | string | Display name |
+| `container_id` | string, nullable | Runtime-assigned identifier from the container runtime (e.g., `containerd://<hash>`). Opaque; may change on restart. Used for audit only — not for RPC addressing |
+| `name` | string | Stable name, unique within the workload across init, main, and sidecars. Matches the Pod container name in Kubernetes. Used to address the container in RPCs like `StreamWorkloadLogs` |
 | `role` | enum | `main`, `sidecar`, `init` |
 | `image` | string | Container image |
 | `status` | enum | `running`, `terminated`, `waiting` |
