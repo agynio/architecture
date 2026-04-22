@@ -131,6 +131,74 @@ When a user blocks the bot, Telegram returns `403 Forbidden: bot was blocked by 
 
 Transient send failures (5xx, network errors) are retried up to 3 times with exponential backoff. If all retries fail, the message is acknowledged and the error is logged — a single failed delivery does not block the outbound queue.
 
+## Installation Status and Audit Log
+
+The connector uses the [Installation Status and Audit Log](../apps.md#installation-status-and-audit-log) APIs to surface operational state for each installation. Both are scoped per installation — one polling loop, one status, one audit log stream.
+
+### Status
+
+The connector calls `ReportInstallationStatus` whenever per-installation state changes meaningfully (startup, token validation outcome, connectivity transitions, uninstall) and on a 60-second periodic tick so metrics stay current. The status is a single markdown document with a headline state and a bullet list of metrics.
+
+Headline states:
+
+| State | Meaning |
+|-------|---------|
+| **Healthy** | Polling is active, recent `getUpdates` succeeded, recent outbound sends succeeded |
+| **Degraded** | Polling or outbound delivery is failing but the connector is still retrying (e.g., Telegram 5xx, network errors, sustained rate limiting) |
+| **Misconfigured** | `bot_token` rejected by Telegram (`401 Unauthorized`) or required configuration key missing — requires operator action |
+| **Stopped** | Polling loop not running (installation being removed or connector shutting down) |
+
+Metrics reported (all scoped to the installation):
+
+| Metric | Description |
+|--------|-------------|
+| `last_update_at` | Timestamp of the last successful `getUpdates` response |
+| `last_update_id` | Last Telegram `update_id` processed |
+| `active_chats` | Count of non-blocked rows in `ChatMapping` for the installation |
+| `blocked_chats` | Count of rows with `blocked_at IS NOT NULL` |
+| `inbound_messages_1h` | Messages forwarded Telegram → Platform in the last hour |
+| `outbound_messages_1h` | Messages forwarded Platform → Telegram in the last hour |
+| `last_outbound_at` | Timestamp of the last successful outbound send |
+| `last_error` | Most recent Telegram or Gateway error (code + short message + timestamp), if any in the last hour |
+
+Example (healthy):
+
+```markdown
+**Healthy** — polling since 2026-04-23T09:00:12Z
+
+- Last update: 2026-04-23T09:04:09Z (update_id 184522)
+- Active chats: 47 (2 blocked)
+- Inbound (1h): 120 messages
+- Outbound (1h): 98 messages
+- Last outbound: 2026-04-23T09:04:07Z
+```
+
+Example (misconfigured):
+
+```markdown
+**Misconfigured** — bot token rejected by Telegram
+
+- Telegram returned `401 Unauthorized` at 2026-04-23T09:02:41Z
+- Polling paused until a new `bot_token` is provided
+```
+
+### Audit Log
+
+The connector calls `AppendInstallationAuditLogEntry` for notable per-installation events. Entries are bounded to state transitions and notable errors — per-message events are excluded to keep the 1000-entry ring buffer useful for diagnosis. Each entry passes an `idempotency_key` (typically `<event>:<installation_id>:<epoch-bucket>`) so retries after transient Gateway errors don't duplicate entries.
+
+| Event | Level | When |
+|-------|-------|------|
+| `polling_started` | `info` | Polling loop starts — on connector startup or when reconciliation picks up a new installation |
+| `polling_stopped` | `info` | Polling loop stops — on uninstall or connector shutdown |
+| `configuration_invalid` | `error` | `bot_token` or `agent_id` missing, malformed, or rejected on first validation |
+| `bot_token_rejected` | `error` | Telegram returns `401 Unauthorized` on `getUpdates` or a send — recorded once per transition into the rejected state |
+| `telegram_unreachable` | `warning` | `getUpdates` has been failing with network or 5xx errors for more than 60 seconds — recorded once per outage |
+| `telegram_recovered` | `info` | First successful `getUpdates` after a `telegram_unreachable` or `bot_token_rejected` entry |
+| `thread_degraded_rotated` | `warning` | `SendMessage` returned `thread degraded`; the mapping was rotated to a new thread. Includes the old and new `thread_id` and the `telegram_chat_id` |
+| `outbound_delivery_failed` | `error` | An outbound message was acked after exhausting retries. Includes `thread_id`, Telegram error code, and message ID |
+| `bot_blocked_by_user` | `info` | First `403 Forbidden: bot was blocked by the user` for a chat — the mapping is marked blocked. Not re-emitted on subsequent sends to the same chat |
+| `bot_unblocked_by_user` | `info` | A new inbound message arrives from a previously blocked chat and delivery resumes |
+
 ## Data Model
 
 ### ChatMapping
