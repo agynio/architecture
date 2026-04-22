@@ -8,6 +8,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 
 - [Chat](../product/chat/chat.md)
 - [Inline Media](../product/chat/inline-media.md)
+- [Charts and Diagrams](../product/chat/charts-and-diagrams.md)
 
 ### Architecture docs
 

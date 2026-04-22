@@ -11,6 +11,7 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want to filter conversations by status (open, resolved, all) so I can focus on active work.
 - As a user, I want to send messages, markdown, and file attachments.
 - As a user, I want to see images, video, and audio inline in messages so I can view media without leaving the conversation.
+- As a user, I want to see charts and diagrams rendered inline in messages so I can understand data and structure at a glance.
 - As a user, I want to see which messages have been read and which are unread.
 - As a user, I want to mark a conversation as resolved or reopen it.
 - As a user, I want to delete messages I no longer need.
@@ -94,6 +95,8 @@ Each message has a **"View trace"** link. Clicking it opens the Run Timeline for
 
 Messages containing media (images, video, audio) — whether from external URLs or platform files — display the media inline. See [Inline Media](inline-media.md) for rendering behavior, security, and authentication details.
 
+Messages containing `vega-lite` or `mermaid` fenced code blocks render those blocks as interactive charts or diagrams. See [Charts and Diagrams](charts-and-diagrams.md) for syntax, rendering behavior, and security.
+
 When an agent is a participant, the conversation also shows:
 
 - **Reminders** — scheduled follow-ups created by the agent, with content, scheduled time, and cancel action.
@@ -103,6 +106,7 @@ When an agent is a participant, the conversation also shows:
 A markdown editor at the bottom. Supports:
 
 - Markdown formatting.
+- Fenced code blocks, including `vega-lite` and `mermaid` blocks that render as [charts and diagrams](charts-and-diagrams.md) after sending.
 - File attachments (drag-and-drop or file picker, 20 MB per file, with upload progress and retry on failure).
 - Character limit indicator (warns when approaching or exceeding the limit).
 
