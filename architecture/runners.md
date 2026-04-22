@@ -238,13 +238,15 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`, `TouchWorkload` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`, `TouchWorkload`, `GetVolume`, `ListVolumes`, `ListVolumesByThread` |
 
 Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
 
 Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is called by [`agynd`](agynd-cli.md) to report agent activity for [idle timeout](#idle-timeout) enforcement.
 
-Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `CreateVolume`, `UpdateVolume`, `ListVolumes`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
+Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByThread`) provide external access to provisioned volume state. Used by the Console's Storage view to list persistent volumes across the organization.
+
+Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt`, `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
 
 ## Terminal Proxy Integration
 
