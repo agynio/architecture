@@ -94,12 +94,32 @@ Runs the Docker daemon as a non-root user inside a user namespace. No `privilege
 |--|--|
 | **Sidecar image** | `docker:27-dind-rootless` |
 | **Command** | `dockerd-rootless.sh` |
-| **Pod spec change** | `spec.hostUsers: false` (Kubernetes 1.25+ user namespace support) |
+| **Pod spec change** | Rootless-specific mounts + security context (see below). `spec.hostUsers` is left unset. |
 | **Isolation** | User namespace — escape lands as unprivileged UID on host |
 | **Shared nodes** | Safe |
 | **k3d on Mac** | Works |
 
 This is the default implementation.
+
+Rootless Docker has additional requirements for the Docker sidecar:
+
+- **HostUsers**: leave `pod.spec.hostUsers` unset. Forcing `hostUsers: false` has caused `newuidmap ... write to uid_map failed: Operation not permitted` on some clusters.
+- **`/dev/net/tun`**: rootlesskit requires `/dev/net/tun` inside the rootless DinD sidecar. Mount it via a `hostPath` `CharDevice` volume for the rootless sidecar only. This can conflict with Pod Security Admission "restricted" policies or other rules that deny hostPath volumes.
+- **Storage mount**: rootless dockerd needs writable ownership under `/home/rootless/.local/share`. Mount the `emptyDir` at `/home/rootless/.local/share` (the parent path), not `/home/rootless/.local/share/docker`, to avoid kubelet creating the mount root as `root:root` and causing `chmod ... EPERM`.
+- **Security policy**: rootless dockerd launches a nested OCI runtime (`runc`). Default `RuntimeDefault`/`runtime/default` profiles can block mount-related syscalls (for example, `error mounting "proc" to rootfs at "/proc": operation not permitted`). For the rootless sidecar only, set:
+  - `allowPrivilegeEscalation: true`
+  - `seccompProfile: Unconfined`
+  - AppArmor `unconfined`
+
+  For compatibility with kubelet/runtime versions that ignore `securityContext.appArmorProfile` or `seccompProfile`, also apply legacy annotations:
+
+  ```yaml
+  container.apparmor.security.beta.kubernetes.io/docker-daemon: unconfined
+  seccomp.security.alpha.kubernetes.io/pod: unconfined
+  container.seccomp.security.alpha.kubernetes.io/docker-daemon: unconfined
+  ```
+
+Operational guidance: rootless DinD is not compatible with strict "restricted" policies in many clusters (hostPath + allowPrivilegeEscalation + unconfined profiles). Use a dedicated namespace or node pool and obtain explicit policy approval for docker-capable workloads.
 
 #### Privileged DinD *(supported)*
 
