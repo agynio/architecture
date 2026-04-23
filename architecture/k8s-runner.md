@@ -107,11 +107,11 @@ Rootless Docker has additional requirements for the Docker sidecar:
 - **`/dev/net/tun`**: rootlesskit requires `/dev/net/tun` inside the rootless DinD sidecar. Mount it via a `hostPath` `CharDevice` volume for the rootless sidecar only. This can conflict with Pod Security Admission "restricted" policies or other rules that deny hostPath volumes.
 - **Storage mount**: rootless dockerd needs writable ownership under `/home/rootless/.local/share`. Mount the `emptyDir` at `/home/rootless/.local/share` (the parent path), not `/home/rootless/.local/share/docker`, to avoid kubelet creating the mount root as `root:root` and causing `chmod ... EPERM`.
 - **Security policy**: rootless dockerd launches a nested OCI runtime (`runc`). Default `RuntimeDefault`/`runtime/default` profiles can block mount-related syscalls (for example, `error mounting "proc" to rootfs at "/proc": operation not permitted`). For the rootless sidecar only, set:
-  - `allowPrivilegeEscalation: true`
-  - `seccompProfile: Unconfined`
-  - AppArmor `unconfined`
+  - `securityContext.allowPrivilegeEscalation: true`
+  - `securityContext.seccompProfile.type: Unconfined`
+  - `securityContext.appArmorProfile.type: Unconfined`
 
-  For compatibility with kubelet/runtime versions that ignore `securityContext.appArmorProfile` or `seccompProfile`, also apply legacy annotations:
+  Some kubelet/runtime combinations still require legacy seccomp/AppArmor annotations. Apply these alongside the securityContext fields so the pod and `docker-daemon` container are explicitly unconfined:
 
   ```yaml
   container.apparmor.security.beta.kubernetes.io/docker-daemon: unconfined
