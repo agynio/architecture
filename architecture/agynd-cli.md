@@ -49,7 +49,7 @@ Before spawning the agent CLI, `agynd` fetches agent configuration from the plat
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id`, `agyn.thread.message.id`, and `agyn.workload.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
-| **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(agent_id)` and executes each in creation order using the container's default shell. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
+| **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(agent_id)` and executes each in creation order using the container's default shell. Each script runs with its working directory set to `WORKSPACE_DIR` when that variable is defined in the subprocess environment, and to `/tmp` otherwise. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
 | **PATH** | Prepends `/agyn-bin/cli` to `PATH` in the subprocess environment so the `agyn` platform CLI is available by name to the agent and any shell commands it runs. Only `/agyn-bin/cli` is added — `agynd` itself and the agent CLI binary are not placed on `PATH` |
 
 All user-defined environment variables — both plain-text values and resolved secret values — are injected directly into the container by the [Agents Orchestrator](agents-orchestrator.md) at workload assembly time. `agynd` reads them from the process environment and does not call `ListENVs`.
@@ -75,6 +75,8 @@ wire_api = "responses"
 ```
 
 The custom provider is used instead of overriding the built-in OpenAI provider via `OPENAI_BASE_URL` because the built-in provider triggers behaviors the LLM Proxy does not implement (remote compaction via `POST /responses/compact`, realtime WebSocket) and has `env_key: None` which prevents `OPENAI_API_KEY` from being used for Bearer authentication in the subprocess auth pipeline.
+
+If `HOME` is empty in the Codex subprocess environment, `agynd` sets `HOME=/tmp` before spawning — Codex resolves `~/.codex` against `HOME` and needs a writable path. The platform does not inject `HOME` at the orchestrator level; image defaults and user-set [ENVs](resource-definitions.md#env) apply. This fallback is Codex-specific and does not apply to other SDKs.
 
 **[`agn`](agn-cli.md)** — `agynd` writes `~/.agyn/agn/config.yaml` with the LLM Proxy endpoint:
 
