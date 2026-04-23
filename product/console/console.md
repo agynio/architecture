@@ -92,7 +92,7 @@ The dropdown contains:
 
 | Item | Description |
 |------|-------------|
-| **Profile** | View and edit the user's own profile (name, nickname, photo URL). Read-only fields: OIDC subject |
+| **Profile** | View and edit the user's own profile (name, `username`, nickname, photo URL). `username` is cluster-wide unique and used for invite discovery — see [Users — Username](../../architecture/users.md#username). Read-only fields: OIDC subject |
 | **Devices** | Register and manage devices enrolled in the platform network for accessing [exposed agent ports](../port-exposure/port-exposure.md). Each device has a name, enrollment status, and a one-time enrollment JWT. See [Port Exposure — Devices](../port-exposure/port-exposure.md#devices) |
 | **API Tokens** | Create, list, and revoke API tokens for programmatic access. Token value is shown once at creation and cannot be retrieved again |
 | **Pending Invites** | List of pending organization invites with accept/decline actions. Badge on the user menu shows the count of pending invites. Accepting an invite adds the organization to the context switcher and switches to it |
@@ -201,7 +201,7 @@ Organization owners manage membership within their organization.
 
 **Member list** — members in the organization (active and pending). Columns: name, role (owner or member), status (active or pending), joined date. Default sort: active members first, then pending; within each group by join date.
 
-**Invite member** — search existing platform users by name or email. Assign role (owner or member). Creates a pending membership (invite). The invited user must accept the invite via the Console's user menu before gaining access. Cluster admins can add members directly (active immediately, no invite step).
+**Invite member** — search existing platform users by `username` (prefix match via the [Users — SearchUsers](../../architecture/users.md#user-directory) endpoint). Pick a result, assign a role (owner or member). Creates a pending membership (invite). The invited user must accept the invite via the Console's user menu before gaining access. Cluster admins can add members directly (active immediately, no invite step). Inviting users who do not yet exist on the platform is not supported — the invitee must sign in once before they can be discovered.
 
 **Change role** — inline action on the member list. Switches between owner and member. Available to organization owners.
 
@@ -321,11 +321,11 @@ Image pull secrets are attached to MCPs and hooks via the Manage menu on each ro
 
 ### Users (Cluster Admin)
 
-**User list** — all platform users. Columns: name, email, organizations (with roles), cluster admin status. Default sort: creation time, newest first.
+**User list** — all platform users. Columns: name, `username`, email, organizations (with roles), cluster admin status. Default sort: creation time, newest first.
 
-**User detail** — profile (name, nickname, photo URL, OIDC subject), cluster role. Cluster admin can grant or revoke `cluster:global admin`.
+**User detail** — profile (name, `username`, photo URL, OIDC subject), cluster role. Cluster admin can grant or revoke `cluster:global admin`.
 
-**Create user** — OIDC subject (required), profile fields (name, nickname, photo URL — optional), cluster role (admin or none).
+**Create user** — OIDC subject (required), profile fields (name, `username`, photo URL — optional; `username` is derived from OIDC claims if omitted), cluster role (admin or none).
 
 ### Organizations (Cluster Admin)
 

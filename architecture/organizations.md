@@ -70,6 +70,16 @@ A membership transitions from `pending` to `active` in two ways:
 - **Invite acceptance** — the target identity calls `AcceptMembership`.
 - **Direct creation** — a caller with `can_add_member` permission creates a membership that is immediately `active` (no invite step). See [Membership Authorization](#membership-authorization).
 
+### Default Nickname on Activation
+
+When a membership becomes `active` (either via `AcceptMembership` or direct creation), and the target identity is a user, the Organizations service seeds a default [org nickname](identity.md#nickname-index) for that user in the organization:
+
+1. Read the user's current cluster-wide `username` from the [Users](users.md#username) service.
+2. Call [Identity](identity.md) `SetNickname(org_id, identity_id, nickname=username)`.
+3. On conflict (the nickname is already taken in that org), skip silently — the user can pick one later via the Console profile menu.
+
+This step is best-effort: failures do not block activation. The seeded nickname is independent of the user's `username` going forward — renaming `username` does not cascade, and the user may change the org nickname freely.
+
 ### Membership Authorization
 
 Who can do what is governed by the [authorization model](authz.md):
@@ -91,7 +101,7 @@ The Organizations service does not perform explicit identity type checks (e.g., 
 
 | Method | Description |
 |--------|-------------|
-| **CreateMembership** | Create a membership for an identity in an organization. Caller must have `can_add_member` (direct → `active`) or `can_invite` (invite → `pending`) on the organization. The identity must already exist in the [Identity](identity.md) registry |
+| **CreateMembership** | Create a membership for an identity in an organization. Caller must have `can_add_member` (direct → `active`) or `can_invite` (invite → `pending`) on the organization. The identity must already exist in the [Identity](identity.md) registry. Console callers typically resolve the target identity via [Users — SearchUsers](users.md#user-directory) before invoking this method |
 | **AcceptMembership** | Accept a pending membership. Caller must be the target identity. Transitions `pending` → `active` and writes the OpenFGA tuple |
 | **DeclineMembership** | Decline a pending membership. Caller must be the target identity. Deletes the membership |
 | **RemoveMembership** | Remove a membership (any status). Caller must have `can_manage_members`. Deletes the OpenFGA tuple if `active` |
@@ -115,6 +125,7 @@ sequenceDiagram
     alt can_add_member → allowed
         Orgs->>Orgs: Store membership (status: active)
         Orgs->>Auth: Write(identity:id, role, organization:orgId)
+        Orgs->>Orgs: Seed default org nickname (best-effort)
         Orgs-->>Caller: Membership (active)
     else can_add_member → denied
         Orgs->>Auth: Check(caller, can_invite, organization:orgId)
@@ -139,6 +150,7 @@ sequenceDiagram
     Orgs->>Orgs: Load membership, verify caller = target identity
     Orgs->>Orgs: Update status: pending → active
     Orgs->>Auth: Write(identity:id, role, organization:orgId)
+    Orgs->>Orgs: Seed default org nickname (best-effort)
     Orgs-->>User: Membership (active)
 ```
 

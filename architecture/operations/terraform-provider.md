@@ -41,8 +41,8 @@ The `agyn_user` resource creates and manages platform users via [Users — Admin
 |-------|------|----------|----------|---------|-------------|
 | `identity_id` | string | — | yes | — | Platform identity UUID. Primary identifier |
 | `oidc_subject` | string | yes | — | no (forces replacement) | OIDC subject claim (`sub`). Must be unique. Immutable — changing it destroys and recreates the user |
+| `username` | string | optional | yes (when omitted) | yes | Cluster-wide handle. If omitted, derived from `oidc_subject` per [Users — Derivation at Provisioning](../users.md#derivation-at-provisioning). Must match `^[a-z0-9_-]+$`, max 32 chars, unique cluster-wide |
 | `name` | string | optional | — | yes | Display name |
-| `nickname` | string | optional | — | yes | Short name or handle |
 | `photo_url` | string | optional | — | yes | Profile photo URL |
 | `cluster_role` | string | optional | — | yes | `admin` or unset. Controls `cluster:global admin` authorization tuple |
 
@@ -50,9 +50,9 @@ The `agyn_user` resource creates and manages platform users via [Users — Admin
 
 | Operation | API Method | Notes |
 |-----------|------------|-------|
-| **Create** | `CreateUser` | Creates user record, registers identity, optionally writes cluster admin tuple. Fails with `AlreadyExists` if `oidc_subject` is already taken |
+| **Create** | `CreateUser` | Creates user record, registers identity, optionally writes cluster admin tuple. Fails with `AlreadyExists` if `oidc_subject` or `username` is already taken |
 | **Read** | `GetUser` | Reads by `identity_id` |
-| **Update** | `UpdateUser` | Updates `name`, `nickname`, `photo_url`, `cluster_role` |
+| **Update** | `UpdateUser` | Updates `username`, `name`, `photo_url`, `cluster_role` |
 | **Delete** | `DeleteUser` | Deletes user record, identity registration, cluster admin tuple (if any), and all organization memberships |
 | **Import** | — | Import by `identity_id` |
 
@@ -78,8 +78,8 @@ Exactly one of `oidc_subject` or `identity_id` must be provided.
 |-------|------|-----------|-------------|
 | `oidc_subject` | string | input (Optional) | OIDC subject claim to look up. Calls `GetUserByOIDCSubject` |
 | `identity_id` | string | input/output (Optional input, always Computed) | Platform identity UUID. As input: calls `GetUser`. Always present in output |
+| `username` | string | output (Computed) | Cluster-wide handle |
 | `name` | string | output (Computed) | Display name |
-| `nickname` | string | output (Computed) | Short name or handle |
 | `photo_url` | string | output (Computed) | Profile photo URL |
 | `cluster_role` | string | output (Computed) | Cluster role (`admin` or empty) |
 

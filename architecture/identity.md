@@ -31,7 +31,7 @@ Constraints: `UNIQUE(org_id, nickname)` — one nickname per handle per org. For
 
 `ResolveNickname` returns `identity_id`, `identity_type`, and `installation_id`. Callers use `identity_type` to route profile fetches, and `installation_id` (when set) to identify which app installation configuration applies in a given thread context.
 
-All identity types use the same table. Users set a nickname when joining or first using an org. Agents register their nickname at creation time. App installations register a nickname per installation, defaulting to the app's slug. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
+All identity types use the same table. For users, the [Organizations](organizations.md#default-nickname-on-activation) service seeds a default nickname from the user's cluster-wide [`username`](users.md#username) when their membership becomes active; on conflict the seeding is skipped and the user picks one later. Agents register their nickname at creation time. App installations register a nickname per installation, defaulting to the app's slug. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
 
 ## Interface
 
