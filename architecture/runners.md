@@ -30,7 +30,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
 | **ListWorkloads** | List workloads. Supports filtering by `organization_id`, `runner_id`, `status_in`, and `pending_sample` (boolean — when true, returns only workloads where `removed_at IS NULL OR removed_at > last_metering_sampled_at`) |
-| **ListWorkloadsByThread** | List workloads for a thread |
+| **ListWorkloadsByThread** | List workloads for a thread. Supports optional filtering by `agent_id` and `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for a `(thread_id, agent_id)` pair |
 | **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. Lightweight — updates only the timestamp |
 
 ### Volume State
@@ -92,6 +92,8 @@ If the agent defines no `runner_labels`, step 2 is skipped. If the agent defines
 | `last_activity_at` | timestamp | Last activity reported by [`agynd`](agynd-cli.md) via `TouchWorkload`. Set to `created_at` on workload creation. Updated by `agynd` keepalive calls while the agent is actively processing. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement |
 | `last_metering_sampled_at` | timestamp (nullable) | Timestamp through which compute usage has been recorded to the [Metering Service](metering.md). NULL until the first metering sample is emitted. Updated via `UpdateWorkload` after each successful emission |
 | `removed_at` | timestamp (nullable) | When the workload was actually stopped on the runner. NULL while active or stopping. Set after `StopWorkload` succeeds. Record is retained as audit history |
+| `failure_reason` | enum, nullable | Machine-readable cause when `status=failed`. One of `start_failed`, `image_pull_failed`, `config_invalid`, `crashloop`, `runtime_lost`. NULL for non-failed workloads. Set by the [Agents Orchestrator](agents-orchestrator.md#workload-reconciliation) at the moment of the `failed` transition |
+| `failure_message` | string, nullable | Human-readable detail, typically copied from the offending container's `reason` / `message` at the time of failure. NULL for non-failed workloads |
 
 ## Volume Resource
 

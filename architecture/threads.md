@@ -12,7 +12,7 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 |--------|-------------|
 | **CreateThread** | Create a new thread with initial participants. Requires `organization_id` |
 | **ArchiveThread** | Archive a thread (soft-delete) |
-| **DegradeThread** | Mark a thread as degraded. Internal only — called by the [Agents Orchestrator](agents-orchestrator.md) when a persistent volume failure is detected. Accepts a `reason` string |
+| **DegradeThread** | Mark a thread as degraded. Internal only — called by the [Agents Orchestrator](agents-orchestrator.md) when a thread cannot be recovered (persistent volume lost, hosting runner deprovisioned, or agent start failures exhausted — see [Start Decision](agents-orchestrator.md#start-decision)). Accepts a `reason` string. Idempotent — repeated calls on an already-degraded thread are a no-op |
 | **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md) |
 | **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
 | **GetThreads** | List threads the caller participates in, with pagination |
@@ -72,7 +72,7 @@ Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
 |--------|-------------|
 | `active` | Normal operating state. All operations permitted |
 | `archived` | Soft-deleted by a user or application. No new messages accepted |
-| `degraded` | Degraded due to infrastructure failure (e.g., runner deprovisioned, persistent volumes lost). No new messages accepted. Set by the [Agents Orchestrator](agents-orchestrator.md) via `DegradeThread` |
+| `degraded` | Degraded and unrecoverable. No new messages accepted. Set by the [Agents Orchestrator](agents-orchestrator.md) via `DegradeThread` with a machine-readable reason such as `volume_lost`, `runner_deprovisioned`, or `agent_start_failures_exhausted` |
 
 `SendMessage` returns an error for `archived` and `degraded` threads. All read operations (`GetMessages`, `GetUnackedMessages`) remain available on both statuses.
 

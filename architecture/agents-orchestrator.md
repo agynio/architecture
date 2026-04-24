@@ -15,7 +15,7 @@ graph TB
     end
 
     Threads -->|unacked messages query| Reconciler
-    Notifications -->|message.created events| Reconciler
+    Notifications -->|message.created, agent.updated events| Reconciler
     Agents -->|agent definitions + sub-resources| Reconciler
     Secrets -->|secret + image pull secret resolution| Reconciler
     Runners[Runners] -->|workload state| Reconciler
@@ -25,9 +25,9 @@ graph TB
 
 | Dependency | Usage |
 |-----------|-------|
-| **Threads** | Query for unacknowledged messages by agent participants |
-| **Notifications** | Subscribe to `message.created` events for fast reactivity |
-| **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments) |
+| **Threads** | Query for unacknowledged messages by agent participants. Call `DegradeThread` when a thread cannot be recovered (runner deprovisioned, volume lost, or agent start failures exhausted) |
+| **Notifications** | Subscribe to `message.created` events (from [Threads](threads.md)) and `agent.updated` events (from [Agents](agents-service.md)) for fast reactivity |
+| **Agents** | Fetch agent definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets. Resolve image pull secret credentials for private registry access |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
@@ -56,16 +56,78 @@ graph LR
     Wait --> Fetch
 ```
 
-1. On startup, the orchestrator subscribes to Notifications for `message.created` events and fetches the current state from Threads and the [Runners](runners.md) service.
-2. **Compare:** For each **non-passive** agent participant with unacked messages — check if a workload is running. Passive participants are skipped — they consume messages via the API directly. For each running workload — check if it still has unacked messages or recent activity.
+1. On startup, the orchestrator subscribes to Notifications for `message.created` and `agent.updated` events and fetches the current state from Threads and the [Runners](runners.md) service.
+2. **Compare:** For each **non-passive** agent participant with unacked messages — check if a workload is running. Passive participants are skipped — they consume messages via the API directly. For each running workload — check if it still has unacked messages or recent activity. Degraded threads (see [Threads — Status](threads.md#thread-status)) are skipped entirely.
 3. **Act:**
-   - **Start:** If an agent has unacked messages and no running workload → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
+   - **Start:** If an agent has unacked messages, apply the [Start Decision](#start-decision) policy. When the policy clears a start → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
    - **Stop:** If a running workload has been idle beyond the configured timeout → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity.
 4. **Wait:** Block until a notification arrives or the poll interval expires, then repeat from step 2.
 
-The polling loop is a consistency fallback. Notifications handle the latency-sensitive path — when a new message arrives on a thread, the `message.created` event wakes the orchestrator to re-evaluate immediately.
+The polling loop is a consistency fallback. Notifications handle the latency-sensitive path — `message.created` wakes the orchestrator when a new message arrives on a thread, and `agent.updated` wakes it when an agent (or any of its sub-resources) changes. The latter powers the [configuration-driven fast-retry](#start-decision) path: a fixed configuration unblocks a backed-off thread within one tick instead of waiting out the backoff window.
 
 Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for subscribe/fetch/dedup.
+
+### Start Decision
+
+The orchestrator does not start a new workload on every tick that sees unacked messages. It applies a retry policy derived from workload history, so a broken agent configuration does not produce an infinite restart storm and a fixed configuration unblocks the thread promptly. The policy is computed entirely from the workload records in the [Runners](runners.md) service and the agent's `updated_at` in [Agents](agents-service.md) — no retry state is persisted on the workload itself.
+
+For each `(thread_id, agent_id)` pair identified in step 2 of the loop:
+
+```
+active = Runners.ListWorkloadsByThread(
+    thread_id, agent_id,
+    status_in: [starting, running, stopping])
+if active is not empty:
+    continue                                     # already starting/running — reconciliation owns it
+
+latest = Runners.ListWorkloadsByThread(
+    thread_id, agent_id,
+    status_in: [stopped, failed]).first()        # ordered by created_at DESC
+agent = Agents.GetAgent(agent_id)
+
+if latest is null or latest.status == stopped:
+    StartWorkload(...)                           # first attempt, or clean restart after idle stop
+    continue
+
+if agent.updated_at > latest.removed_at:
+    StartWorkload(...)                           # config changed after the failure → fast retry
+    continue
+
+last_stopped_at = Runners.ListWorkloadsByThread(
+    thread_id, agent_id,
+    status_in: [stopped],
+    limit: 1).first()?.created_at ?? epoch
+reset_floor = max(last_stopped_at, agent.updated_at)
+
+recent_failures = Runners.ListWorkloadsByThread(
+    thread_id, agent_id,
+    status_in: [failed],
+    limit: MAX_ATTEMPTS + 1)                     # ordered by created_at DESC
+consecutive_failures = count(w for w in recent_failures if w.created_at > reset_floor)
+
+if consecutive_failures >= MAX_ATTEMPTS:
+    Threads.DegradeThread(thread_id, reason="agent_start_failures_exhausted")
+    continue
+
+backoff = BACKOFF_SCHEDULE[min(consecutive_failures - 1, len(BACKOFF_SCHEDULE) - 1)]
+if now - latest.removed_at < backoff:
+    continue                                     # still within backoff
+
+StartWorkload(...)
+```
+
+**Defaults:**
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `BACKOFF_SCHEDULE` | `[10s, 30s, 1m, 5m, 15m]` | Delay after the N-th consecutive failure. The final entry is repeated for subsequent failures |
+| `MAX_ATTEMPTS` | `10` | Consecutive failures after which the thread is degraded rather than retried |
+
+With the defaults, an unrecoverable configuration degrades the thread after roughly two hours — long enough for most human-in-the-loop fixes, short enough that a single-threaded connector (e.g., [Telegram](apps/telegram-connector.md)) is not silently blocked indefinitely. Changing the schedule or the attempt cap at the orchestrator takes effect immediately for all failed workloads — no migration is needed because retry state is derived, not stored.
+
+**Configuration-driven fast retry.** When the agent definition or any of its sub-resources changes, Agents emits `agent.updated` on the `agent:{id}` notification room (see [Agents Service — Notifications](agents-service.md#notifications)). The orchestrator wakes the main loop on each event. Because the start decision compares `agent.updated_at > latest.removed_at`, the next tick retries with `consecutive_failures = 1`. No backoff-reset API and no mutation of terminal records is required.
+
+**Terminal escape.** When `consecutive_failures >= MAX_ATTEMPTS`, the orchestrator calls `Threads.DegradeThread(thread_id, reason="agent_start_failures_exhausted")` and stops retrying. Degraded threads reject new `SendMessage` calls and are skipped by step 2 on subsequent ticks. Consumer-side handling (e.g., the [Telegram connector rotating the thread](apps/telegram-connector.md)) restores the user experience without operator intervention.
 
 ### Idle Timeout
 
@@ -119,11 +181,13 @@ sequenceDiagram
     RS-->>O: OK
     O->>R: StartWorkload(spec with labels, enrollmentJWT, image_pull_credentials)
     R-->>O: instance_id
-    O->>RS: UpdateWorkload(instance_id=instance_id, status=running)
+    O->>RS: UpdateWorkload(instance_id=instance_id)
     RS-->>O: OK
 ```
 
 Records are created in the Runners service before `StartWorkload` is called — this prevents the reconciliation loop from treating the workload or PVCs as orphans during the start sequence. The `workload_key` and `volume_key`s are Orchestrator-generated UUIDs embedded as labels in the spec. The runner assigns its own `instance_id` (Pod name for the workload, PVC name for volumes) and returns it. The workload `instance_id` is updated immediately; volume `instance_id`s are set by the reconciliation loop when it finds the PVCs by their `volume_key` labels.
+
+The workload stays in `status=starting` after `StartWorkload` returns. The transition to `running` is owned by [Workload Reconciliation](#workload-reconciliation), which observes container health and promotes `starting → running` only once all init containers have completed and main containers are in `running` state. The same loop detects start-time failures (image pull errors, config errors, init retries) and promotes `starting → failed` — see the full transition table below.
 
 ### Runner Selection
 
@@ -275,19 +339,46 @@ On each tick, for each enrolled runner:
 
 1. Call `Runners.ListWorkloads(runner_id, status_in: [starting, running, stopping])` — only non-terminal records. Historical stopped/failed workloads are excluded; they need no reconciliation.
 2. Call `Runner.ListWorkloads()` to get workloads actually running on the runner.
-3. Match by `workload_key` (the label set on the Pod at creation time, equal to the Runners service record `id`) and reconcile:
+3. For each workload still present on the runner, call `Runner.InspectWorkload(instance_id)` to refresh container state (`status`, `reason`, `message`, `exit_code`, `restart_count`, `started_at`, `finished_at`). This is the input to the health classification below.
+4. Match by `workload_key` (the label set on the Pod at creation time, equal to the Runners service record `id`) and reconcile. Every `Runners.UpdateWorkload` call in this step also persists the refreshed container list so the Console sees runtime state (`ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, exit codes) within one interval:
 
-| Runners service status | Present on runner | Action |
-|------------------------|-------------------|--------|
-| `starting` | yes | `UpdateWorkload(status=running)` |
-| `starting` | no | `UpdateWorkload(status=failed, removed_at=now)` — `StartWorkload` failed or runner lost it |
-| `running` | yes | no-op |
-| `running` | no | `UpdateWorkload(status=failed, removed_at=now)` — workload crashed or was lost |
-| `stopping` | yes | retry `Runner.StopWorkload` |
-| `stopping` | no | `UpdateWorkload(status=stopped, removed_at=now)` |
-| not in Runners service | yes | orphan — `Runner.StopWorkload` |
+| Runners service status | On runner | Container health | Action |
+|------------------------|-----------|------------------|--------|
+| `starting` | yes | all init containers completed and all main containers in `running` | `UpdateWorkload(status=running, containers=...)` |
+| `starting` | yes | init or main container `waiting` with `reason ∈ {ImagePullBackOff, ErrImagePull}` for ≥ `START_GRACE_S` | mark failed (`failure_reason=image_pull_failed`); `Runner.StopWorkload` |
+| `starting` | yes | main container `waiting` with `reason ∈ {CreateContainerConfigError, CreateContainerError, InvalidImageName}` for ≥ `START_GRACE_S` | mark failed (`failure_reason=config_invalid`); `Runner.StopWorkload` |
+| `starting` | yes | init container `terminated` with `exit_code ≠ 0` and `restart_count ≥ INIT_RETRY_THRESHOLD` | mark failed (`failure_reason=start_failed`); `Runner.StopWorkload` |
+| `starting` | yes | still progressing within grace (`ContainerCreating`, `PodInitializing`, etc.) | `UpdateWorkload(containers=...)` (no status change) |
+| `starting` | no | — | mark failed (`failure_reason=start_failed`) — `StartWorkload` failed or runner lost the pod |
+| `running` | yes | main container `reason=CrashLoopBackOff` and `restart_count ≥ CRASHLOOP_THRESHOLD` | mark failed (`failure_reason=crashloop`); `Runner.StopWorkload` |
+| `running` | yes | healthy | `UpdateWorkload(containers=...)` (no status change) |
+| `running` | no | — | mark failed (`failure_reason=runtime_lost`) — workload crashed or was lost |
+| `stopping` | yes | — | retry `Runner.StopWorkload` |
+| `stopping` | no | — | `UpdateWorkload(status=stopped, removed_at=now)` |
+| not in Runners service | yes | — | orphan — `Runner.StopWorkload` |
 
-4. For each workload still present on the runner, call `Runner.InspectWorkload(instance_id)` and persist the refreshed container list via `UpdateWorkload(containers=...)`. This refreshes per-container fields (`status`, `reason`, `message`, `exit_code`, `restart_count`, `started_at`, `finished_at`) so the Console sees runtime state — `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, exit codes — within one reconciliation interval. Workloads absent from the runner have already been marked terminal above; their container arrays are left as-is.
+"Mark failed" is shorthand for:
+
+```
+Runners.UpdateWorkload(
+    status=failed,
+    removed_at=now,
+    failure_reason=<enum>,
+    failure_message=<copied from the offending container's reason/message>,
+    containers=<refreshed list>)
+```
+
+After `Runner.StopWorkload` completes, the Orchestrator calls `ZitiManagement.DeleteIdentity(openZitiIdentityId)` to release the agent's OpenZiti identity, matching the cleanup path of [Agent Stop Flow](#agent-stop-flow).
+
+**Health detection thresholds:**
+
+| Threshold | Default | Purpose |
+|-----------|---------|---------|
+| `START_GRACE_S` | 60 | Time allowed for image pull and container creation before a waiting container is considered unrecoverable. Measured as `now - workload.created_at`, since `container.started_at` is NULL until the container first enters `running` |
+| `INIT_RETRY_THRESHOLD` | 3 | Init container retry count above which the workload is considered unable to initialize |
+| `CRASHLOOP_THRESHOLD` | 3 | Main container `restart_count` at which a `CrashLoopBackOff` is considered unrecoverable. The K8s `CrashLoopBackOff` reason is the primary signal; the count threshold guards against single-flake restarts |
+
+Failing the workload here is the *only* source of the `failed` status — once written, the record is terminal. Retry of the thread is the responsibility of the main loop's [Start Decision](#start-decision), which reads these records to compute backoff and decide when (or whether) to start a new workload.
 
 ## Volume Reconciliation
 

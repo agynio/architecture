@@ -53,6 +53,18 @@ This method is used by the [Tracing](tracing.md) service to derive agent and org
 
 Returns `NOT_FOUND` if the identity does not correspond to an agent.
 
+## Notifications
+
+The Agents service publishes events to the [Notifications](notifications.md) service on the `agent:{id}` room so subscribers can react to configuration changes without polling.
+
+| Event | Emitted when |
+|-------|--------------|
+| `agent.updated` | The agent resource is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, Hook, ENV, InitScript, Volume, Volume Attachment, Image Pull Secret Attachment) is created, updated, or deleted |
+
+**Transitive `updated_at` propagation.** A successful write to a sub-resource bumps the owning agent's `updated_at` in the same transaction. Consumers that compare timestamps — for example, the [Agents Orchestrator's Start Decision](agents-orchestrator.md#start-decision), which uses `Agent.updated_at > failed_workload.removed_at` to decide whether a configuration change warrants a retry — therefore only need to read the agent record. No traversal of sub-resources is required.
+
+Room subscription authorization is documented in [Notifications — Authorization](notifications.md#authorization): `member` on the agent's organization.
+
 ## Authorization
 
 All agent resources are org-scoped. Access is determined by the caller's relation on the organization:
