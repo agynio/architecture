@@ -44,10 +44,6 @@ Vega-Lite specifications render to SVG. Charts are interactive — tooltips appe
 
 Mermaid source renders to SVG. Diagrams follow the chat theme. Diagrams are not interactive beyond standard browser behavior (text selection, scrolling).
 
-## Source View
-
-Each rendered chart and diagram has a **"View source"** toggle that reveals the original code block. Users can read the specification that produced the rendering, copy it, or paste it into another conversation.
-
 ## Loading States
 
 Rendering libraries (Vega-Lite, Mermaid) are loaded lazily on first appearance of a chart or diagram in the viewport. Until the library loads, the code block is displayed verbatim as a plain fenced code block.
@@ -58,7 +54,7 @@ If a specification is invalid — malformed JSON for Vega-Lite, unparseable DSL 
 
 ## Copying
 
-Users can copy the original specification via the source view. The rendered SVG can be saved via the browser's right-click "Save image as" action.
+The rendered SVG can be saved via the browser's right-click "Save image as" action.
 
 ## Security
 
