@@ -154,6 +154,8 @@ Per-container fields are refreshed by the [Agents Orchestrator](agents-orchestra
 
 Each filter field is optional and independent. Multiple filters combine with AND; within a list field (`*_in`), values combine with OR. Changing `sort` or `filter` resets pagination — callers must discard any previous `page_token`.
 
+The server applies a stable secondary sort by `id` (ascending) on every response, so ties on the primary sort field produce a deterministic order and pagination does not skip or duplicate rows.
+
 **Response item** includes every field on the [Workload Resource](#workload-resource) plus two denormalized strings the UI renders instead of IDs:
 
 | Field | Type | Description |
@@ -177,7 +179,14 @@ Same sort/filter/pagination envelope as `ListWorkloads`. Filters:
 
 Sort fields: `name`, `size`, `status`, `created`. Default: `name` asc.
 
-Response items include the [Volume Resource](#volume-resource) fields plus `volume_name` (from the Agents service Volume) and `attached_to_name` (agent/MCP/hook name) so the Storage view renders names, not IDs.
+Response items include the [Volume Resource](#volume-resource) fields plus:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `volume_name` | string | Current name of the [Agents service Volume](resource-definitions.md#volume) at `volume_id` |
+| `attachments` | list<Attachment> | All containers currently mounting this provisioned volume — multiple if a single PVC is mounted by agent + MCP + hook in the same pod. Each `Attachment` has `kind` (`agent` / `mcp` / `hook`), `id`, and `name`. Empty when unattached |
+
+The Runners service resolves `volume_name` and each attachment's `name` via batch lookups against the [Agents service](agents-service.md) when assembling the response. `volume_id` and each `attachments[].id` remain in the response for stable linking.
 
 ## Registration Flow
 
@@ -284,12 +293,12 @@ Runner management authorization depends on the runner's scope. Workload state op
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` | `can_read` on `thread:<thread_id>` |
+| `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
 | `TouchWorkload` | Agent's own identity — `workload.agent_identity_id == caller.identity_id` |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` | `can_read` on `thread:<thread_id>` |
+| `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
 
 See [Authorization — Runners Service](authz.md#runners-service) for the full reference.
 

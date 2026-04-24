@@ -78,7 +78,7 @@ The context switcher is the primary navigation control. It determines what the s
 
 The switcher dropdown lists:
 
-- **Organizations** — all organizations where the user is an owner, ordered alphabetically. Selecting an organization loads its sections in the sidebar.
+- **Organizations** — all organizations where the user is an owner, ordered alphabetically. Cluster admins see every organization on the platform in this list (not only ones they own), since their `admin from cluster` relation grants organization read permissions everywhere. Selecting an organization loads its sections in the sidebar.
 - **Cluster Administration** — visible only to cluster admins. Selecting it loads cluster-level sections in the sidebar.
 - **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow. On success, the new organization appears in the list and the Console switches to it.
 
@@ -178,7 +178,7 @@ All resource lists in the Console share common behaviors.
 
 Small, bounded lists that fetch completely on the first request (e.g., an organization's Agents list scoped to an owner who has tens of agents) may sort and filter client-side for snappiness. The threshold is the endpoint's contract: if `page_token` can be non-empty, behave as a large collection.
 
-All lists in the [Activity](#activity) section — Workloads, Storage, Threads, Usage — are large collections and follow the server-side rule.
+Workloads, Storage, and Threads in the [Activity](#activity) section are large collections and follow the server-side rule. Usage is an aggregation view, not a row list, and is out of scope for this rule — see [Usage](../usage/usage.md).
 
 ## Destructive Actions
 
@@ -374,7 +374,7 @@ Sort, filter, and search are all server-side. See [Runners — ListWorkloads req
 
 The workload detail view shows:
 
-- Workload metadata — agent, runner, thread, status, started, duration.
+- Workload metadata — agent name (link to agent detail), runner name (link to runner detail), thread ID, status, started, duration. Names are resolved server-side like in the list; raw `agent_id` / `runner_id` are not displayed.
 - A list of containers, ordered init containers first (in declaration order), then the main container, then sidecars. Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
 - A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload (init containers included). There are no tail-length or since-time controls — the fixed window keeps the UI simple.
   - If the container cannot be reached (unknown workload or container, or the Pod has already been deleted), the viewer shows an empty state: "Container no longer exists on the runner. Logs are only available while the container exists."
@@ -391,12 +391,16 @@ Real-time view of persistent volumes in use across the organization.
 | Name | Volume name (link to volume detail) |
 | Size | Provisioned size |
 | Used | Current usage |
-| Attached to | Resource holding the volume (agent, MCP, or hook — or "unattached"). Rendered by name, not ID |
-| Status | Volume status (`bound`, `pending`, `released`, `failed`) |
+| Attached to | Resources holding the volume (agent, MCP, or hook — or "unattached"). Rendered by name. If the volume is mounted by more than one container, the column shows the primary attachment's name followed by `+N more`; the volume detail lists every attachment |
+| Status | Volume status (`provisioning`, `active`, `deprovisioning`, `deleted`, `failed`) |
 
 Default sort: name. Sortable columns: Name, Size, Status, Created.
 
-**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `hook`, `unattached`). All sort, filter, and search are server-side — see [Runners — ListVolumes request shape](../../architecture/runners.md#listvolumes-request-shape).
+**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `hook`, `unattached`). The Attached-to-kind filter returns volumes with at least one attachment of the selected kind.
+
+**Search** — substring match on volume name, case-insensitive.
+
+All sort, filter, and search are server-side — see [Runners — ListVolumes request shape](../../architecture/runners.md#listvolumes-request-shape).
 
 ### Threads
 
@@ -422,6 +426,8 @@ The Console receives real-time updates via WebSocket for data that changes durin
 - **Workload counters** — the overview page and Workloads view refresh workload counts on each update.
 
 On WebSocket disconnection, the Console reconnects automatically and re-fetches the current view's data.
+
+**Real-time updates with active filters.** On the Workloads and Storage pages, when a `workload.updated` or `volume.updated` event arrives and any filter, sort, or search is active, the Console refetches the current page from the server rather than mutating the local list. This keeps the view consistent with the server's filter predicate — a workload that moves out of the filtered set disappears, a new match appears in its sorted position — without requiring the client to mirror filter logic. With no active filter (default view), the Console applies the update in place as before.
 
 Resource management views (agents, providers, models, secrets, members) do not require real-time updates — they are loaded on navigation and refreshed on user action.
 

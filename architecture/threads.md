@@ -94,6 +94,8 @@ The Console's Activity → Threads view backs onto this method. Thread lists can
 
 Filters combine with AND; within a list field (`*_in`), values combine with OR. Changing `sort` or `filter` resets pagination — callers must discard any previous `page_token`.
 
+The server applies a stable secondary sort by `id` (ascending) on every response, so ties on the primary sort field produce a deterministic order and pagination does not skip or duplicate rows.
+
 Response items include every [Thread](#thread) field plus `message_count` (number of messages in the thread) and, for each participant, the resolved `@nickname` so the UI renders names, not IDs.
 
 ## Message Acknowledgment

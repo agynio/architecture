@@ -36,12 +36,14 @@ The Console is a static SPA served by its own Kubernetes deployment with no back
 
 On load, the Console determines the user's role to decide which sections to display:
 
-1. **Organization listing** — `Organizations.ListMyMemberships(status: active)` returns the user's active memberships across all organizations, including role. The Console displays organization sections only for organizations where the user is an owner.
-2. **Cluster admin** — `Users.GetMe()` returns the current user's profile and `cluster_role`. The Console displays cluster sections if `cluster_role` is `admin`.
+1. **Cluster admin** — `Users.GetMe()` returns the current user's profile and `cluster_role`. The Console displays cluster sections if `cluster_role` is `admin`.
+2. **Organization listing** — depends on role:
+   - **Non-admin user** — `Organizations.ListMyMemberships(status: active)` returns the user's active memberships. The Console displays organization sections only for organizations where the user is an owner.
+   - **Cluster admin** — `Organizations.ListOrganizations()` returns every organization on the platform. The Console displays organization sections for each; the cluster admin's `admin from cluster` relation grants `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and all org-level read permissions automatically.
 
 The Console displays:
 - Cluster sections → only if cluster admin.
-- Organization sections → only for organizations where the user is an owner.
+- Organization sections → orgs where the user is an owner, plus every organization for cluster admins.
 - No Console access → if the user is not a cluster admin and not an owner of any organization, the Console shows an empty state (no organizations to manage).
 
 ## Ingress

@@ -216,7 +216,7 @@ This table summarizes the authorization check applied to each Gateway-exposed op
 |-----------|-------|
 | `CreateOrganization` | Any authenticated identity (creator becomes owner) |
 | `GetOrganization` | `member` on `organization:<id>` |
-| `ListOrganizations` | Returns organizations where caller is a `member` (uses `ListObjects`) |
+| `ListOrganizations` | Returns organizations where caller is a `member` (uses `ListObjects`), or every organization if caller has `admin` on `cluster:global` |
 | `UpdateOrganization`, `DeleteOrganization` | `owner` on `organization:<id>` |
 | `CreateMembership` | `can_add_member` on `organization:<id>` (→ active) or `can_invite` (→ pending) |
 | `AcceptMembership`, `DeclineMembership` | Self only (invitee's `identity_id` matches the membership target) |
@@ -250,12 +250,12 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` | `can_read` on `thread:<thread_id>` |
+| `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
 | `TouchWorkload` | Agent's own identity (`workload.agent_identity_id == caller.identity_id`) |
 | Volume operations (internal) | Internal only (Orchestrator via Istio) |
 | `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` | `can_read` on `thread:<thread_id>` |
+| `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
 
 ### Threads Service
 
