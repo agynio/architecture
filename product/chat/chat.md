@@ -13,6 +13,9 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want to see images, video, and audio inline in messages so I can view media without leaving the conversation.
 - As a user, I want to see charts and diagrams rendered inline in messages so I can understand data and structure at a glance.
 - As a user, I want to see which messages have been read and which are unread.
+- As a user, I want to see the number of unread messages on each conversation in the list so I can spot which ones have new activity at a glance.
+- As a user, I want messages to be marked as read automatically when I open a conversation so I do not have to manage read state by hand.
+- As a user, I want to see whether the agent is currently working on a conversation, waiting to start, or finished so I know whether to expect more output.
 - As a user, I want to mark a conversation as resolved or reopen it.
 - As a user, I want to delete messages I no longer need.
 - As a user, I want to see reminders created by agents so I can track follow-ups.
@@ -68,19 +71,34 @@ All conversations, filtered by status: **Open** (default), **Resolved**, or **Al
 - Summary.
 - Participant name(s).
 - Creation timestamp.
-- Activity status indicator (running, pending, finished) — for conversations with agent participants.
+- [Activity status indicator](#activity-status) — for conversations with agent participants.
+- Unread message count badge — the number of messages the current user has not yet read in the conversation. Hidden when the count is zero.
 
 Infinite scroll loads older conversations.
 
 ## Conversation Status
 
-**Open** or **Resolved**. Toggled via dropdown in the detail header. Optimistic — the UI updates immediately and rolls back on failure.
+User-controlled lifecycle state — **Open** or **Resolved**. Toggled via dropdown in the detail header. Optimistic — the UI updates immediately and rolls back on failure.
+
+## Activity Status
+
+System-derived indicator that reflects whether agent participants are currently processing the conversation. Distinct from [Conversation Status](#conversation-status) (which is user-controlled). Shown only on conversations that have at least one non-passive agent participant; for user-only conversations, no indicator is shown.
+
+| State | Meaning |
+|-------|---------|
+| **Running** | An agent participant has an active workload that is currently processing the conversation. |
+| **Pending** | An agent participant has unread messages and is not yet actively processing — the workload is starting, retrying after a failure, or has not been started yet. |
+| **Finished** | No agent participant has unread messages or an active workload. The most recent run has completed. |
+
+When a conversation has multiple agent participants, the indicator reflects the most active state across them: **Running** wins over **Pending**, **Pending** wins over **Finished**.
+
+Degraded conversations (see [Chat — Degraded Threads](../../architecture/chat.md#degraded-threads)) display the degraded banner instead of an activity status — the conversation cannot accept new messages and the indicator is hidden.
 
 ## Conversation Detail
 
 ### Header
 
-- Activity status indicator.
+- [Activity status indicator](#activity-status).
 - Participant name(s) and role(s).
 - Creation timestamp (relative).
 - Summary (editable — click to edit inline, save on blur or Enter, cancel on Escape).
@@ -90,6 +108,8 @@ Infinite scroll loads older conversations.
 ### Conversation Area
 
 Messages displayed chronologically. Each message shows sender, timestamp, and read/unread status. Messages can be deleted.
+
+Opening a conversation marks every message in it as read for the current user. Messages received while the conversation is open are marked as read on arrival. The conversation's unread badge clears at the moment of open and stays clear until the user navigates away.
 
 Each message has a **"View trace"** link. Clicking it opens the Run Timeline for that message. The tracing app resolves the run from the message ID and displays it.
 
@@ -120,7 +140,8 @@ Via WebSocket:
 
 - New conversations appear in the list; summaries and statuses refresh.
 - New messages appear in the conversation without page refresh.
-- Activity indicators update (working → waiting → idle).
+- [Activity status](#activity-status) indicators transition between Running, Pending, and Finished as the underlying agent workload state changes.
+- Unread counts on conversation list entries update as messages arrive and as the user reads them.
 - Reminder counts refresh.
 - On reconnection, all data re-fetches.
 
