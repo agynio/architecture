@@ -16,7 +16,7 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 | **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md) |
 | **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
 | **GetThreads** | List threads the caller participates in, with pagination |
-| **ListOrganizationThreads** | List all threads in an organization. Requires `can_view_threads` on the organization |
+| **ListOrganizationThreads** | List all threads in an organization with server-side sort, filter, and pagination. Requires `can_view_threads` on the organization. See [ListOrganizationThreads request shape](#listorganizationthreads-request-shape) |
 | **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state. Accessible to thread participants and identities with `can_view_threads` on the thread's organization |
 | **GetUnackedMessages** | List unacknowledged messages for a participant. Supports optional `thread_id` filter to scope results to a single thread |
 | **AckMessages** | Acknowledge messages as processed by a participant |
@@ -75,6 +75,26 @@ Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
 | `degraded` | Degraded and unrecoverable. No new messages accepted. Set by the [Agents Orchestrator](agents-orchestrator.md) via `DegradeThread` with a machine-readable reason such as `volume_lost`, `runner_deprovisioned`, or `agent_start_failures_exhausted` |
 
 `SendMessage` returns an error for `archived` and `degraded` threads. All read operations (`GetMessages`, `GetUnackedMessages`) remain available on both statuses.
+
+## ListOrganizationThreads request shape
+
+The Console's Activity → Threads view backs onto this method. Thread lists can be large, so sort, filter, and pagination are server-side. Callers must not filter or sort across pages on the client. See [Console — Resource Lists](../product/console/console.md#resource-lists).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `organization_id` | string (UUID) | Yes | Authorization scope. Caller must hold `can_view_threads` on this organization |
+| `filter.status_in` | list<Thread.Status> | No | Return only threads in these statuses (`active`, `archived`, `degraded`) |
+| `filter.participant_id_in` | list<string (UUID)> | No | Return only threads where any of these identities is a participant |
+| `filter.created_after` | timestamp | No | Return only threads with `created_at >= created_after` |
+| `filter.created_before` | timestamp | No | Return only threads with `created_at < created_before` |
+| `sort.field` | enum | No | One of `created`, `updated`, `message_count`, `status`. Default: `created` |
+| `sort.direction` | enum | No | `asc` or `desc`. Default: `desc` |
+| `page_token` | string | No | Opaque cursor returned by the previous response. Empty on the first page |
+| `page_size` | int32 | No | Maximum items to return. Server enforces an upper bound |
+
+Filters combine with AND; within a list field (`*_in`), values combine with OR. Changing `sort` or `filter` resets pagination — callers must discard any previous `page_token`.
+
+Response items include every [Thread](#thread) field plus `message_count` (number of messages in the thread) and, for each participant, the resolved `@nickname` so the UI renders names, not IDs.
 
 ## Message Acknowledgment
 

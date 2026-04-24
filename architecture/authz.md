@@ -65,7 +65,9 @@ type organization
     define owner: [identity]
     define can_invite: owner
     define can_manage_members: owner
-    define can_view_threads: owner
+    define can_view_threads: owner or admin from cluster
+    define can_view_workloads: owner or admin from cluster
+    define can_view_volumes: owner or admin from cluster
     define can_add_member: admin from cluster
     define can_create_thread: member or thread_create
     define thread_create: [identity]
@@ -73,7 +75,7 @@ type organization
     define participant_add: [identity]
 ```
 
-`owner` implies `member`, `can_invite`, `can_manage_members`, and `can_view_threads`. `owner` does **not** imply `can_create_thread` directly — instead `can_create_thread` is computed from `member`, and owners are also members, so owners can always create threads.
+`owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes`. `owner` does **not** imply `can_create_thread` directly — instead `can_create_thread` is computed from `member`, and owners are also members, so owners can always create threads.
 
 `thread_create`, `thread_write`, and `participant_add` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions).
 
@@ -124,7 +126,9 @@ When a model is created, the LLM service writes:
 | **can_invite** | computed | Create pending memberships (invites) for the organization |
 | **can_manage_members** | computed | Remove members, update member roles, list members |
 | **can_add_member** | computed | Create active memberships directly (skip invite) |
-| **can_view_threads** | computed | List and read all threads in the organization, regardless of participation |
+| **can_view_threads** | computed | List and read all threads in the organization, regardless of participation. Held by owners and cluster admins |
+| **can_view_workloads** | computed | List and read active workloads (and their containers and logs) in the organization. Held by owners and cluster admins |
+| **can_view_volumes** | computed | List and read provisioned volumes in the organization. Held by owners and cluster admins |
 | **can_create_thread** | computed | Create threads in the organization. Computed from `member` or `thread_create` |
 | **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
 | **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
@@ -132,8 +136,8 @@ When a model is created, the LLM service writes:
 
 #### Computed relations
 
-- `owner` implies `member`, `can_invite`, `can_manage_members`, and `can_view_threads`.
-- `can_add_member` is computed from `cluster:global admin` — any identity with the `admin` relation on `cluster:global` has `can_add_member` on all organizations. Modeled as a cross-type computed relation (`define can_add_member: admin from cluster`), not as explicit per-organization tuples.
+- `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes`.
+- `can_add_member`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
@@ -244,10 +248,14 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Runner's own identity (service token verification, not OpenFGA) |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
-| `GetWorkload`, `ListWorkloads`, `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` | `can_read` on `thread:<thread_id>` |
 | `TouchWorkload` | Agent's own identity (`workload.agent_identity_id == caller.identity_id`) |
 | Volume operations (internal) | Internal only (Orchestrator via Istio) |
-| `GetVolume`, `ListVolumes`, `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+| `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` | `can_read` on `thread:<thread_id>` |
 
 ### Threads Service
 
@@ -351,7 +359,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | Room pattern | Access check |
 |--------------|-------------|
 | `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA) |
-| `workload:{id}` | `member` on `organization:<workload.org_id>` |
+| `workload:{id}` | `can_view_workloads` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 

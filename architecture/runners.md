@@ -29,7 +29,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status` or any element of `containers` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
-| **ListWorkloads** | List workloads. Supports filtering by `organization_id`, `runner_id`, `status_in`, and `pending_sample` (boolean — when true, returns only workloads where `removed_at IS NULL OR removed_at > last_metering_sampled_at`) |
+| **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include denormalized `agent_name` and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
 | **ListWorkloadsByThread** | List workloads for a thread. Supports optional filtering by `agent_id` and `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for a `(thread_id, agent_id)` pair |
 | **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. Lightweight — updates only the timestamp |
 
@@ -41,7 +41,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **UpdateVolume** | Update mutable volume fields: `status`, `removed_at`, `last_metering_sampled_at` |
 | **BatchUpdateVolumeSampledAt** | Set `last_metering_sampled_at` for a list of volume IDs in a single DB write |
 | **GetVolume** | Get a volume by ID |
-| **ListVolumes** | List volumes. Supports the same filters as `ListWorkloads`: `organization_id`, `runner_id`, `status_in`, `pending_sample` |
+| **ListVolumes** | List volumes in an organization with server-side sort, filter, and pagination. See [ListVolumes request shape](#listvolumes-request-shape) |
 | **ListVolumesByThread** | List volumes for a thread |
 
 ## Runner Resource
@@ -131,6 +131,53 @@ Tracks persistent volumes actually provisioned on runners. Each record represent
 | `finished_at` | timestamp, nullable | When the container last entered `terminated`. NULL unless `status=terminated` |
 
 Per-container fields are refreshed by the [Agents Orchestrator](agents-orchestrator.md#workload-reconciliation) — on each reconciliation tick it calls `Runner.InspectWorkload` for every workload present on the runner and persists the refreshed container list via `UpdateWorkload`.
+
+## List Query Shape
+
+`ListWorkloads` and `ListVolumes` are the Activity-view read paths exposed through the Gateway. Both lists are too large to load in one shot, so sort, filter, and pagination are server-side. Callers must not filter or sort across pages on the client. See [Console — Resource Lists](../product/console/console.md#resource-lists).
+
+### ListWorkloads request shape
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `organization_id` | string (UUID) | Yes | Authorization scope. Caller must hold `can_view_workloads` on this organization |
+| `filter.agent_id_in` | list<string (UUID)> | No | Return only workloads for these agents (OR across ids) |
+| `filter.runner_id_in` | list<string (UUID)> | No | Return only workloads on these runners (OR across ids) |
+| `filter.status_in` | list<Workload.Status> | No | Return only workloads in these statuses |
+| `filter.started_after` | timestamp | No | Return only workloads with `created_at >= started_after` |
+| `filter.started_before` | timestamp | No | Return only workloads with `created_at < started_before` |
+| `filter.pending_sample` | bool | No | Metering sampler only: when true, return workloads where `removed_at IS NULL OR removed_at > last_metering_sampled_at`. Not exposed through the Gateway |
+| `sort.field` | enum | No | One of `started`, `agent`, `runner`, `status`, `duration`. Default: `started` |
+| `sort.direction` | enum | No | `asc` or `desc`. Default: `desc` |
+| `page_token` | string | No | Opaque cursor returned by the previous response. Empty on the first page |
+| `page_size` | int32 | No | Maximum items to return. Server enforces an upper bound |
+
+Each filter field is optional and independent. Multiple filters combine with AND; within a list field (`*_in`), values combine with OR. Changing `sort` or `filter` resets pagination — callers must discard any previous `page_token`.
+
+**Response item** includes every field on the [Workload Resource](#workload-resource) plus two denormalized strings the UI renders instead of IDs:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent_name` | string | Current name of the agent at `agent_id`. Resolved at query time |
+| `runner_name` | string | Current name of the runner at `runner_id`. Resolved at query time |
+
+The Runners service owns neither agents nor runners' names — it resolves them via batch lookups against the [Agents service](agents-service.md) and its own `runners` table when assembling the response. `agent_id` / `runner_id` remain in the response for stable linking.
+
+### ListVolumes request shape
+
+Same sort/filter/pagination envelope as `ListWorkloads`. Filters:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `organization_id` | string (UUID) | Yes | Authorization scope. Caller must hold `can_view_volumes` on this organization |
+| `filter.status_in` | list<Volume.Status> | No | Return only volumes in these statuses |
+| `filter.runner_id_in` | list<string (UUID)> | No | Return only volumes provisioned on these runners |
+| `filter.attached_to_kind_in` | list<enum> | No | `agent`, `mcp`, `hook`, or `unattached` |
+| `filter.pending_sample` | bool | No | Metering sampler only. Not exposed through the Gateway |
+
+Sort fields: `name`, `size`, `status`, `created`. Default: `name` asc.
+
+Response items include the [Volume Resource](#volume-resource) fields plus `volume_name` (from the Agents service Volume) and `attached_to_name` (agent/MCP/hook name) so the Storage view renders names, not IDs.
 
 ## Registration Flow
 
@@ -235,11 +282,14 @@ Runner management authorization depends on the runner's scope. Workload state op
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Service token validation — no OpenFGA check |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
-| `GetWorkload`, `ListWorkloads`, `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
-| `StreamWorkloadLogs` | `member` on `organization:<workload.org_id>` |
+| `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` | `can_read` on `thread:<thread_id>` |
 | `TouchWorkload` | Agent's own identity — `workload.agent_identity_id == caller.identity_id` |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
-| `GetVolume`, `ListVolumes`, `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+| `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` | `can_read` on `thread:<thread_id>` |
 
 See [Authorization — Runners Service](authz.md#runners-service) for the full reference.
 

@@ -170,9 +170,15 @@ All resource lists in the Console share common behaviors.
 
 **Sorting** — each list has a default sort order (typically by creation time, newest first). Column headers are clickable to change sort field and direction.
 
-**Search** — a search input filters the list by name or other identifying fields (e.g., email for users, slug for apps). Search is client-side for small collections; server-side with debounced input for large collections.
+**Search** — a search input filters the list by name or other identifying fields (e.g., email for users, slug for apps).
 
 **Pagination** — cursor-based. The list loads a page at a time with "load more" at the bottom.
+
+**Where sort, filter, and search run.** Lists that can grow past a single page (any list backed by an endpoint that returns a `page_token`) sort, filter, and search **server-side only**. The Console sends the active sort, filter, and search parameters on every request, and any change to them resets the cursor and refetches from the first page. The client must not sort or filter across pages — doing so produces a view of only the loaded subset, which silently omits matches on later pages.
+
+Small, bounded lists that fetch completely on the first request (e.g., an organization's Agents list scoped to an owner who has tens of agents) may sort and filter client-side for snappiness. The threshold is the endpoint's contract: if `page_token` can be non-empty, behave as a large collection.
+
+All lists in the [Activity](#activity) section — Workloads, Storage, Threads, Usage — are large collections and follow the server-side rule.
 
 ## Destructive Actions
 
@@ -341,15 +347,28 @@ Real-time view of running agent workloads in the organization.
 
 | Column | Description |
 |--------|-------------|
-| Agent | Agent name (link to agent detail) |
-| Runner | Runner name (link to runner detail) |
+| Agent | Agent name (link to agent detail). Name comes from the list response — the Console never displays the raw `agent_id` |
+| Runner | Runner name (link to runner detail). Name comes from the list response — the Console never displays the raw `runner_id` |
 | Thread | Thread ID |
 | Status | Workload status (`starting`, `running`, `stopping`, `stopped`, `failed`) |
 | Containers | Counts grouped by container state (e.g., `3 running`, `1 waiting (ImagePullBackOff)`). Non-`running` counts include the runtime reason so problems are visible at a glance |
 | Started | Workload start time |
 | Duration | Time since start (live counter for running workloads) |
 
-Default sort: start time, newest first.
+Default sort: start time, newest first. Sortable columns: Agent, Runner, Status, Started, Duration.
+
+**Row action** — the row is a link to the [Workload Detail](#workload-detail) view.
+
+**Filters** — a filter bar above the table with the following controls. Filters combine with AND. Any filter change resets pagination and refetches from the server — see [Resource Lists](#resource-lists).
+
+| Filter | Control | Description |
+|--------|---------|-------------|
+| Agent | Multi-select of the organization's agents (by name) | Show only workloads for the selected agents |
+| Runner | Multi-select of runners visible to the organization (org-scoped + cluster-scoped) | Show only workloads on the selected runners |
+| Status | Multi-select of workload statuses | Show only workloads in the selected statuses |
+| Started | Date range picker (from / to) | Show only workloads created within the range |
+
+Sort, filter, and search are all server-side. See [Runners — ListWorkloads request shape](../../architecture/runners.md#listworkloads-request-shape) for the backing API.
 
 #### Workload Detail
 
@@ -372,16 +391,20 @@ Real-time view of persistent volumes in use across the organization.
 | Name | Volume name (link to volume detail) |
 | Size | Provisioned size |
 | Used | Current usage |
-| Attached to | Resource holding the volume (agent, MCP, or hook — or "unattached") |
+| Attached to | Resource holding the volume (agent, MCP, or hook — or "unattached"). Rendered by name, not ID |
 | Status | Volume status (`bound`, `pending`, `released`, `failed`) |
 
-Default sort: name.
+Default sort: name. Sortable columns: Name, Size, Status, Created.
+
+**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `hook`, `unattached`). All sort, filter, and search are server-side — see [Runners — ListVolumes request shape](../../architecture/runners.md#listvolumes-request-shape).
 
 ### Threads
 
-Read-only view of all threads in the organization. Available to organization owners.
+Read-only view of all threads in the organization. Available to organization owners and cluster admins (`can_view_threads`).
 
-**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated), message count, status (`active` or `archived`), created date. Default sort: creation time, newest first.
+**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated — resolved by the server, not the client), message count, status (`active`, `archived`, or `degraded`), created date. Default sort: creation time, newest first. Sortable columns: Created, Updated, Message count, Status.
+
+**Filters** — filter bar with Status (multi-select), Participant (multi-select of identities), and Created range (from / to). All sort, filter, and search are server-side — see [Threads — ListOrganizationThreads request shape](../../architecture/threads.md#listorganizationthreads-request-shape).
 
 **Thread detail** — participant list and paginated message history (newest first). Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view.
 
