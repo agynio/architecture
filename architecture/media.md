@@ -288,7 +288,7 @@ Consumers (Gateway, [files-mcp](files-mcp.md)) resolve file IDs to metadata and 
 
 ## Context Size and Summarization
 
-Media files consume tokens that cannot be estimated from text length. When file content is loaded via the `read_file` tool, the resulting tool output messages are part of the conversation context and counted by the [Token Counting](token-counting.md) service. Token counts are stored in agent state on disk and used by the summarization reducer.
+Media files consume tokens that cannot be estimated from text length. When file content is loaded via the `read_file` tool, the resulting tool output messages are part of the conversation context and counted by `agn`'s embedded [Token Counting](token-counting.md) package. Token counts are stored in agent state on disk and used by the summarization reducer.
 
 ## Related Documents
 

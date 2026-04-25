@@ -364,12 +364,6 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 
-### Token Counting Service
-
-| Operation | Check |
-|-----------|-------|
-| All counting operations | `member` on `organization:<org_id>` (counting is scoped per org) |
-
 ### Metering Service
 
 Internal only. Producers are internal services (LLM Proxy, Orchestrator, Threads) communicating via Istio. No OpenFGA checks.

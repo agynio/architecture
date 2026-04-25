@@ -55,7 +55,6 @@ The external API is defined by **gateway proto services** in `agynio/api`. These
 | ChatGateway | `agynio/api/gateway/v1/chat.proto` | [Chat](chat.md) |
 | NotificationsGateway | `agynio/api/gateway/v1/notifications.proto` | [Notifications](notifications.md) |
 | FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
-| TokenCountingGateway | `agynio/api/gateway/v1/token_counting.proto` | [Token Counting](token-counting.md) |
 | TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
 | SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |
 

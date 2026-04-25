@@ -54,6 +54,7 @@ Desired architecture state of the platform.
 - [agyn-cli](agyn-cli.md)
 - [agynd-cli](agynd-cli.md)
 - [agn-cli](agn-cli.md)
+- [Token Counting](token-counting.md)
 
 ### LLM and secrets
 
@@ -78,7 +79,6 @@ Desired architecture state of the platform.
 ### Observability
 
 - [Tracing](tracing.md)
-- [Token Counting](token-counting.md)
 - [Metering](metering.md)
 
 ### Operations

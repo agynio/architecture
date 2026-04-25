@@ -25,7 +25,6 @@ graph TB
         Chat[Chat]
         Threads[Threads]
         Files[Files]
-        TokenCounting[Token Counting]
         LLM[LLM]
         Secrets[Secrets]
         Notifications[Notifications]
@@ -62,7 +61,6 @@ graph TB
     Gateway --> Notifications
     Gateway --> Secrets
     Gateway --> Threads
-    Gateway --> TokenCounting
     Gateway --> Tracing
     LLMProxy --> LLM
     LLMProxy --> ZitiMgmt
@@ -114,7 +112,6 @@ graph TB
 | **Chat** | Built-in web/mobile app chat experience. Thread lifecycle, unread counts. Built on top of Threads |
 | **Threads** | Generic messaging between participants. Stores messages, tracks participants by ID, provides message acknowledgment. Participant-type-agnostic |
 | **Files** | File upload, metadata storage, and pre-signed download URL generation. Backed by S3-compatible object storage. File content is accessed by agents via [files-mcp](files-mcp.md) |
-| **Token Counting** | Per-message token counting for LLM messages |
 | **LLM** | Manages LLM providers and models. Provides model resolution (model ID → provider endpoint, token, remote name) for the LLM Proxy |
 | **[LLM Proxy](llm-proxy.md)** | Exposes an OpenAI-compatible Responses API endpoint for agents. Authenticates callers, resolves models via LLM service, forwards requests to external providers |
 | **Secrets** | Manages secret providers and secrets. Resolves secret values from external providers at runtime |

@@ -76,7 +76,6 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, EnrollRunner, ListWorkloads, ListWorkloadsByThread, GetWorkload, TouchWorkload, StreamWorkloadLogs, GetVolume, ListVolumes, ListVolumesByThread |
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
-| `TokenCountingGateway` | [Token Counting](token-counting.md) | All methods |
 
 ### Handler Implementation
 

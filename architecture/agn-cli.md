@@ -75,6 +75,7 @@ graph TB
     subgraph "agn"
         LLMLoop[LLM Loop]
         Summarization[Summarization]
+        TokenCounting[Token Counting]
         Persistence[State Persistence]
         ShellTool[Built-in Shell Tool]
     end
@@ -91,6 +92,7 @@ graph TB
     LLMLoop --> ShellTool
     LLMLoop <--> Summarization
     LLMLoop <--> Persistence
+    Summarization --> TokenCounting
     Persistence --> Disk
     ShellTool --> Shell
 ```
@@ -347,6 +349,7 @@ Built-in tool names are reserved — an MCP server cannot override them.
 | [`agynd`](agynd-cli.md) | Spawns `agn` via `agn-sdk-go`, prepares its environment, feeds messages, collects output |
 | [Agent State](agent/state.md) | Disk-based persistence model |
 | [Agent Implementation](agent/implementation.md) | Detailed LLM loop design, summarization algorithm, routing decisions |
+| [Token Counting](token-counting.md) | Embedded Go package used by Summarization to count tokens per message (BPE for text, tile geometry for images, text + per-page image cost for PDFs) |
 | LLM Endpoint | Configured by `agynd` or manually; `agn` calls it for model completions |
 | MCP Server | Configured by `agynd` (endpoint list) or manually; `agn` connects to each server over streamable HTTP for tool execution. See [MCP](mcp.md) |
 | System Shell | Invoked by the built-in shell tool via `$SHELL -c`. No configuration required |
