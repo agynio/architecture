@@ -86,7 +86,7 @@ Each `GetChats` entry also carries `active_workload_ids: list<string>` — the I
 
 Workload IDs are a side product of the same `Runners.ListWorkloadsByThread` calls that derive `activity_status` — Chat collects them in the same pass with no additional round trips. The list is empty for chats with no non-passive agent participants and for chats whose most recent workload is `stopped`/`failed`/absent. New workloads spun up later (e.g., after the user sends a message) appear in `active_workload_ids` only on the next `GetChats` refresh; until then, the chat-app picks them up indirectly via the `message.created` refresh trigger described in [Real-time updates](#real-time-updates).
 
-> **Prerequisite — workload room subscription auth.** [Authorization — Notifications Service](authz.md#notifications-service) currently requires `can_view_workloads` (owner-only) on `workload:{id}` rooms, but [Notifications — Room Naming](notifications.md#room-naming-convention) describes the same rooms as accessible to org `member`s. The chat-app subscription described here depends on the latter. The two specs disagree today and the disagreement must be resolved (in favor of `member`) before chat-app subscriptions can succeed for non-owner participants. See the change file for tracking.
+The `workload:{id}` room subscription is gated by `member` on the workload's organization (see [Authorization — Notifications Service](authz.md#notifications-service)) — every thread participant satisfies this. The room only carries workload status events; reading workload details and logs still requires `can_view_workloads` via `Runners.GetWorkload` / `StreamWorkloadLogs`.
 
 ### Sending a message and the immediate transition
 

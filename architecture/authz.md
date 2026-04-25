@@ -360,7 +360,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | Room pattern | Access check |
 |--------------|-------------|
 | `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA) |
-| `workload:{id}` | `can_view_workloads` on `organization:<workload.org_id>` |
+| `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 
