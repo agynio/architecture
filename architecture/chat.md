@@ -11,14 +11,14 @@ Threads is a generic messaging service. Chat adds the application-level logic sp
 | Method | Description |
 |--------|-------------|
 | **CreateChat** | Create a new chat thread between users (and optionally agents) |
-| **GetChats** | List chats for a user with pagination. Each chat carries an [`activity_status`](#activity-status) and an [`unread_count`](#unread-counts) for the caller |
+| **GetChats** | List chats for a user with pagination. Each chat carries an [`activity_status`](#activity-status), an [`unread_count`](#unread-counts), and the chat's [`active_workload_ids`](#active-workload-ids) for the caller |
 | **GetMessages** | List messages in a chat with pagination. Response includes the chat's [`unread_count`](#unread-counts) for the caller |
 | **SendMessage** | Send a message in a chat |
 | **MarkAsRead** | Mark all messages up to the latest in a chat as read for the caller (calls Threads `AckMessages`). See [Marking Messages as Read](#marking-messages-as-read) for trigger semantics |
 
 ## Relationship to Threads
 
-Chat is a consumer of the Threads API. It does not duplicate messaging logic — it calls Threads for all message storage and retrieval. Unread counts are derived from `GetUnackedMessages`. Activity status is derived from workload state in [Runners](runners.md).
+Chat is a consumer of the Threads API. It does not duplicate messaging logic — it calls Threads for all message storage and retrieval. Unread counts are derived from `GetUnackedMessageCounts`. Activity status is derived from workload state in [Runners](runners.md).
 
 ```mermaid
 graph LR
@@ -34,11 +34,11 @@ graph LR
 
 `GetChats` returns each chat with an `unread_count` field — the number of messages in the chat's thread that the caller has not acknowledged.
 
-Chat resolves unread counts in a single pass per request: it calls `Threads.GetUnackedMessages(participant_id=caller_identity_id)` (no `thread_id` filter, returning all unacked messages across the caller's threads), groups the result by `thread_id`, and assigns the count to the matching chat. No per-chat round trip is issued.
+Chat resolves unread counts in one call per request: `Threads.GetUnackedMessageCounts(participant_id=caller_identity_id)` returns a `map<thread_id, count>` covering every thread the caller participates in. Chat assigns each chat's `unread_count` from this map. The dedicated counts RPC avoids paginating message bodies just to count them — important when a caller has many unread messages.
 
-`GetMessages` continues to expose `unread_count` for the open chat — computed the same way, scoped to the requested thread.
+`GetMessages` continues to expose `unread_count` for the open chat. The value matches the corresponding entry in `GetUnackedMessageCounts`.
 
-Real-time updates: `message.created` events on `thread_participant:{caller_identity_id}` (published by Threads on `SendMessage`) increment the count for the matching chat. The corresponding `MarkAsRead` calls reset it. The chat-app uses these events to maintain the badge without polling.
+Real-time updates: `message.created` events on `thread_participant:{caller_identity_id}` (published by Threads on `SendMessage`) increment the count for the matching chat. The corresponding `MarkAsRead` calls reset it. The chat-app maintains the badge from these events without polling.
 
 ## Marking Messages as Read
 
@@ -80,6 +80,14 @@ Implementation: Chat issues `Runners.ListWorkloadsByThread` calls in parallel fo
 
 `GetMessages` does not return `activity_status`. The chat-app reads it from the `GetChats` entry that backs the open conversation.
 
+### Active Workload IDs
+
+Each `GetChats` entry also carries `active_workload_ids: list<string>` — the IDs of every workload on the chat's thread whose status is currently `starting`, `running`, or `stopping`. The chat-app uses these IDs to subscribe to the corresponding `workload:{id}` rooms in [Notifications](notifications.md) so it receives `workload.updated` events for the workloads that drive the indicator.
+
+Workload IDs are a side product of the same `Runners.ListWorkloadsByThread` calls that derive `activity_status` — Chat collects them in the same pass with no additional round trips. The list is empty for chats with no non-passive agent participants and for chats whose most recent workload is `stopped`/`failed`/absent. New workloads spun up later (e.g., after the user sends a message) appear in `active_workload_ids` only on the next `GetChats` refresh; until then, the chat-app picks them up indirectly via the `message.created` refresh trigger described in [Real-time updates](#real-time-updates).
+
+> **Prerequisite — workload room subscription auth.** [Authorization — Notifications Service](authz.md#notifications-service) currently requires `can_view_workloads` (owner-only) on `workload:{id}` rooms, but [Notifications — Room Naming](notifications.md#room-naming-convention) describes the same rooms as accessible to org `member`s. The chat-app subscription described here depends on the latter. The two specs disagree today and the disagreement must be resolved (in favor of `member`) before chat-app subscriptions can succeed for non-owner participants. See the change file for tracking.
+
 ### Sending a message and the immediate transition
 
 When a user sends a message to a thread whose most recent workload is `stopped` or absent, the chat's `activity_status` is `finished` until the [Agents Orchestrator](agents-orchestrator.md) creates a new workload (`status=starting`) — typically within seconds, since the orchestrator wakes on the `message.created` notification. To avoid a flicker, the chat-app may render `pending` optimistically on the user's outgoing send until the next `GetChats` refresh confirms the server-derived status.
@@ -94,6 +102,18 @@ The chat-app refreshes a chat's `activity_status` on these triggers:
 | `message.created` event on `thread_participant:{caller_identity_id}` for a thread with agent participants | [Threads](threads.md#notification-publishing) publishes on `SendMessage` |
 
 On any such event, the chat-app re-fetches the affected chat (or the affected page) from `GetChats` and replaces its row in the list. Reconnection retriggers a full refetch.
+
+## Partial Failure Handling
+
+`GetChats` fans out to several backends — Threads (chats and unread counts), Runners (workloads), Identity, and Users/Agents (participant profiles). Failures in those calls are handled per dependency rather than failing the whole page:
+
+| Dependency | On failure | Effect on the response |
+|------------|-----------|------------------------|
+| `Threads` (chat list, `GetUnackedMessageCounts`) | Propagate as a `GetChats` error | Hard dependency — without thread data there are no chats to return |
+| `Runners.ListWorkloadsByThread` (per `(thread, agent)` pair) | Treat that pair as `finished`, drop its workload IDs, log the failure with `thread_id`, `agent_id`, and the underlying error | Affected chats may briefly show `finished` instead of the true status; the next `GetChats` refresh recovers |
+| `Identity` / `Users` / `Agents` (participant profile resolution) | Return the chat without the unresolved participant's display fields, log the failure with the unresolved `identity_id` | Chat row still renders; the affected participant shows a fallback label until the next refresh |
+
+The partial-failure mode is `GetChats`-only — operations that act on a single chat (`GetMessages`, `SendMessage`, `MarkAsRead`) propagate dependency errors normally, since they have no other rows to degrade independently.
 
 ## Identity
 

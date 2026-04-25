@@ -269,6 +269,7 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `ListOrganizationThreads` | `can_view_threads` on `organization:<org_id>` |
 | `GetMessages` | `can_read` on `thread:<id>` |
 | `GetUnackedMessages` | Self only — returns unacked messages for `caller.identity_id` as participant |
+| `GetUnackedMessageCounts` | Self only — returns per-thread counts for `caller.identity_id` as participant |
 | `AckMessages` | Self only — caller must be the recipient |
 
 ### Chat Service

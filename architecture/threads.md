@@ -19,6 +19,7 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 | **ListOrganizationThreads** | List all threads in an organization with server-side sort, filter, and pagination. Requires `can_view_threads` on the organization. See [ListOrganizationThreads request shape](#listorganizationthreads-request-shape) |
 | **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state. Accessible to thread participants and identities with `can_view_threads` on the thread's organization |
 | **GetUnackedMessages** | List unacknowledged messages for a participant. Supports optional `thread_id` filter to scope results to a single thread |
+| **GetUnackedMessageCounts** | Return a `map<thread_id, count>` of unacknowledged messages per thread for a participant, across every thread the participant is on. Self-only — `participant_id` must equal `caller.identity_id` |
 | **AckMessages** | Acknowledge messages as processed by a participant |
 
 ## Data Model
@@ -105,6 +106,8 @@ Response items include every [Thread](#thread) field plus `message_count` (numbe
 This separation handles crash recovery: a consumer can read messages, process them, and only acknowledge after successful processing. If the consumer crashes before acknowledging, the messages remain unacknowledged and are returned by the next `GetUnackedMessages` call.
 
 `GetUnackedMessages(participantId)` returns all unacknowledged messages for a participant across all threads. This enables consumers that participate in many threads (e.g., apps) to pull from a single endpoint.
+
+`GetUnackedMessageCounts(participantId)` returns a `map<thread_id, count>` of unacknowledged messages per thread, across every thread the participant is on. It is the count-only complement of `GetUnackedMessages` for callers that need per-thread totals (e.g., the [Chat](chat.md) service rendering unread badges) and would otherwise have to paginate full message bodies just to count them. The same `(participant_id, acked_at)` index that backs `GetUnackedMessages` serves this query.
 
 ## Notification Publishing
 
