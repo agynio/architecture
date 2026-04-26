@@ -413,3 +413,9 @@ The Orchestrator communicates with runners over OpenZiti using the embedded [Ope
 This is the same protocol regardless of whether the runner is internal (in-cluster) or external (operator-managed, remote). The Orchestrator does not know or care about runner location — OpenZiti handles routing. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 
 The Orchestrator obtains its OpenZiti identity at runtime via self-enrollment — on startup, it calls Ziti Management to request an identity, writes it to ephemeral disk, and extends a lease on a timer. See [OpenZiti Integration — Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment). All other Orchestrator dependencies (Threads, Agents, Secrets, Notifications, Ziti Management) are called over Istio — standard internal service-to-service communication. See [Authentication — SDK Embedding](authn.md#sdk-embedding).
+
+## Authorization
+
+The Orchestrator does not hold a platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. It does not inject `x-identity-id` headers on outgoing calls. Every method it invokes on Threads, Agents, Secrets, Runners, Notifications, and Ziti Management is an internal-only RPC, gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's Kubernetes ServiceAccount.
+
+This applies to all Orchestrator call sites: workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `DegradeThread` on Threads, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.

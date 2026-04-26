@@ -199,7 +199,20 @@ Resources that are deleted (threads archived, organizations deleted) do not requ
 
 ## Per-Service Authorization Reference
 
-This table summarizes the authorization check applied to each Gateway-exposed operation. Internal-only operations (not exposed through the Gateway) use Istio mTLS for caller trust and do not require OpenFGA checks.
+The tables below cover both Gateway-exposed operations (authorized via OpenFGA against the caller's identity) and internal-only operations (authorized via Istio — see [Internal RPC Authorization](#internal-rpc-authorization) for the enforcement model). Rows tagged `(via Gateway)` and `(internal)` distinguish the two paths when the same RPC name serves both call sites.
+
+### Internal RPC Authorization
+
+Internal-only RPCs are not exposed through the [Gateway](gateway.md). They are gated by two layers, in order:
+
+1. **Istio mTLS** — proves the caller is a verified in-cluster service.
+2. **Istio `AuthorizationPolicy`** — restricts each method to a specific allowlist of Kubernetes ServiceAccounts. Every internal RPC has an explicit policy; methods without a policy are not callable internally.
+
+Internal RPCs do **not** consult OpenFGA, do **not** read `x-identity-id` from gRPC metadata, and do **not** require the caller to act on behalf of a user. The [Agents Orchestrator](agents-orchestrator.md), [LLM Proxy](llm-proxy.md), and other infrastructure services call these methods over Istio without injecting an identity header — they are recognized by their ServiceAccount, not by a platform identity.
+
+In particular, the Orchestrator does **not** hold any platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. Reconciliation, metering, and workload assembly are all internal-only paths gated by `AuthorizationPolicy`.
+
+The [Ziti Management Service](#ziti-management-service) is the canonical example of this pattern. The same model applies to internal methods on Runners, Agents, Threads, Secrets, LLM, and Notifications listed in the per-service tables below.
 
 ### Users Service
 
@@ -230,8 +243,9 @@ All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, Vo
 | Operation | Check |
 |-----------|-------|
 | Create, Update, Delete (any resource) | `owner` on `organization:<org_id>` |
-| Get, List (any resource) | `member` on `organization:<org_id>` |
-| `ResolveAgentIdentity` | Internal only (Istio) |
+| Get, List (any resource, via Gateway) | `member` on `organization:<org_id>` |
+| Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org check |
+| `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
 
 Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time.
 
@@ -243,19 +257,24 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 |-----------|-------|
 | `RegisterRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `RegisterRunner` (org-scoped) | `owner` on `organization:<org_id>` |
-| `GetRunner`, `ListRunners` | `member` on `organization:<org_id>` for org-scoped runners; any authenticated identity for cluster-scoped runners |
+| `GetRunner`, `ListRunners` (via Gateway) | `member` on `organization:<org_id>` for org-scoped runners; any authenticated identity for cluster-scoped runners |
+| `GetRunner` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection); returns the runner regardless of scope |
 | `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Runner's own identity (service token verification, not OpenFGA) |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
-| `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [workload reconciliation](agents-orchestrator.md#workload-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` (via Gateway) | `member` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
 | `TouchWorkload` | Agent's own identity (`workload.agent_identity_id == caller.identity_id`) |
-| Volume operations (internal) | Internal only (Orchestrator via Istio) |
-| `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
+| `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [volume reconciliation](agents-orchestrator.md#volume-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
 | `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` (via Gateway) | `member` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) |
 
 ### Threads Service
 
@@ -263,6 +282,7 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 |-----------|-------|
 | `CreateThread` | `can_create_thread` on `organization:<org_id>` |
 | `ArchiveThread` | `participant` on `thread:<id>` or `owner` on `organization:<thread.org_id>` |
+| `DegradeThread` | Internal only (Orchestrator via Istio) — called when a thread is unrecoverable (runner deprovisioned, volume lost, agent start failures exhausted) |
 | `AddParticipant` | `can_add_participant` on `thread:<id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |
 | `GetThreads` | No OpenFGA check — returns threads where `caller.identity_id` is a participant (DB filter) |

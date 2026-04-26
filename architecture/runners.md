@@ -279,26 +279,31 @@ This design ensures that long-running agent tasks (which may take hours) are nev
 
 ## Authorization
 
-Runner management authorization depends on the runner's scope. Workload state operations are split between internal (Orchestrator) and external (Gateway-exposed) paths.
+Runner management authorization depends on the runner's scope. Workload and volume read methods have two call paths: external (via [Gateway](gateway.md), authorized via OpenFGA) and internal (Orchestrator via Istio, gated by `AuthorizationPolicy`). Write methods are internal-only. See [Internal RPC Authorization](authz.md#internal-rpc-authorization) for the enforcement model.
 
 | Operation | Check |
 |-----------|-------|
 | `RegisterRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `RegisterRunner` (org-scoped) | `owner` on `organization:<org_id>` |
-| `GetRunner`, `ListRunners` (org-scoped runners) | `member` on `organization:<org_id>` |
-| `GetRunner`, `ListRunners` (cluster-scoped runners) | Any authenticated identity |
+| `GetRunner`, `ListRunners` (via Gateway, org-scoped runners) | `member` on `organization:<org_id>` |
+| `GetRunner`, `ListRunners` (via Gateway, cluster-scoped runners) | Any authenticated identity |
+| `GetRunner` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection); returns the runner regardless of scope |
 | `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Service token validation — no OpenFGA check |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
-| `ListWorkloads` | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
+| `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required |
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` | `member` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` (via Gateway) | `member` on `organization:<workload.org_id>` |
+| `ListWorkloadsByThread` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
 | `TouchWorkload` | Agent's own identity — `workload.agent_identity_id == caller.identity_id` |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
-| `ListVolumes` | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
+| `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required |
 | `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` | `member` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` (via Gateway) | `member` on `organization:<volume.org_id>` |
+| `ListVolumesByThread` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) |
 
 See [Authorization — Runners Service](authz.md#runners-service) for the full reference.
 
@@ -319,6 +324,8 @@ Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`)
 Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByThread`) provide external access to provisioned volume state. Used by the Console's Storage view to list persistent volumes across the organization.
 
 Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt`, `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
+
+The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByThread`, `ListVolumesByThread`, and `GetRunner` via Istio, with filter shapes (`runner_id_in`, `pending_sample`, cross-org `thread_id`) that are not accepted on the Gateway path. The Gateway-exposed variants of those RPCs require `organization_id` and apply OpenFGA checks; the internal variants are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 
 ## Terminal Proxy Integration
 

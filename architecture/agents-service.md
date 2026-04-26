@@ -72,9 +72,13 @@ All agent resources are org-scoped. Access is determined by the caller's relatio
 | Operation | Required relation on org |
 |-----------|--------------------------|
 | Create, Update, Delete (any resource) | `owner` |
-| Get, List (any resource) | `member` |
+| Get, List (any resource, via Gateway) | `member` |
 
-Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. `ResolveAgentIdentity` is internal only (Istio) and has no OpenFGA check.
+Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference.
+
+`ResolveAgentIdentity` is internal only — called by [Tracing](tracing.md) over Istio — and has no OpenFGA check.
+
+The [Agents Orchestrator](agents-orchestrator.md) calls all Get/List methods over Istio for [workload spec assembly](agents-orchestrator.md#workload-spec-assembly). These internal reads are not exposed through the [Gateway](gateway.md), bypass the `member` check, and are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 
 See [Authorization — Agents Service](authz.md#agents-service) for the full reference.
 
