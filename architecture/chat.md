@@ -62,7 +62,8 @@ For each non-passive agent participant on the chat's thread, Chat inspects the m
 
 | Most recent workload | Contribution |
 |----------------------|--------------|
-| `status=running` | `running` |
+| `status=running` and `agent_state=processing` | `running` (agent is currently producing output — see [Runners — Agent Activity Sweep](runners.md#agent-activity-sweep)) |
+| `status=running` and `agent_state=idle` | `finished` (container is up but the agent has been quiet beyond the keepalive grace; the orchestrator will stop it after `idle_timeout`) |
 | `status=starting` | `pending` |
 | `status=stopping` | `pending` (the orchestrator is in the middle of stopping; treated as still active) |
 | `status=failed` and the thread is not `degraded` | `pending` (orchestrator will retry per [Start Decision](agents-orchestrator.md#start-decision)) |

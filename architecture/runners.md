@@ -26,12 +26,12 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | Method | Description |
 |--------|-------------|
 | **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID and sets `status=starting`. Called before `Runner.StartWorkload` to avoid a reconciliation race |
-| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status` or any element of `containers` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
+| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
 | **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include denormalized `agent_name` and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
 | **ListWorkloadsByThread** | List workloads for a thread. Supports optional filtering by `agent_id` and `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for a `(thread_id, agent_id)` pair |
-| **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. Lightweight — updates only the timestamp |
+| **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. When `agent_state` is `idle`, atomically transitions it to `processing` and emits a `workload.updated` event. Otherwise lightweight — updates only the timestamp with no event |
 
 ### Volume State
 
@@ -85,11 +85,12 @@ If the agent defines no `runner_labels`, step 2 is skipped. If the agent defines
 | `thread_id` | string (UUID) | Thread this workload serves |
 | `agent_id` | string (UUID) | Agent this workload runs |
 | `organization_id` | string (UUID) | Organization scope (denormalized from agent) |
-| `status` | enum | `starting`, `running`, `stopping`, `stopped`, `failed` |
+| `status` | enum | Container lifecycle state: `starting`, `running`, `stopping`, `stopped`, `failed`. `running` means all init containers completed and main containers are up — it does **not** imply the agent process is currently producing output. See [`agent_state`](#workload-resource) for that signal |
+| `agent_state` | enum | `idle`, `processing`. Whether the agent process inside a `running` workload is currently producing output. Initialized to `processing` on `CreateWorkload`. Transitioned `idle → processing` by [`TouchWorkload`](#workload-state); transitioned `processing → idle` by the [Agent Activity Sweep](#agent-activity-sweep). Distinct from `status`, which tracks container lifecycle. Surfaced to Chat via [`activity_status`](chat.md#activity-status) |
 | `containers` | list | Containers in the workload (see below) |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last status update |
-| `last_activity_at` | timestamp | Last activity reported by [`agynd`](agynd-cli.md) via `TouchWorkload`. Set to `created_at` on workload creation. Updated by `agynd` keepalive calls while the agent is actively processing. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement |
+| `last_activity_at` | timestamp | Last activity reported by [`agynd`](agynd-cli.md) via `TouchWorkload`. Set to `created_at` on workload creation, and reset to `now()` when `status` transitions from `starting` to `running` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh keepalive window after the agent boots. Updated by `agynd` keepalive calls while the agent is actively processing. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement and by the Runners service for the [Agent Activity Sweep](#agent-activity-sweep) |
 | `last_metering_sampled_at` | timestamp (nullable) | Timestamp through which compute usage has been recorded to the [Metering Service](metering.md). NULL until the first metering sample is emitted. Updated via `UpdateWorkload` after each successful emission |
 | `removed_at` | timestamp (nullable) | When the workload was actually stopped on the runner. NULL while active or stopping. Set after `StopWorkload` succeeds. Record is retained as audit history |
 | `failure_reason` | enum, nullable | Machine-readable cause when `status=failed`. One of `start_failed`, `image_pull_failed`, `config_invalid`, `crashloop`, `runtime_lost`. NULL for non-failed workloads. Set by the [Agents Orchestrator](agents-orchestrator.md#workload-reconciliation) at the moment of the `failed` transition |
@@ -259,8 +260,8 @@ The [Agents Orchestrator](agents-orchestrator.md) and [`agynd`](agynd-cli.md) wr
 
 **Orchestrator** calls the Runners service to record workload lifecycle events:
 
-1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, thread ID, agent ID, and initial container list. `last_activity_at` is set to `created_at`. Volume records are populated separately by the volume sync loop — not as part of the start flow.
-2. **Update**: orchestrator detects status changes during reconciliation (via Runner `InspectWorkload`) and calls `UpdateWorkload` to update status and container states.
+1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, thread ID, agent ID, and initial container list. `last_activity_at` is set to `created_at`; `agent_state` is initialized to `processing` (the orchestrator only starts workloads in response to unacked messages, so the agent is expected to begin producing output immediately). Volume records are populated separately by the volume sync loop — not as part of the start flow.
+2. **Update**: orchestrator detects status changes during reconciliation (via Runner `InspectWorkload`) and calls `UpdateWorkload` to update status and container states. When the call promotes `status` from `starting` to `running`, the Runners service also resets `last_activity_at = now()` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh window to make its first `TouchWorkload`.
 3. **Stop**: orchestrator calls `UpdateWorkload(status=stopping)`, stops the workload via Runner `StopWorkload`, then calls `UpdateWorkload(status=stopped, removed_at=now)`. The record is retained for audit. The metering sampling loop handles the tail sample on its next tick.
 
 **`agynd`** calls `TouchWorkload` (via [Gateway](gateway.md)) to update `last_activity_at` while the agent is actively processing. See [Idle Timeout](#idle-timeout).
@@ -276,6 +277,24 @@ The Runners service supports idle timeout enforcement by tracking `last_activity
 3. **[Agents Orchestrator](agents-orchestrator.md)** — during each reconciliation pass, queries the Runners service for running workloads. For each workload, compares `now - last_activity_at` against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). If the timeout is exceeded, the orchestrator stops the workload.
 
 This design ensures that long-running agent tasks (which may take hours) are never prematurely terminated — as long as the agent is working, `agynd` keeps touching. The idle clock only starts when the agent finishes processing and enters a wait state.
+
+## Agent Activity Sweep
+
+The Runners service runs a background sweep at a fixed interval (default `5s`) that maintains the [`agent_state`](#workload-resource) field on running workloads. Without this sweep, a workload whose agent finishes its turn would remain at `agent_state=processing` until the [Idle Timeout](#idle-timeout) reconciliation stops the workload entirely (default `5m` later) — and Chat's [`activity_status`](chat.md#activity-status) would show `running` for the full idle tail. The sweep is the only writer of the `processing → idle` transition.
+
+On each tick:
+
+1. Select workloads where `status='running' AND agent_state='processing' AND last_activity_at < now() - KEEPALIVE_GRACE AND removed_at IS NULL`.
+2. For each match, atomically update `agent_state='idle'` and emit a `workload.updated` event on the organization's [Notifications](notifications.md) topic.
+
+| Threshold | Default | Purpose |
+|-----------|---------|---------|
+| `KEEPALIVE_GRACE` | `25s` | Time since the last `TouchWorkload` after which a `processing` workload is considered idle. Set above the [`agynd` keepalive interval](agynd-cli.md#5-activity-keepalive) (`10s`) with tolerance for one missed beat |
+| Sweep interval | `5s` | How often the sweep runs. The maximum delay between the agent stopping and the chat indicator transitioning to `finished` is `KEEPALIVE_GRACE + sweep interval` — `~30s` by default |
+
+The sweep is independent of [Idle Timeout](#idle-timeout) enforcement. The sweep flips a workload's activity bit after seconds (chat-indicator scope); the orchestrator stops the workload entirely after the agent's `idle_timeout` (default `5m`, lifecycle scope). Both consume the same `last_activity_at` signal but act on different timescales.
+
+The sweep does not interact with runners — it is a DB scan plus notification emit — so the [Workload State Management](#workload-state-management) classification of Runners as a passive store still holds.
 
 ## Authorization
 
