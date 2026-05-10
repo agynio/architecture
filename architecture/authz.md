@@ -379,7 +379,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 
 | Room pattern | Access check |
 |--------------|-------------|
-| `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA) |
+| `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA). `thread_participant:me` is rewritten to `thread_participant:{caller.identity_id}` before this check — see [Notifications — Self-Subscription Sentinel](notifications.md#self-subscription-sentinel). |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |

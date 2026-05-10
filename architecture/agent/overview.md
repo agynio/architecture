@@ -39,7 +39,7 @@ graph TB
 | **Access files via MCP** | File content is accessed on demand by the LLM through the [files-mcp](../files-mcp.md) MCP server, which reads from the Files service |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
 | **Post responses** | Write response messages back to the thread via Threads API |
-| **Subscribe to notifications** | Listen for `message.created` events on `thread_participant:{agentId}` room |
+| **Subscribe to notifications** | Listen for `message.created` events on the [`thread_participant:me`](../notifications.md#self-subscription-sentinel) room (resolved server-side to the caller's `identity_id`) |
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
@@ -59,7 +59,7 @@ sequenceDiagram
     participant T as Threads
 
     Note over A: Startup
-    A->>GW: Subscribe to thread_participant:{agentId} room
+    A->>GW: Subscribe to thread_participant:me room
     GW->>N: Subscribe (server-streaming)
     A->>GW: GetUnackedMessages(agentId)
     GW->>T: GetUnackedMessages(agentId)
@@ -81,7 +81,7 @@ sequenceDiagram
     GW->>T: AckMessages
 ```
 
-1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its `thread_participant:{agentId}` notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its [`thread_participant:me`](../notifications.md#self-subscription-sentinel) notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
 2. During processing, new messages may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new messages at the appropriate point in its processing loop.
 3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
 4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.

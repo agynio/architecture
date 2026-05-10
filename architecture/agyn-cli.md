@@ -128,7 +128,7 @@ The creating agent is added as a **passive** participant by default (`--passive=
 
 ### Wait Behavior
 
-`--wait SECONDS` subscribes to the Gateway notification stream for `message.created` events. It does not poll. On `send --wait` and `create --wait`, the subscription opens after the message is sent and resolves when a response from a different sender arrives. On `read --wait`, the subscription opens when no qualifying messages exist and resolves when any new message arrives on any of the specified threads.
+`--wait SECONDS` subscribes to the Gateway notification stream for `message.created` events on the [`thread_participant:me`](notifications.md#self-subscription-sentinel) room (the caller's own room — Notifications rewrites `:me` to the caller's `identity_id`). It does not poll. On `send --wait` and `create --wait`, the subscription opens after the message is sent and resolves when a response from a different sender arrives. On `read --wait`, the subscription opens when no qualifying messages exist and resolves when any new message arrives on any of the specified threads.
 
 Exit code 1 on timeout. Callers can branch on exit code to distinguish a response from a timeout.
 

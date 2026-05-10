@@ -85,7 +85,21 @@ Rooms are scoped by resource type and ID:
 | `agent:{id}` | `agent:f47ac10b-...` | Agents → agent resource updates |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
 
-Consumers subscribe to rooms matching their identity or the resources they observe. A participant app subscribes to `thread_participant:{appId}`. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
+Consumers subscribe to rooms matching their identity or the resources they observe. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
+
+### Self-Subscription Sentinel
+
+For identity-scoped rooms, the literal string `me` is reserved as the id segment and means "the calling identity". It is only valid in `Subscribe` requests — publishers always specify real ids.
+
+| Room | Resolved to |
+|------|-------------|
+| `thread_participant:me` | `thread_participant:{caller.identity_id}` |
+
+The Notifications service rewrites `:me` to the caller's `identity_id` on receipt, before authorization. Authorization rules are unchanged — the rewritten room passes the existing `id == caller.identity_id` check by construction.
+
+`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies only to identity-scoped rooms (currently `thread_participant:`); for `workload:`, `agent:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
+
+Identity ids are UUIDs, so the literal `me` cannot collide with any real id.
 
 ## Delivery Guarantees
 
@@ -111,7 +125,7 @@ External `Subscribe` (Socket.IO) requires an authenticated caller. Room access i
 
 | Room pattern | Access check |
 |--------------|-------------|
-| `thread_participant:{id}` | `id == caller.identity_id` (identity equality — only the participant subscribes to their own room) |
+| `thread_participant:{id}` | `id == caller.identity_id` (identity equality — only the participant subscribes to their own room). The [`:me` sentinel](#self-subscription-sentinel) is rewritten to the caller's `identity_id` before this check. |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |

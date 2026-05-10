@@ -17,7 +17,7 @@
 
 `agynd` implements the [agent contract](agent/overview.md):
 
-- Subscribes to `thread_participant:{agentId}` room via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming).
+- Subscribes to `thread_participant:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` before authorization, so `agynd` does not need to know its `identity_id`.
 - Pulls unacknowledged messages via `GetUnackedMessages(thread_id: THREAD_ID)` (Gateway → [Threads](threads.md)), scoped to the thread the Orchestrator assigned this workload to process.
 - Posts agent responses back to the thread via `SendMessage`.
 - Acknowledges processed messages via `AckMessages`.
@@ -246,7 +246,7 @@ sequenceDiagram
     GW-->>D: Agent config, skills, init scripts, MCP definitions
     D->>D: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
     D->>D: Execute init scripts in order (/bin/sh -lc each)
-    D->>GW: Subscribe to thread_participant:{agentId}
+    D->>GW: Subscribe to thread_participant:me
     D->>A: Spawn agent CLI via SDK
 
     loop Message processing
