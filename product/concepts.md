@@ -5,6 +5,8 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | Term | Definition |
 |------|-----------|
 | **Agent** | An AI entity configured with an LLM model, tools, and instructions. Agents receive messages, reason, execute tools, and respond within conversations. |
+| **Agent Availability** | Per-agent setting that controls who may initiate a conversation with the agent. `internal` lets any organization member start a conversation; `private` restricts initiation to identities that hold an agent role. Availability does not affect whether the agent is visible in organization lists. |
+| **Agent Role** | A grant from an identity to a specific agent. Three roles: `owner` (manage roles, change availability, delete, edit and read configuration, start conversations), `maintainer` (edit and read configuration, start conversations), and `participant` (start conversations only). Organization owners hold owner-level capabilities on every agent in their organization. |
 | **Chat** | The platform's communication interface. Users create conversations with any combination of users and agents, all managed in a single list-detail view. |
 | **Container** | A running workload (Kubernetes pod) attached to a conversation's agent. Containers provide terminal access for inspection. |
 | **Context** | The set of items (messages, tool results, memory, summaries) assembled into a prompt for an LLM call. Context is paginated and inspectable per LLM event. |

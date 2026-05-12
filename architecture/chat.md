@@ -128,7 +128,7 @@ Chat delegates authorization to [Threads](threads.md) for all messaging operatio
 
 | Operation | Check |
 |-----------|-------|
-| `CreateChat` | `can_create_thread` on `organization:<org_id>` |
+| `CreateChat` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` (enforced by [Threads](threads.md#agent-availability-check)) |
 | `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
 | `GetMessages` | `can_read` on `thread:<id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |

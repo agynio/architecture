@@ -117,6 +117,40 @@ When a model is created, the LLM service writes:
 
 `can_manage` is computed from `owner` on the model's org. `can_use` is computed from `member` on the model's org. This makes it possible to grant or restrict model access independently in the future (e.g., writing a direct `identity:<id>, can_use, model:<model_id>` tuple) without changing the organization membership model.
 
+#### agent
+
+Agents are org-scoped resources with per-agent roles and an availability gate. The type defines three direct roles, an optional `internal_access` tuple that exposes the agent to all org members for thread initiation, and the derived permissions consumed by the [Agents Service](agents-service.md#authorization) and [Threads](threads.md#agent-availability-check).
+
+```
+type agent
+  relations
+    define org: [organization]
+    define owner: [identity]
+    define maintainer: [identity]
+    define participant: [identity]
+    define internal_access: [organization]
+    define can_initiate: owner or maintainer or participant or member from internal_access
+    define can_read_config: owner or maintainer or owner from org
+    define can_edit_config: owner or maintainer or owner from org
+    define can_manage_roles: owner or owner from org
+    define can_delete: owner or owner from org
+```
+
+Reading agent metadata (name, nickname, role label, description, availability) is gated by `member` on the agent's organization, the same check that backs `ListAgents` — it is not encoded as a relation on the `agent` type. Configuration fields and sub-resources are gated by `can_read_config`.
+
+The `internal_access` relation accepts the `organization` type. When availability is `internal`, the Agents service writes `organization:<org_id>, internal_access, agent:<id>`. The derived `can_initiate` clause `member from internal_access` resolves any org member to `can_initiate`. When availability flips to `private`, the tuple is deleted and only explicit role holders remain.
+
+`can_manage_roles` and `can_delete` include `owner from org` so organization owners retain administrative control over every agent in their org without having to be assigned a per-agent owner role. `can_read_config` and `can_edit_config` likewise include `owner from org`. The agent `owner` role is the elevated role for non-org-owners — typically the agent's creator or an identity an org owner has promoted via `SetAgentRole`.
+
+The `participant` role on the `agent` type is distinct from the `participant` relation on the `thread` type — they share a name but live on different OpenFGA types and never conflict at evaluation time.
+
+When an agent is created, the Agents service writes:
+- `organization:<org_id>, org, agent:<id>`
+- `identity:<creator_id>, owner, agent:<id>`
+- If `availability=internal`: `organization:<org_id>, internal_access, agent:<id>`
+
+Role mutations (`SetAgentRole`, `RemoveAgentRole`) and availability toggles update the corresponding tuples. `DeleteAgent` removes every tuple on `agent:<id>`. The full table is in [Tuple Lifecycle](#tuple-lifecycle) and [Agents Service — Tuple Lifecycle](agents-service.md#tuple-lifecycle).
+
 ### Organization Permissions
 
 | Relation | Type | Capabilities |
@@ -188,6 +222,12 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Membership role updated | Delete old role tuple, write new | Organizations |
 | Model created | `organization:<org_id>, org, model:<model_id>` | LLM Service |
 | Model deleted | Delete `organization:<org_id>, org, model:<model_id>` | LLM Service |
+| Agent created | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | Agents |
+| Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
+| Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
+| `SetAgentRole(identity, role)` | `identity:<id>, <role>, agent:<agent_id>`; if the identity previously held a different role on the agent: delete `identity:<id>, <old_role>, agent:<agent_id>` | Agents |
+| `RemoveAgentRole(identity)` | Delete `identity:<id>, <role>, agent:<agent_id>` | Agents |
+| Agent deleted | Delete all tuples on `agent:<id>` (`org`, `internal_access`, every role tuple) | Agents |
 | Thread created | `organization:<org_id>, org, thread:<thread_id>` + participant tuples | Threads |
 | Participant added to thread | `identity:<id>, participant, thread:<thread_id>` | Threads |
 | App installed | Permission tuples per declared permission (see above) | Apps Service |
@@ -238,16 +278,22 @@ The [Ziti Management Service](#ziti-management-service) is the canonical example
 
 ### Agents Service
 
-All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, VolumeAttachments, ImagePullSecretAttachments) are org-scoped. Sub-resources inherit their parent's organization.
+All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, VolumeAttachments, ImagePullSecretAttachments) are org-scoped. Sub-resources inherit their parent's organization. Agent-level access is split between org membership (metadata visibility and creation) and per-agent roles (configuration access, availability changes, role management) — see the [`agent` OpenFGA type](#agent).
 
 | Operation | Check |
 |-----------|-------|
-| Create, Update, Delete (any resource) | `owner` on `organization:<org_id>` |
-| Get, List (any resource, via Gateway) | `member` on `organization:<org_id>` |
-| Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org check |
+| `CreateAgent`, `CreateVolume` | `owner` on `organization:<org_id>` |
+| `ListAgents`, `GetAgent` (metadata fields only), `GetVolume`, `ListVolumes` (via Gateway) | `member` on `organization:<org_id>` |
+| `GetAgent` (configuration fields), `ListMCPs`, `ListSkills`, `ListHooks`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, `ListImagePullSecretAttachments`, and the `Get` counterpart of each sub-resource | `can_read_config` on `agent:<agent_id>` |
+| `UpdateAgent` on configuration fields; Create / Update / Delete on any agent sub-resource (MCP, Skill, Hook, ENV, InitScript, Volume Attachment, Image Pull Secret Attachment) | `can_edit_config` on `agent:<agent_id>` |
+| `UpdateAgent` on the `availability` field, `DeleteAgent` | `can_delete` on `agent:<agent_id>` |
+| `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>`; `SetAgentRole` additionally requires the target identity to satisfy `member` on the agent's organization |
+| `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
+| Update, Delete on Volume | `owner` on `organization:<volume.org_id>` |
+| Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
 
-Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time.
+Agent workload identities (`identity_type == "agent"`) satisfy `member` on their organization and may call read APIs needed for self-configuration, including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time. The per-agent role model gates access by other identities and does not alter agent self-read.
 
 ### Runners Service
 
@@ -280,10 +326,10 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 
 | Operation | Check |
 |-----------|-------|
-| `CreateThread` | `can_create_thread` on `organization:<org_id>` |
+| `CreateThread` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` |
 | `ArchiveThread` | `participant` on `thread:<id>` or `owner` on `organization:<thread.org_id>` |
 | `DegradeThread` | Internal only (Orchestrator via Istio) — called when a thread is unrecoverable (runner deprovisioned, volume lost, agent start failures exhausted) |
-| `AddParticipant` | `can_add_participant` on `thread:<id>` |
+| `AddParticipant` | `can_add_participant` on `thread:<id>` AND if the participant is an agent: `can_initiate` on `agent:<participant_id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |
 | `GetThreads` | No OpenFGA check — returns threads where `caller.identity_id` is a participant (DB filter) |
 | `ListOrganizationThreads` | `can_view_threads` on `organization:<org_id>` |
@@ -294,11 +340,11 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 
 ### Chat Service
 
-Chat wraps Threads. Thread-level authorization checks apply.
+Chat wraps Threads. Thread-level authorization checks apply, including the per-agent [availability check](threads.md#agent-availability-check) on creation and participant addition.
 
 | Operation | Check |
 |-----------|-------|
-| `CreateChat` | `can_create_thread` on `organization:<org_id>` |
+| `CreateChat` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` |
 | `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
 | `GetMessages` | `can_read` on `thread:<id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |

@@ -17,6 +17,7 @@ The Console is the platform's management interface for organizations, users, age
 
 - As an organization owner, I want to see a summary of my organization so I can understand its current state at a glance.
 - As an organization owner, I want to create and configure agents with models, tools, hooks, and environment variables so agents can perform work.
+- As an organization owner, I want to set each agent's availability and assign per-agent roles to specific identities so I can control who configures and chats with which agents.
 - As an organization owner, I want to manage LLM providers and models so agents have access to language models.
 - As an organization owner, I want to manage secret providers and secrets so agents can access sensitive credentials.
 - As an organization owner, I want to register org-scoped runners so I can control where my organization's agents execute.
@@ -215,11 +216,12 @@ Organization owners manage membership within their organization.
 
 ### Agents
 
-**Agent list** — table of agents in the organization. Columns: name, model (resolved name), status (has active workloads or not), created date. Default sort: creation time, newest first.
+**Agent list** — table of agents in the organization. Columns: name, model (resolved name), availability (`internal` or `private`), status (has active workloads or not), created date. Default sort: creation time, newest first.
 
 **Agent detail** — full agent configuration with inline sub-resource management:
 
-- **Configuration** — name, model (selector from organization's models), image, init image, idle timeout, compute resources, runner labels, agent behavioral configuration (JSON editor).
+- **Configuration** — name, model (selector from organization's models), image, init image, idle timeout, compute resources, runner labels, availability (selector: `internal` or `private` — the create form prefills `internal`), agent behavioral configuration (JSON editor). The API has no default for availability — the create form always submits an explicit value.
+- **Roles** — list of identities with a role on this agent. Columns: identity (resolved name), role (`owner` / `maintainer` / `participant`). Actions: Add role (search the organization's members by name or `@nickname`, pick a role), Change role (inline), Remove role. The agent's creator is automatically granted `owner` at creation. Role assignment is restricted to identities that are members of the agent's organization — the search returns only org members. Organization owners hold owner-level capabilities on every agent and do not need an explicit role.
 - **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
 - **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts. Each hook has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.

@@ -10,10 +10,10 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 
 | Method | Description |
 |--------|-------------|
-| **CreateThread** | Create a new thread with initial participants. Requires `organization_id` |
+| **CreateThread** | Create a new thread with initial participants. Requires `organization_id`. For each agent participant, additionally enforces the [Agent Availability Check](#agent-availability-check) |
 | **ArchiveThread** | Archive a thread (soft-delete) |
 | **DegradeThread** | Mark a thread as degraded. Internal only — called by the [Agents Orchestrator](agents-orchestrator.md) when a thread cannot be recovered (persistent volume lost, hosting runner deprovisioned, or agent start failures exhausted — see [Start Decision](agents-orchestrator.md#start-decision)). Accepts a `reason` string. Idempotent — repeated calls on an already-degraded thread are a no-op |
-| **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md) |
+| **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md). If the participant is an agent, additionally enforces the [Agent Availability Check](#agent-availability-check) |
 | **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
 | **GetThreads** | List threads the caller participates in, with pagination |
 | **ListOrganizationThreads** | List all threads in an organization with server-side sort, filter, and pagination. Requires `can_view_threads` on the organization. See [ListOrganizationThreads request shape](#listorganizationthreads-request-shape) |
@@ -135,11 +135,30 @@ Thread access is enforced via [OpenFGA](authz.md). Each thread is an OpenFGA obj
 | `can_write` | Participants; app identities with `thread_write` on the org |
 | `can_add_participant` | Participants; app identities with `participant_add` on the org |
 
+**Per-participant agent check.** `CreateThread` and `AddParticipant` additionally check `Check(caller, can_initiate, agent:<participant_id>)` for every participant being added whose `identity_type` is `agent`. See [Agent Availability Check](#agent-availability-check). The thread-level `can_add_participant` check still applies; both must pass.
+
 **Tuple writes:**
 - `CreateThread`: writes `organization:<org_id>, org, thread:<id>` and `identity:<id>, participant, thread:<id>` for each initial participant.
 - `AddParticipant`: writes `identity:<id>, participant, thread:<id>`.
 
 There are no tuple deletes when participants leave or when threads are archived (threads are soft-deleted; tuples become orphaned but harmless).
+
+## Agent Availability Check
+
+When `CreateThread` or `AddParticipant` adds an identity whose `identity_type` is `agent`, Threads performs a second OpenFGA check in addition to the thread-level participant-add check:
+
+```
+Check(caller, can_initiate, agent:<participant_id>) → allowed
+```
+
+If the check fails, the operation is rejected with a permission error. The check semantics derive from the agent's [availability](agents-service.md#availability) value and its [role assignments](agents-service.md#roles):
+
+- `internal` — any org member satisfies `can_initiate`.
+- `private` — only identities holding `owner`, `maintainer`, or `participant` on the agent satisfy `can_initiate`.
+
+The check is always against the **caller**, never against existing thread participants. Sharing a thread with an agent does not transitively grant the right to add the agent (or any other private agent) elsewhere. App identities holding `participant:add` or `thread:create` on the organization are subject to the same check — those org-level permissions are not enough to bypass per-agent gating. To make a private agent addable by an app (for example, a Telegram connector adding the agent to an inbound chat), an agent `owner` must grant the app a role on the agent via `SetAgentRole`.
+
+Identity-type resolution reuses the same [Identity](identity.md) lookup that resolves `@nickname` to `identity_id`. Threads issues `BatchGetIdentityTypes` for all participants being added, then issues `Check` calls only for participants of type `agent`.
 
 ## Non-Participant Senders
 

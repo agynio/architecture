@@ -18,7 +18,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent definitions: identity, model, image, init image, compute resources, behavioral configuration | ✓ |
+| **Agents** | Agent definitions: identity, model, image, init image, compute resources, behavioral configuration, [availability](#availability) | ✓ |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
 | **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
 | **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and containers (agents, MCPs, hooks). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
@@ -29,6 +29,52 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 | **InitScripts** | Shell scripts for container initialization. Belong to an agent, MCP, or hook | ✓ |
 
 All list endpoints use cursor-based pagination.
+
+## Availability
+
+Every agent declares an `availability` value on its resource record (see [Resource Definitions — Agent](resource-definitions.md#agent)). The value gates who may initiate threads with the agent — that is, who may pass the agent as an initial participant on `CreateThread` or as the target of `AddParticipant`. Availability does **not** affect agent metadata visibility: `ListAgents` and the metadata view of `GetAgent` return every agent in the organization regardless of availability, so chat composers, group threads, and Console listings continue to display the agent's name and nickname. The check fires in the [Threads](threads.md#agent-availability-check) service at participation time.
+
+| Value | Who can initiate threads |
+|-------|--------------------------|
+| `internal` | Any org member, plus any identity holding an [agent role](#roles) |
+| `private` | Only identities holding an [agent role](#roles) (`owner`, `maintainer`, or `participant`) |
+
+Apps that hold `participant:add` or `thread:create` on the organization are not exempt — an app adding a `private` agent must hold an agent role on it.
+
+`availability` is a required field on `CreateAgent`; the API has no default. The Console prefills the create form with `internal`. Toggling availability via `UpdateAgent` does not retroactively affect existing thread participation — agents that are already thread participants stay until the thread is archived.
+
+## Roles
+
+Each agent has its own role list, separate from organization membership. A role is a direct relationship from an identity to a specific agent, expressed as an OpenFGA tuple on the [`agent` type](authz.md#agent). An identity holds **at most one** role per agent — assigning a new role replaces the existing one.
+
+| Role | Capabilities |
+|------|--------------|
+| `owner` | Manage roles, change availability, delete the agent, edit and read configuration, initiate threads with the agent |
+| `maintainer` | Edit and read configuration, initiate threads with the agent |
+| `participant` | Initiate threads with the agent. No configuration access |
+
+Role assignments are **not** stored in the Agents service database. They are OpenFGA tuples managed entirely through the [Authorization](authz.md) service. The Agents service exposes the [Agent Role API](#agent-role-api) as a thin domain wrapper — it does not maintain a parallel role table, has no PostgreSQL schema for roles, and is not the source of truth for role data. The same pattern is used by Organizations for [memberships](organizations.md#members-management) and by Apps for [installation permissions](apps.md#permissions-bridge).
+
+Organization owners retain administrative access to every agent in their organization — they implicitly satisfy `owner`-level capabilities through the `owner from org` derivations on the `agent` type, regardless of any per-agent role. Agent role assignment is therefore most useful for granting non-owners scoped access to specific agents.
+
+On `CreateAgent`, the calling identity is granted the `owner` role on the new agent automatically. Additional roles are managed through the [Agent Role API](#agent-role-api).
+
+Role assignments are restricted to identities that are members of the agent's organization. Cross-organization role grants are rejected. ([Open question](#future-cross-organization-availability) on cross-org access.)
+
+`agynd` reads its own configuration through the agent identity's existing `member` relation on the organization (see [agynd Startup Fetch](#agynd-startup-fetch)); the role model gates access by other identities and does not alter agent self-read.
+
+## Agent Role API
+
+The Agents service exposes role management RPCs as the external entry point — the [Authorization](authz.md) service is internal-only, so clients (Console, `agyn` CLI) reach role data through these RPCs. Each method is a thin wrapper that performs the domain check (target identity must be a member of the agent's organization), then issues `Read` / `Write` / `ListObjects` / `ListUsers` calls against the Authorization service. No per-role state is stored locally.
+
+| Method | Description |
+|--------|-------------|
+| **SetAgentRole** | Assign or change the role of an identity on an agent. Atomically deletes any existing role tuple for the identity on this agent and writes the new one in a single Authorization `Write` call. Rejects identities that are not members of the agent's organization |
+| **RemoveAgentRole** | Remove an identity's role on an agent. Issues a single Authorization `Write` with a delete |
+| **ListAgentRoles** | List role assignments on an agent. Backed by Authorization `Read` filtered by `object = agent:<id>`. Returns `(identity_id, role)` pairs. Paginated |
+| **ListMyAgentRoles** | List the caller's role assignments across every agent the caller holds a role on. Backed by Authorization `ListObjects(user=identity:<caller>, type=agent)` repeated per role and merged. Returns `(agent_id, role)` pairs. Self-only — does not accept an identity parameter |
+
+`SetAgentRole`, `RemoveAgentRole`, and `ListAgentRoles` require `can_manage_roles` on the agent. `ListMyAgentRoles` is self-only and accepts only authenticated context. Authorization details: [Authorization — Agents Service](authz.md#agents-service).
 
 ## Internal API
 
@@ -67,20 +113,49 @@ Room subscription authorization is documented in [Notifications — Authorizatio
 
 ## Authorization
 
-All agent resources are org-scoped. Access is determined by the caller's relation on the organization:
+Agent access is split into two layers: organization-level gates the creation and listing of agents and the visibility of agent metadata; per-agent role gates configuration access and thread initiation. The `agent` OpenFGA type is defined in [Authorization — Agent type](authz.md#agent).
 
-| Operation | Required relation on org |
-|-----------|--------------------------|
-| Create, Update, Delete (any resource) | `owner` |
-| Get, List (any resource, via Gateway) | `member` |
+| Operation | Check |
+|-----------|-------|
+| `CreateAgent`, `CreateVolume` | `owner` on `organization:<org_id>` |
+| `ListAgents`, `GetAgent` (metadata) | `member` on `organization:<org_id>` — returns metadata fields only (`id`, `name`, `nickname`, `role`, `description`, `availability`, `created_at`, `updated_at`). Configuration fields are omitted unless the caller also satisfies `can_read_config` on the agent |
+| `GetAgent` (configuration), `ListMCPs`, `ListSkills`, `ListHooks`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, `ListImagePullSecretAttachments` and their `Get` counterparts | `can_read_config` on `agent:<agent_id>` (i.e., agent `owner` or `maintainer`, or org `owner`) |
+| `UpdateAgent` (configuration fields), Create/Update/Delete on any agent sub-resource (MCP, Skill, Hook, ENV, InitScript, Volume Attachment, Image Pull Secret Attachment) | `can_edit_config` on `agent:<agent_id>` |
+| `UpdateAgent` (`availability` field), `DeleteAgent` | `can_delete` on `agent:<agent_id>` (agent `owner` or org `owner`) |
+| `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>` (agent `owner` or org `owner`) |
+| `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
+| Update, Delete on Volume | `owner` on `organization:<volume.org_id>` |
+| Get, List on Volume (via Gateway) | `member` on `organization:<volume.org_id>` |
 
-Agent workload identities (`identity_type == "agent"`) satisfy `member` and may call all read APIs including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference.
+`SetAgentRole` rejects identities that are not members of the agent's organization. The check is performed against the `member` relation on the agent's org before the role tuple is written.
+
+Agent workload identities (`identity_type == "agent"`) satisfy `member` on their organization and may call read APIs needed for self-configuration, including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. The role model gates access by other identities and does not alter agent self-read.
 
 `ResolveAgentIdentity` is internal only — called by [Tracing](tracing.md) over Istio — and has no OpenFGA check.
 
-The [Agents Orchestrator](agents-orchestrator.md) calls all Get/List methods over Istio for [workload spec assembly](agents-orchestrator.md#workload-spec-assembly). These internal reads are not exposed through the [Gateway](gateway.md), bypass the `member` check, and are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
+The [Agents Orchestrator](agents-orchestrator.md) calls all Get/List methods over Istio for [workload spec assembly](agents-orchestrator.md#workload-spec-assembly). These internal reads are not exposed through the [Gateway](gateway.md), bypass all `member` and per-agent checks, and are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 
 See [Authorization — Agents Service](authz.md#agents-service) for the full reference.
+
+## Tuple Lifecycle
+
+The Agents service is the writer of OpenFGA tuples on the `agent` type. All writes and deletes are issued through the [Authorization](authz.md) service; the Agents service does not store any of these tuples locally.
+
+| Event | Tuples written | Tuples deleted |
+|-------|----------------|----------------|
+| `CreateAgent` | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | — |
+| `UpdateAgent` toggles availability `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | — |
+| `UpdateAgent` toggles availability `internal → private` | — | `organization:<org_id>, internal_access, agent:<id>` |
+| `SetAgentRole(identity, role)` (new identity) | `identity:<id>, <role>, agent:<agent_id>` | — |
+| `SetAgentRole(identity, role)` (identity already holds a different role) | `identity:<id>, <new_role>, agent:<agent_id>` | `identity:<id>, <old_role>, agent:<agent_id>` |
+| `RemoveAgentRole(identity)` | — | `identity:<id>, <role>, agent:<agent_id>` |
+| `DeleteAgent` | — | All tuples on `agent:<id>` (`org`, `internal_access`, every `owner`/`maintainer`/`participant`) |
+
+Tuple writes and deletes are issued in the same `Write` call as the underlying DB mutation when atomicity is required (see [Authorization — Relationship Writes](authz.md#relationship-writes)).
+
+## Future: Cross-organization Availability
+
+A future `public` availability value may permit identities outside the agent's organization to be assigned roles. The current model rejects such assignments. See [Open Questions](../open-questions.md) for the deferred design.
 
 ## agynd Startup Fetch
 
