@@ -56,7 +56,7 @@ The init container and the main container share an `emptyDir` volume mounted at 
 | File | Description |
 |------|-------------|
 | `agynd` | The agent wrapper daemon. Static Go binary (`CGO_ENABLED=0`) |
-| `cli/agyn` | The platform CLI. Static Go binary (`CGO_ENABLED=0`). `agynd` prepends `/agyn-bin/cli` to `PATH` when spawning the agent subprocess, making `agyn` available by name without an absolute path |
+| `cli/agyn` | The platform CLI. Static Go binary (`CGO_ENABLED=0`). `agynd` prepends `/agyn-bin/cli` and `/agyn-bin` to `PATH` when spawning the agent subprocess, making `agyn` and the agent CLI binary available by name without an absolute path |
 | Agent CLI binary | The agent CLI under its original name (`codex`, `claude`, `agn`). Not renamed |
 | `config.json` | Runtime configuration that tells agynd which SDK to use and where to find the agent CLI binary |
 
@@ -233,6 +233,7 @@ sequenceDiagram
     MC->>MC: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
     MC->>MC: Execute init scripts in order (/bin/sh -lc each)
     MC->>MC: Spawn agent CLI at bin path (via SDK module)
+    Note over MC: Child PATH includes /agyn-bin/cli and /agyn-bin
     MC->>GW: Subscribe to notifications
     MC->>MC: Begin message sync loop
 ```
