@@ -21,7 +21,7 @@ The LLM Proxy bridges this gap: it speaks the standard LLM API formats externall
 | **Authentication** | Authenticate callers via [OpenZiti](#openziti-identity) network identity or [API token](api-tokens.md) |
 | **Authorization** | Call the [Authorization](authz.md) service to check access before forwarding |
 | **Model resolution** | Call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
-| **Request forwarding** | Forward the request to the external LLM provider with injected credentials (Bearer, x-api-key, or a custom-headers map, per the provider's auth method) and substituted model name, using the provider's declared protocol |
+| **Request forwarding** | Forward the request body and caller headers to the external LLM provider with injected credentials (Bearer, x-api-key, or a custom-headers map, per the provider's auth method) and substituted model name, using the provider's declared protocol. See [Header Forwarding](#header-forwarding) for which caller headers are passed through |
 | **Streaming** | Support SSE streaming (`stream: true`) — stream the provider's response back to the caller without buffering |
 
 ## Classification
@@ -50,7 +50,7 @@ curl -X POST https://llm.agyn.dev/v1/responses \
 
 **Streaming:** When the request includes `"stream": true`, the response is delivered as Server-Sent Events (SSE) with `Content-Type: text/event-stream`. Events follow the OpenAI Responses API streaming format (e.g., `response.created`, `response.output_text.delta`, `response.completed`).
 
-The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name).
+The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name). Caller request headers (e.g., `openai-beta`) are forwarded per [Header Forwarding](#header-forwarding).
 
 ### `POST /v1/messages`
 
@@ -58,7 +58,7 @@ Accepts an [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) 
 
 **Authentication:** Same as `POST /v1/responses` — the LLM Proxy checks both `Authorization: Bearer` and `x-api-key` headers, plus OpenZiti mTLS.
 
-**Required header:** `anthropic-version` (e.g., `2023-06-01`). Forwarded to the provider as-is.
+**Required header:** `anthropic-version` (e.g., `2023-06-01`). Forwarded to the provider per [Header Forwarding](#header-forwarding), along with other caller headers such as `anthropic-beta`.
 
 **Non-streaming request example:**
 
@@ -78,7 +78,7 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 
 **Streaming:** When the request includes `"stream": true`, the response is delivered as SSE with `Content-Type: text/event-stream`. Events follow the Anthropic Messages streaming format (e.g., `message_start`, `content_block_delta`, `message_stop`).
 
-The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution and validating the provider's protocol. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name).
+The LLM Proxy does not interpret the request or response body beyond extracting the `model` field for resolution and validating the provider's protocol. The body is forwarded to the provider as-is (with the `model` field replaced by the remote model name). Caller request headers are forwarded per [Header Forwarding](#header-forwarding).
 
 ## Protocols
 
@@ -95,7 +95,7 @@ The caller-facing protocol and provider-facing protocol always match: an agent c
 
 The existing protocol. Request and response format follows the [OpenAI Responses API specification](https://platform.openai.com/docs/api-reference/responses/create). Streaming uses SSE with event types `response.created`, `response.output_text.delta`, `response.completed`, etc.
 
-The LLM Proxy forwards the request body as-is (replacing the `model` field) and injects auth per the provider's `authMethod`.
+The LLM Proxy forwards the request body as-is (replacing the `model` field) and injects auth per the provider's `authMethod`. Caller request headers are forwarded per [Header Forwarding](#header-forwarding).
 
 ### Anthropic Messages API (`anthropic_messages`)
 
@@ -119,7 +119,7 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 
 **Authentication on the caller side:** The LLM Proxy accepts auth from agents via the `x-api-key` header (for API token `agyn_...` authentication) or via OpenZiti mTLS (for agents inside the platform). This is the same authentication as `POST /v1/responses` — the LLM Proxy checks both `Authorization: Bearer` and `x-api-key` headers on all endpoints.
 
-**Provider-side forwarding:** The proxy forwards the request body as-is (replacing the `model` field with the remote model name) and injects auth per the provider's `authMethod` (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in the `headers` map set verbatim on the outbound request). The `anthropic-version` header from the caller is forwarded to the provider.
+**Provider-side forwarding:** The proxy forwards the request body as-is (replacing the `model` field with the remote model name) and injects auth per the provider's `authMethod` (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in the `headers` map set verbatim on the outbound request). Caller request headers — including `anthropic-version` and `anthropic-beta` — are forwarded per [Header Forwarding](#header-forwarding).
 
 **Streaming:** When the request includes `"stream": true`, the response is delivered as SSE. Events follow the Anthropic streaming format:
 
@@ -134,6 +134,20 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 | `ping` | Keepalive |
 
 The LLM Proxy does not interpret message content, tool definitions, thinking blocks, or any other request/response fields beyond extracting the `model` field for resolution. The body is forwarded to the provider as-is.
+
+## Header Forwarding
+
+LLM client libraries inject headers that carry API versioning and feature flags (`anthropic-version`, `anthropic-beta`, `openai-beta`, etc.). The LLM Proxy forwards all caller request headers to the provider so that these features work transparently, except for three classes that are stripped:
+
+| Header Class | Examples | Reason |
+|--------------|----------|--------|
+| **Hop-by-hop / routing** | `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`, `Keep-Alive`, `TE`, `Trailer`, `Upgrade`, `Proxy-*` | Recomputed by the proxy for the outbound request |
+| **Proxy authentication** | `Authorization`, `x-api-key` | Authenticate the caller to the proxy. The proxy injects its own provider credentials per the provider's `authMethod` |
+| **Platform-internal** | `x-agyn-*` (e.g., `x-agyn-thread-id`) | Consumed by the proxy (metering, tracing); not part of any provider API |
+
+There is no allowlist — any header outside the three classes above is passed through verbatim.
+
+When the proxy injects a header — provider credentials per `authMethod`, or an entry from the provider's `custom_headers` map — the injected value takes precedence over any caller-supplied value for the same header name.
 
 ## Request Flow
 
@@ -162,7 +176,7 @@ sequenceDiagram
 3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token (or custom headers), remote model name, protocol, auth method, and organization ID.
 4. LLM Proxy validates that the caller's endpoint matches the provider's protocol (e.g., `POST /v1/messages` requires `protocol: anthropic_messages`). If mismatched, returns `400 Bad Request`.
 5. LLM Proxy calls the [Authorization](authz.md) service to check whether the caller has access. If denied, returns `403 Forbidden`.
-6. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name and injecting credentials per the provider's auth method (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in `headers` set verbatim).
+6. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name, forwarding caller headers per [Header Forwarding](#header-forwarding), and injecting credentials per the provider's auth method (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in `headers` set verbatim).
 7. The provider's response is returned to the agent. For streaming requests, SSE events are forwarded without buffering.
 
 ## Authentication
