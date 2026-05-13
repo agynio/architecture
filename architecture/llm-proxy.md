@@ -21,7 +21,7 @@ The LLM Proxy bridges this gap: it speaks the standard LLM API formats externall
 | **Authentication** | Authenticate callers via [OpenZiti](#openziti-identity) network identity or [API token](api-tokens.md) |
 | **Authorization** | Call the [Authorization](authz.md) service to check access before forwarding |
 | **Model resolution** | Call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
-| **Request forwarding** | Forward the request to the external LLM provider with injected credentials (Bearer or x-api-key, per the provider's auth method) and substituted model name, using the provider's declared protocol |
+| **Request forwarding** | Forward the request to the external LLM provider with injected credentials (Bearer, x-api-key, or a custom-headers map, per the provider's auth method) and substituted model name, using the provider's declared protocol |
 | **Streaming** | Support SSE streaming (`stream: true`) — stream the provider's response back to the caller without buffering |
 
 ## Classification
@@ -119,7 +119,7 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 
 **Authentication on the caller side:** The LLM Proxy accepts auth from agents via the `x-api-key` header (for API token `agyn_...` authentication) or via OpenZiti mTLS (for agents inside the platform). This is the same authentication as `POST /v1/responses` — the LLM Proxy checks both `Authorization: Bearer` and `x-api-key` headers on all endpoints.
 
-**Provider-side forwarding:** The proxy forwards the request body as-is (replacing the `model` field with the remote model name) and injects auth per the provider's `authMethod` (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`). The `anthropic-version` header from the caller is forwarded to the provider.
+**Provider-side forwarding:** The proxy forwards the request body as-is (replacing the `model` field with the remote model name) and injects auth per the provider's `authMethod` (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in the `headers` map set verbatim on the outbound request). The `anthropic-version` header from the caller is forwarded to the provider.
 
 **Streaming:** When the request includes `"stream": true`, the response is delivered as SSE. Events follow the Anthropic streaming format:
 
@@ -148,7 +148,7 @@ sequenceDiagram
     A->>P: POST /v1/responses or /v1/messages (model: platform-model-id)
     P->>P: Authenticate caller (OpenZiti / API token)
     P->>L: ResolveModel(model_id)
-    L-->>P: endpoint, token, remoteName, protocol, auth_method, organization_id
+    L-->>P: endpoint, token, headers, remoteName, protocol, auth_method, organization_id
     P->>P: Validate caller endpoint matches provider protocol
     P->>Auth: Check(identity, can_use, model)
     Auth-->>P: allowed / denied
@@ -159,10 +159,10 @@ sequenceDiagram
 
 1. Agent sends a request to the LLM Proxy (`POST /v1/responses` or `POST /v1/messages`), specifying the platform model ID.
 2. LLM Proxy authenticates the caller — OpenZiti identity resolution via [Ziti Management](openziti.md), or API token hash lookup via [Users](users.md).
-3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token, remote model name, protocol, auth method, and organization ID.
+3. LLM Proxy calls the LLM service (`ResolveModel` gRPC method) to get the provider endpoint, token (or custom headers), remote model name, protocol, auth method, and organization ID.
 4. LLM Proxy validates that the caller's endpoint matches the provider's protocol (e.g., `POST /v1/messages` requires `protocol: anthropic_messages`). If mismatched, returns `400 Bad Request`.
 5. LLM Proxy calls the [Authorization](authz.md) service to check whether the caller has access. If denied, returns `403 Forbidden`.
-6. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name and injecting the provider's token using the provider's auth method (`bearer` → `Authorization: Bearer`, `x_api_key` → `x-api-key`).
+6. LLM Proxy forwards the request to the provider's endpoint, replacing the `model` field with the remote model name and injecting credentials per the provider's auth method (`bearer` → `Authorization: Bearer <token>`, `x_api_key` → `x-api-key: <token>`, `custom_headers` → each entry in `headers` set verbatim).
 7. The provider's response is returned to the agent. For streaming requests, SSE events are forwarded without buffering.
 
 ## Authentication

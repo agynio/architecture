@@ -10,24 +10,28 @@ An LLM provider represents a connection to an external LLM service. Each provide
 |-------|------|-------------|
 | `endpoint` | string | Base URL of the provider API (e.g., `https://api.openai.com`, a litellm proxy URL, an OpenRouter URL) |
 | `protocol` | enum | LLM API protocol the provider speaks. Supported: `responses` (OpenAI Responses API), `anthropic_messages` (Anthropic Messages API) |
-| `authMethod` | enum | Authentication method. Supported: `bearer`, `x_api_key` |
-| `token` | string | Authentication token |
+| `authMethod` | enum | Authentication method. Supported: `bearer`, `x_api_key`, `custom_headers` |
+| `token` | string | Authentication token. Required when `authMethod` is `bearer` or `x_api_key`. Unused (must be empty) when `custom_headers` |
+| `headers` | map<string, string> | Custom request headers injected on every forwarded request. Required (non-empty) when `authMethod` is `custom_headers`. Unused (must be empty) for `bearer` and `x_api_key` |
 
 `protocol` determines how the [LLM Proxy](llm-proxy.md) communicates with the provider — which HTTP endpoint path, request/response format, and streaming event protocol to use. See [LLM Proxy — Protocols](llm-proxy.md#protocols) for the details of each protocol.
 
 `authMethod` determines how the LLM Proxy authenticates with the provider:
 
-| Value | Header | Format |
-|-------|--------|--------|
+| Value | Header(s) | Format |
+|-------|-----------|--------|
 | `bearer` | `Authorization` | `Bearer <token>` |
 | `x_api_key` | `x-api-key` | `<token>` |
+| `custom_headers` | each key in `headers` | each value in `headers`, verbatim |
 
-The auth method is independent of the protocol. An Anthropic-protocol provider typically uses `x_api_key`, but a proxy (e.g., litellm) may expose the Anthropic Messages API with `bearer` auth.
+The auth method is independent of the protocol. An Anthropic-protocol provider typically uses `x_api_key`, but a proxy (e.g., litellm) may expose the Anthropic Messages API with `bearer` auth. `custom_headers` covers providers that require non-standard auth headers (e.g., a gateway requiring a static `Authorization` plus an `x-org-id` tenant header, or APIs whose token format is not `Bearer <token>`).
+
+Header names are case-insensitive and merged with the platform-injected headers — keys that would collide with hop-by-hop or routing headers (`Host`, `Content-Length`, `Connection`, `Transfer-Encoding`) are rejected on create/update. Values are stored encrypted at rest in the same way as `token`.
 
 ### Provisioning Flow
 
-1. User obtains an endpoint and token from a 3rd-party LLM service.
-2. User creates an LLM Provider resource with endpoint, auth method, and token.
+1. User obtains an endpoint and credentials from a 3rd-party LLM service.
+2. User creates an LLM Provider resource with endpoint, auth method, and either `token` (for `bearer` / `x_api_key`) or `headers` (for `custom_headers`).
 3. The provider is available for creating models.
 
 ---

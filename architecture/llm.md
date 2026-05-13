@@ -35,10 +35,11 @@ The `ResolveModel` method returns everything the [LLM Proxy](llm-proxy.md) needs
 | Field | Type | Description |
 |-------|------|-------------|
 | `endpoint` | string | Provider base URL (e.g., `https://api.openai.com`) |
-| `token` | string | Provider authentication token |
+| `token` | string | Provider authentication token. Set when `auth_method` is `bearer` or `x_api_key`; empty when `custom_headers` |
+| `headers` | map<string, string> | Custom request headers. Set when `auth_method` is `custom_headers`; empty otherwise |
 | `remote_name` | string | Model identifier on the provider's side (e.g., `gpt-5`, `claude-sonnet-4-20250514`) |
 | `protocol` | string | LLM API protocol — `responses` or `anthropic_messages`. From the provider's [`protocol`](providers.md#llm-provider) field |
-| `auth_method` | string | Authentication method — `bearer` or `x_api_key`. From the provider's [`authMethod`](providers.md#llm-provider) field |
+| `auth_method` | string | Authentication method — `bearer`, `x_api_key`, or `custom_headers`. From the provider's [`authMethod`](providers.md#llm-provider) field |
 | `organization_id` | string (UUID) | Organization that owns the model |
 
 ### Resolution Chain

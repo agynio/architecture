@@ -286,9 +286,15 @@ Apps created and owned by this organization. These apps can be installed by othe
 
 ### LLM Providers and Models
 
-**LLM Provider list** — table of providers. Columns: name, endpoint URL, model count, created date.
+**LLM Provider list** — table of providers. Columns: name, endpoint URL, auth method, model count, created date.
 
-**LLM Provider detail** — endpoint URL, auth method, token (masked, reveal on click). List of models using this provider.
+**LLM Provider detail** — endpoint URL, auth method, credentials (masked, reveal on click), and the list of models using this provider. The credentials section is driven by the selected auth method:
+
+- **Bearer** — single `Token` input. Sent as `Authorization: Bearer <token>`.
+- **x-api-key** — single `Token` input. Sent as `x-api-key: <token>`.
+- **Custom headers** — editable list of header rows (key + value). Each row's value is masked with reveal-on-click. Each header is sent verbatim on every forwarded request. Use this for providers that need non-`Bearer` auth schemes or require additional routing/tenancy headers alongside the credential.
+
+**Create / Edit LLM Provider** — name (required), endpoint URL (required), protocol (selector: `OpenAI Responses` or `Anthropic Messages`), auth method (selector: `Bearer`, `x-api-key`, `Custom headers`). Switching auth method swaps the credential editor between the single-token input and the headers list — values from the previous method are discarded on save. Saving with `Custom headers` requires at least one header row; the form rejects reserved header names (`Host`, `Content-Length`, `Connection`, `Transfer-Encoding`).
 
 **Model list** — table of models. Columns: internal name, provider name, remote model name, agent count (how many agents reference this model). Each row has a **Test** action that opens the model test dialog.
 
