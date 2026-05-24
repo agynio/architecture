@@ -13,6 +13,7 @@ Central inventory of deployable long-running services in the platform. This list
 | Console App | [agynio/console-app](https://github.com/agynio/console-app) | [Console](console.md) | App | Hosts the platform administration SPA. |
 | Expose | [agynio/expose](https://github.com/agynio/expose) | [Expose Service](expose-service.md) | Data plane | Manages OpenZiti port exposures for running agent workloads. |
 | Files | [agynio/files](https://github.com/agynio/files) | [Media Support](media.md) | Data plane | Stores uploaded file metadata and content, and serves file access APIs backed by object storage. |
+| files-mcp | [agynio/files-mcp](https://github.com/agynio/files-mcp) | [files-mcp](files-mcp.md) | Runtime / Data plane | Runs as a platform-provided MCP sidecar that gives agents Streamable HTTP access to uploaded file content. |
 | Gateway | [agynio/gateway](https://github.com/agynio/gateway) | [Gateway](gateway.md) | Data plane | Authenticates external requests and routes Gateway APIs to internal platform services. |
 | Identity | [agynio/identity](https://github.com/agynio/identity) | [Identity](identity.md) | Data plane | Maintains the central identity registry and nickname resolution. |
 | k8s-runner | [agynio/k8s-runner](https://github.com/agynio/k8s-runner) | [k8s-runner](k8s-runner.md) | Runtime | Executes workloads as Kubernetes pods and reports runtime state. |
