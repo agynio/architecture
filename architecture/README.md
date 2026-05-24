@@ -19,6 +19,7 @@ Desired architecture state of the platform.
 ### Platform entrypoints
 
 - [System Overview](system-overview.md)
+- [Services](services.md)
 - [Control Plane and Data Plane](control-data-plane.md)
 - [Gateway](gateway.md)
 - [API Contracts](api-contracts.md)
