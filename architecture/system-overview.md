@@ -149,32 +149,6 @@ See [Agent State](agent/state.md) for the persistence model.
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
 | OpenFGA | Relationship-based access control (authorization model and relationship tuples). PostgreSQL-backed |
 
-## Repository Map
+## Services Inventory
 
-| Repository | Contents | Language | Status |
-|------------|----------|----------|--------|
-| `agynio/api` | API schemas: protobuf (internal gRPC + external gateway ConnectRPC) | Proto | Active |
-| `agynio/notifications` | Notifications service | Go | Standalone service |
-| `agynio/gateway` | Gateway service | Go | Standalone service |
-| `agynio/tracing` | Tracing service — span ingestion and query | Go | Planned |
-| `agynio/authorization` | Authorization service (thin proxy to OpenFGA) + authorization model & Terraform | Go, DSL, HCL | Planned |
-| `agynio/identity` | Identity registry service | Go | Planned |
-| `agynio/users` | Users service | Go | Planned |
-| `agynio/organizations` | Organizations service | Go | Planned |
-| `agynio/agents` | Agents service (agent resource management) | Go | Planned |
-| `agynio/runners` | Runners service — runner registration and workload state | Go | Planned |
-| `agynio/agyn-cli` | Platform CLI — Gateway API access | Go | Planned |
-| `agynio/agynd-cli` | Agent wrapper daemon — bridges agent CLIs with platform | Go | Planned |
-| `agynio/codex-sdk-go` | Go client library for Codex CLI | Go | Active |
-| `agynio/agn-cli` | Agent loop implementation — LLM reasoning with tool use | Go | Planned |
-| `agynio/files-mcp` | MCP server for file access — reads from Files service, returns content to agents | Go | Planned |
-| `agynio/llm-proxy` | LLM Proxy — OpenAI-compatible Responses API endpoint for agents | Go | Planned |
-| `agynio/agent-init-codex` | Init container image: agynd + Codex CLI | Dockerfile | Active |
-| `agynio/agent-init-claude` | Init container image: agynd + Claude Code CLI | Dockerfile | Active |
-| `agynio/agent-init-agn` | Init container image: agynd + agn CLI | Dockerfile | Active |
-| `agynio/k8s-runner` | Kubernetes-native Runner implementation | Go | Planned |
-| `agynio/terraform-provider-agyn` | Terraform provider for agent resource management | Go | Planned |
-| `agynio/apps` | Apps Service | Go | Planned |
-| `agynio/reminders` | Reminders app | Go | Planned |
-| `agynio/console-app` | Console — management UI SPA | TypeScript | Planned |
-| `agynio/architecture` | This documentation | Markdown | — |
+The canonical inventory of deployable long-running services lives in [Services](services.md). That page links each service to its repository and service-specific architecture documentation.
