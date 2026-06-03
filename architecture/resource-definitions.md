@@ -234,6 +234,74 @@ An internal model definition mapped to a remote model on an LLM provider. Manage
 
 ---
 
+## Egress Rule
+
+A rule that mediates outbound HTTP/HTTPS traffic from agent workloads. Org-scoped (direct `organization_id`). Managed by the [EgressRules service](egress-rules-service.md). Attached to [Agents](#agent) via [EgressRuleAttachment](#egress-rule-attachment).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Human-readable label |
+| `matcher` | object | | Which requests the rule applies to. See [Matcher](#matcher) |
+| `effect` | object | | What happens to matching requests. See [Effect](#effect) |
+| `openziti_service_id` | string | | OpenZiti service ID created for this rule (`egress-rule-<id>`). Internal — not returned through the Gateway |
+
+Uniqueness: `(organization_id, matcher.domain_pattern)`. Reserved domain patterns are rejected at create time: `*.ziti`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
+
+`effect` must have at least one of `action` or `inject` non-empty (a rule with neither does nothing useful — surfaced as a create-time warning).
+
+### Matcher
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `domain_pattern` | string | | Hostname pattern. Examples: `api.github.com`, `*.github.com`. Single-segment wildcards supported. Required |
+| `ports` | list<int> | `[80, 443]` | Destination ports to intercept. Each entry is a single TCP port number |
+| `methods` | list<string> | `[]` (any) | HTTP methods the rule applies to (e.g., `["GET", "HEAD"]`) |
+| `path_pattern` | string | `""` (any) | Glob over the request path (e.g., `/repos/**`, `/users/*/issues`) |
+
+### Effect
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `action` | enum | `null` | `allow`, `deny`, or null. Null means the rule does not influence reachability (typical for injection-only rules) |
+| `inject` | list<Header> | `[]` | Headers to inject on matching requests. Empty means no injection. See [Header](#header) |
+
+### Header
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | HTTP header name (e.g., `Authorization`, `X-Api-Key`) |
+| `scheme` | enum | `null` | Authentication scheme. `bearer`, `basic`, or null. When set, the emitted header value is `<Scheme> <credential>` (e.g., `Bearer <credential>`). When null, the credential is emitted verbatim |
+| `value` | string | | Literal credential. Mutually exclusive with `secret_id` |
+| `secret_id` | string (UUID) | | Reference to a [Secret](#secret), resolved at request time. Mutually exclusive with `value`. Must reference a Secret in the rule's organization |
+
+Exactly one of `value` or `secret_id` is set per header entry (the *credential*). The emitted header value is the credential, prefixed with `<Scheme> ` when `scheme` is set.
+
+| `scheme` | `value` / resolved `secret_id` | Emitted header |
+|---|---|---|
+| `bearer` | `ghp_xxx` | `Authorization: Bearer ghp_xxx` |
+| `basic` | `dXNlcjpwYXNz` (caller-supplied base64 of `user:pass`) | `Authorization: Basic dXNlcjpwYXNz` |
+| null | `ghp_xxx` | `X-Api-Key: ghp_xxx` |
+
+For `basic`, the credential must already be the base64 encoding of `user:pass` — the platform does not encode it.
+
+---
+
+## Egress Rule Attachment
+
+A relationship binding an [Egress Rule](#egress-rule) to an [Agent](#agent). One rule may be attached to many agents; one agent may have many rules attached. Managed by the [EgressRules service](egress-rules-service.md).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique identifier |
+| `rule_id` | string (UUID) | Reference to an Egress Rule |
+| `agent_id` | string (UUID) | Reference to an Agent |
+| `openziti_dial_policy_id` | string | OpenZiti Dial policy ID created for this attachment. Internal — not returned through the Gateway |
+| `created_at` | timestamp | Creation time |
+
+Attachments are immutable — create and delete only. Unique on `(rule_id, agent_id)`. Both rule and agent must belong to the same organization — the [EgressRules service](egress-rules-service.md#authorization) enforces this on create.
+
+---
+
 ## Compute Resources
 
 Kubernetes-style container resource requests and limits. Used by [Agent](#agent), [MCP](#mcp), and [Hook](#hook).

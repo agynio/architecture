@@ -11,6 +11,8 @@ Central inventory of deployable long-running services in the platform. This list
 | Chat | [agynio/chat](https://github.com/agynio/chat) | [Chat](chat.md) | Data plane | Implements the built-in chat experience on top of Threads, including unread counts and activity status. |
 | Chat App | [agynio/chat-app](https://github.com/agynio/chat-app) | [Chat](chat.md) | App | Hosts the user-facing chat SPA. |
 | Console App | [agynio/console-app](https://github.com/agynio/console-app) | [Console](console.md) | App | Hosts the platform administration SPA. |
+| Egress Gateway | [agynio/egress-gateway](https://github.com/agynio/egress-gateway) | [Egress Gateway](egress-gateway.md) | Data plane | MITM proxy for agent outbound HTTP/HTTPS — terminates TLS with a platform CA, evaluates attached rules, injects credentials, forwards upstream. |
+| EgressRules | [agynio/egress-rules](https://github.com/agynio/egress-rules) | [EgressRules Service](egress-rules-service.md) | Control plane / Data plane | Manages `EgressRule` resources and their agent attachments. Provisions per-rule OpenZiti services and per-attachment Dial policies. Reconciles drift. |
 | Expose | [agynio/expose](https://github.com/agynio/expose) | [Expose Service](expose-service.md) | Data plane | Manages OpenZiti port exposures for running agent workloads. |
 | Files | [agynio/files](https://github.com/agynio/files) | [Media Support](media.md) | Data plane | Stores uploaded file metadata and content, and serves file access APIs backed by object storage. |
 | files-mcp | [agynio/files-mcp](https://github.com/agynio/files-mcp) | [files-mcp](files-mcp.md) | Runtime / Data plane | Runs as a platform-provided MCP sidecar that gives agents Streamable HTTP access to uploaded file content. |

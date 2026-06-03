@@ -212,6 +212,8 @@ The orchestrator assembles the full workload specification from multiple sources
 9. **Skills** (from Agents): prompt fragments. Fetched by `agynd` at startup via the Gateway and written to the filesystem in the layout expected by the agent CLI.
 10. **OpenZiti enrollment JWT** (from Ziti Management): injected as `ZITI_ENROLLMENT_JWT` into the **Ziti sidecar container**. The sidecar exchanges the JWT for an x509 certificate at startup, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace. MCP and hook sidecars share the pod network and can reach `.ziti` services via the sidecar, but receive no agent secrets or configuration — their env vars are injected separately and contain only what they need.
 11. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
+12. **Egress CA public certificate** (from cert-manager `egress-ca` Secret in the platform namespace): bytes inlined into the workload spec at the path `/etc/agyn/egress-ca/ca.crt`, mounted into every workload container (agent, MCP sidecars, hooks). See [Egress CA Distribution](#egress-ca-distribution).
+13. **Workload network policy** (from runner's cluster-CIDR configuration): a declarative egress restriction that blocks cluster-internal addresses while permitting the OpenZiti synthetic range, cluster DNS, and public-internet egress. See [Workload Network Policy](#workload-network-policy).
 
 In addition to user-defined environment variables, the orchestrator injects **platform-managed environment variables** into containers:
 
@@ -223,6 +225,11 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 | `WORKLOAD_ID` | Agent container | Workload UUID (`workload_key`) for this execution. Used by `agynd` for activity keepalives and span attribution |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
+| `SSL_CERT_FILE` | Agent + MCP + hook containers | Path to the Egress CA bundle (`/etc/agyn/egress-ca/ca.crt`). Recognized by `curl`, Python `requests`/`httpx`/`urllib3` |
+| `REQUESTS_CA_BUNDLE` | Agent + MCP + hook containers | Same path. Recognized by Python `requests` |
+| `NODE_EXTRA_CA_CERTS` | Agent + MCP + hook containers | Same path. Recognized by Node.js |
+| `CURL_CA_BUNDLE` | Agent + MCP + hook containers | Same path. Recognized by `curl` |
+| `SSL_CERT_DIR` | Agent + MCP + hook containers | Directory `/etc/agyn/egress-ca`. Recognized by Go's `crypto/x509` |
 
 `HOME` and `WORKSPACE_DIR` are not platform-managed and are not reserved. The agent container uses whatever the image defines, or what the user sets via an [ENV](resource-definitions.md#env) resource. Agent-specific fallbacks (for example, Codex needing a writable `HOME`) are handled by [`agynd`](agynd-cli.md), not the orchestrator.
 
@@ -419,3 +426,38 @@ The Orchestrator obtains its OpenZiti identity at runtime via self-enrollment �
 The Orchestrator does not hold a platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. It does not inject `x-identity-id` headers on outgoing calls. Every method it invokes on Threads, Agents, Secrets, Runners, Notifications, and Ziti Management is an internal-only RPC, gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's Kubernetes ServiceAccount.
 
 This applies to all Orchestrator call sites: workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `DegradeThread` on Threads, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.
+
+## Egress CA Distribution
+
+The orchestrator distributes the [Egress CA](egress-gateway.md#egress-ca) public certificate to every agent workload so the agent's HTTP clients trust the leaf certificates the [Egress Gateway](egress-gateway.md) presents during TLS interception.
+
+| Step | Detail |
+|---|---|
+| Source | Kubernetes Secret `egress-ca` in the platform namespace, populated by cert-manager (see [Egress Gateway — Egress CA](egress-gateway.md#egress-ca)). The orchestrator reads the `tls.crt` key |
+| Transport | Included in `StartWorkloadRequest.inline_files` as `"/etc/agyn/egress-ca/ca.crt": <bytes>`. See [Runner — Inline Files](runner.md#inline-files) |
+| Mount | The runner materializes the entry as a per-pod Kubernetes Secret + projected volume; mounted read-only at `/etc/agyn/egress-ca/` in every agent-pod container (agent, MCP sidecars, hooks) |
+| Trust hookup | The orchestrator sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `CURL_CA_BUNDLE`, and `SSL_CERT_DIR` env vars in every agent-pod container pointing at the mounted path |
+
+This mechanism runs uniformly for in-cluster and external runners — neither cert-manager nor any other trust-distribution machinery is required in the runner's cluster.
+
+When cert-manager rotates the CA (the `egress-ca` Secret is updated with new key + cert), newly-started workloads pick up the new bytes on their next start; in-flight workloads continue to trust only the CA they were started with until they are restarted. Operational rotation procedure: drain workloads, swap the Secret (or wait for cert-manager rotation), restart.
+
+## Workload Network Policy
+
+The orchestrator includes a network policy in every workload spec the runner creates, restricting agent pod egress to platform-managed channels and blocking cluster-internal addresses.
+
+The policy is computed from the runner's [cluster CIDR configuration](runners.md#cluster-cidr-configuration) — `cluster_pod_cidr`, `cluster_service_cidr`, and `additional_excluded_cidrs` — and shipped in `StartWorkloadRequest.network_policy` (see [Runner — Network Policy](runner.md#network-policy)).
+
+Egress is permitted to:
+
+- The OpenZiti synthetic range (`100.64.0.0/10`) — for platform services and matched egress rules tunneled by the Ziti sidecar.
+- Cluster DNS (UDP/53 to the cluster's DNS service) — needed to resolve non-`.ziti` hostnames the agent legitimately calls.
+- Public internet (everything outside the configured cluster CIDRs and excluded ranges) — for the Ziti sidecar to reach edge routers and for unmatched destinations to flow direct.
+
+Egress is blocked to:
+
+- `cluster_pod_cidr` — other in-cluster pods.
+- `cluster_service_cidr` — other ClusterIP services (except cluster DNS via the explicit exception).
+- `additional_excluded_cidrs` — operator-declared internal CIDRs.
+
+The runner materializes the policy as a `NetworkPolicy` (or equivalent CNI-level construct) scoped to the workload pod by label. Same mechanism for in-cluster and external runners.

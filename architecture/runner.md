@@ -83,6 +83,36 @@ A workload consists of:
 - **Sidecars** — optional containers sharing the same network namespace.
 - **Volumes** — ephemeral or named (persistent), mounted into containers.
 - **Image pull credentials** — optional registry credentials for pulling container images from private registries. The Runner receives resolved credentials (registry, username, password) from the Orchestrator.
+- **Inline files** — small files materialized into specific paths inside listed containers. See [Inline Files](#inline-files).
+- **Network policy** — optional egress restrictions applied at the workload network layer. See [Network Policy](#network-policy).
+
+## Inline Files
+
+`StartWorkloadRequest.inline_files` carries small files that must be materialized into the workload pod by the Runner. Each entry maps an absolute container path to the file's bytes; the Runner creates the underlying storage primitive (per-pod Kubernetes Secret or projected volume) and mounts it read-only at the requested path in every container that lists the path in its spec.
+
+| Aspect | Detail |
+|---|---|
+| Key | Absolute path inside the container (e.g., `/etc/agyn/egress-ca/ca.crt`) |
+| Value | File contents (bytes) |
+| Per-container or pod-wide | Per-container — each container's spec references which inline files it mounts |
+| Mount mode | Read-only |
+| Size limit | Few KB per file (the entire `StartWorkloadRequest` is constrained by gRPC message-size limits and downstream K8s manifest size; the platform uses inline files only for small config like CA certs) |
+
+Primary use: distributing the platform's [Egress CA](egress-gateway.md#egress-ca) public certificate to agent pods uniformly across in-cluster and external runners. See [Agents Orchestrator — Egress CA Distribution](agents-orchestrator.md#egress-ca-distribution).
+
+## Network Policy
+
+`StartWorkloadRequest.network_policy` carries a declarative restriction on the workload pod's egress. The Runner creates a corresponding Kubernetes `NetworkPolicy` (or equivalent CNI-level construct) in its local cluster, scoped to the workload pod via labels.
+
+| Field | Description |
+|---|---|
+| `allow_cidrs` | List of CIDRs the pod is allowed to reach via egress |
+| `block_cidrs` | List of CIDRs the pod is forbidden to reach via egress |
+| `allow_cluster_dns` | If true, allow UDP/53 to cluster DNS regardless of CIDRs |
+
+The Runner does not interpret the policy semantically — it materializes the listed CIDRs and DNS exception into the cluster's NetworkPolicy resource. The Orchestrator computes the policy contents from the runner's CIDR configuration (see [Runners — Cluster CIDR Configuration](runners.md#cluster-cidr-configuration)).
+
+Primary use: blocking agent workload egress to cluster-internal addresses while still permitting `.ziti` overlay traffic and public-internet egress. See [Agents Orchestrator — Workload Network Policy](agents-orchestrator.md#workload-network-policy).
 
 ## Authentication
 

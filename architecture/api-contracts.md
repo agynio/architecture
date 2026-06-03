@@ -27,6 +27,7 @@ Services **do not** commit generated schema code in their own repositories. They
 | Threads | `agynio/api/threads/v1/threads.proto` |
 | Chat | `agynio/api/chat/v1/chat.proto` |
 | Tracing | `agynio/api/tracing/v1/tracing.proto` |
+| Egress | `agynio/api/egress/v1/egress.proto` |
 
 ### Conventions
 
@@ -57,6 +58,7 @@ The external API is defined by **gateway proto services** in `agynio/api`. These
 | FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
 | TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
 | SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |
+| EgressRulesGateway | `agynio/api/gateway/v1/egress.proto` | [EgressRules](egress-rules-service.md) |
 
 ### How It Works
 

@@ -36,6 +36,8 @@ graph TB
         Identity[Identity]
         AppsService[Apps Service]
         LLMProxy[LLM Proxy]
+        EgressGateway[Egress Gateway]
+        EgressRules[EgressRules]
     end
 
     subgraph Apps
@@ -83,6 +85,10 @@ graph TB
     Agent2 --> MCP2
     Agent1 & Agent2 -->|OpenZiti| Gateway
     Agent1 & Agent2 -->|OpenZiti| LLMProxy
+    Agent1 & Agent2 -->|OpenZiti, per matched rule| EgressGateway
+    EgressGateway --> EgressRules
+    EgressGateway --> Secrets
+    EgressRules --> ZitiMgmt
 
     Chat --> Authorization
     Files --> Authorization
@@ -126,6 +132,8 @@ graph TB
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | Apps, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both apps (owned by organizations) and per-org installations (permissions bridge + configuration) |
 | **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
+| **[Egress Gateway](egress-gateway.md)** | Data-plane MITM proxy for agent outbound HTTP/HTTPS. Terminates TLS with a platform CA, evaluates [EgressRules](egress-rules-service.md) attached to the agent, injects credentials, forwards upstream |
+| **[EgressRules](egress-rules-service.md)** | Control-plane service for `EgressRule` resources and their attachments. Provisions per-rule OpenZiti services and per-attachment Dial policies. Reconciles drift |
 
 ## Data Concerns
 

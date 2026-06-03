@@ -298,6 +298,37 @@ The [Agents](agents-service.md) service provides a new method for resolving an a
 
 Returns `NOT_FOUND` if the identity does not correspond to an agent. This method is internal — not exposed through the Gateway.
 
+## Egress Spans
+
+The [Egress Gateway](egress-gateway.md) emits one span per outbound request it handles. Spans follow the standard OTel format; the attributes below identify the egress action.
+
+| Span field | Value |
+|---|---|
+| `name` | `egress.request` |
+| `kind` | `CLIENT` |
+| `status.code` | `OK` for `allow`/`deny` outcomes (the gateway acted as configured); `ERROR` for `upstream_error` and `tls_error` |
+
+Attributes:
+
+| Attribute | Type | Description |
+|---|---|---|
+| `egress.method` | string | HTTP method (`GET`, `POST`, …) |
+| `egress.host` | string | Destination host from SNI (HTTPS) or `Host` header (HTTP) |
+| `egress.port` | int | Destination port |
+| `egress.path` | string | Request path with query string stripped |
+| `egress.outcome` | enum | `allow`, `deny`, `upstream_error`, `tls_error` |
+| `egress.matched_rule_ids` | string | Comma-separated UUIDs of all rules whose `effect.action` or `effect.inject` was applied |
+| `egress.upstream_status` | int | HTTP status returned by the upstream (when reached) |
+| `egress.bytes_in` | int | Request body bytes forwarded |
+| `egress.bytes_out` | int | Response body bytes forwarded |
+| `agyn.agent.id` | string (UUID) | Agent the request originated from (derived from the OpenZiti identity) |
+| `agyn.workload.id` | string (UUID) | Workload that issued the request |
+| `agyn.organization.id` | string (UUID) | Organization owning the agent |
+
+Header values, request bodies, and response bodies are **not** recorded — the span is sufficient to answer "which agent called which destination when, and was it allowed."
+
+The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id` itself (it has them from the verified OpenZiti identity). It does not set `agyn.thread.id` or `agyn.thread.message.id` — egress requests are not scoped to a single thread message.
+
 ## agynd Tracing Proxy
 
 `agynd` runs a local OTLP gRPC proxy inside the agent container. Agent CLIs export spans to this local endpoint instead of connecting to the Tracing service directly.

@@ -66,3 +66,19 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Notifications](../architecture/notifications.md)
 - [Token Counting](../architecture/token-counting.md)
 - [Runners](../architecture/runners.md)
+
+## Egress
+
+### Product docs
+
+- [Egress Gateway](../product/egress-gateway/egress-gateway.md)
+
+### Architecture docs
+
+- [Egress Gateway](../architecture/egress-gateway.md)
+- [EgressRules Service](../architecture/egress-rules-service.md)
+- [Resource Definitions — Egress Rule](../architecture/resource-definitions.md#egress-rule)
+- [Agents Orchestrator](../architecture/agents-orchestrator.md)
+- [OpenZiti Integration](../architecture/openziti.md)
+- [Secrets](../architecture/secrets.md)
+- [Runners](../architecture/runners.md)

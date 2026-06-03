@@ -419,6 +419,20 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `RemoveExposure` | Agent's own identity or `owner` on `organization:<workload.org_id>` |
 | `ListExposures` | Agent's own identity or `member` on `organization:<workload.org_id>` |
 
+### EgressRules Service
+
+| Operation | Check |
+|-----------|-------|
+| `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>` |
+| `GetEgressRule`, `ListEgressRules` | `member` on `organization:<org_id>` |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` | `can_edit_config` on `agent:<agent_id>`. On create, the service additionally verifies the agent belongs to the rule's organization (a `Check` that `organization:<rule.org_id>` holds the `org` relation on `agent:<agent_id>`) to prevent cross-org attachments |
+| `ListEgressRuleAttachments` (by `agent_id`) | `can_read_config` on `agent:<agent_id>` |
+| `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
+| `ListEgressRulesByAgent` (internal) | Internal only (Egress Gateway via Istio) |
+| `CountRulesReferencingSecret` (internal) | Internal only (Secrets service via Istio) |
+
+No new OpenFGA types are introduced. Rules use existing organization-level checks; attachments use the existing per-agent `can_edit_config` / `can_read_config` from the [agent](#agent) type plus the `org` relation for the cross-org guard.
+
 ### Notifications Service
 
 The internal `Publish` RPC is Istio-only (trusted internal services). The external `Subscribe` (Socket.IO) validates room access per subscription:

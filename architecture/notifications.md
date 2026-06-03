@@ -84,6 +84,7 @@ Rooms are scoped by resource type and ID:
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
 | `agent:{id}` | `agent:f47ac10b-...` | Agents → agent resource updates |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
+| `organization:{id}` | `organization:9f8e7d6c-...` | EgressRules → `egress_rule.updated` / `egress_rule_attachment.updated` events |
 
 Consumers subscribe to rooms matching their identity or the resources they observe. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
 
@@ -129,6 +130,7 @@ External `Subscribe` (Socket.IO) requires an authenticated caller. Room access i
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |
+| `organization:{id}` | `member` on `organization:<id>` (used by the [Egress Gateway](egress-gateway.md) to receive `egress_rule.updated` / `egress_rule_attachment.updated` events published by the [EgressRules service](egress-rules-service.md); the gateway subscribes per org for which it has cached rules) |
 
 See [Authorization — Notifications Service](authz.md#notifications-service) for the full reference.
 

@@ -63,12 +63,25 @@ Labels carry dimensional metadata. The Metering Service stores and indexes them 
 | Label | Description |
 |-------|-------------|
 | `resource_id` | UUID of the specific resource associated with the usage |
-| `resource` | Resource type (e.g., `model`, `workload`, `thread`, `message`) |
+| `resource` | Resource type (e.g., `model`, `workload`, `thread`, `message`, `egress`) |
 | `identity_id` | UUID of the identity that caused the usage |
 | `identity_type` | Type of identity: `agent`, `user`, `app` |
+| `agent_id` | Agent associated with the usage (present when the producer has agent context) |
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
+| `host` | Destination host (present for `resource=egress` records) |
+| `outcome` | Operation outcome for resources that distinguish outcomes (e.g., egress: `allow`, `deny`, `upstream_error`) |
 | `kind` | Subtype discriminator (e.g., `input`, `cached`, `output`, `ram`, `thread`, `message`) |
 | `status` | Outcome of the operation (e.g., `success`, `failed`) |
+
+### Egress Records
+
+The [Egress Gateway](egress-gateway.md) emits one `COUNT` record per handled outbound request, fire-and-forget after the response is returned to the agent.
+
+| unit | value | labels | idempotency_key |
+|---|---|---|---|
+| `COUNT` | 1 | `resource=egress`, `agent_id`, `host`, `outcome` (`allow` \| `deny` \| `upstream_error`) | `<request_id>` |
+
+This enables billing or quota analytics by destination host and outcome. Per-rule attribution lives in [Tracing — Egress Spans](tracing.md#egress-spans) rather than in metering — rule IDs are not a metering label.
 
 ## Deduplication
 

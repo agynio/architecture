@@ -9,9 +9,10 @@ The Secrets service manages secret providers, secrets, and image pull secrets as
 | Responsibility | Description |
 |---------------|-------------|
 | **Secret Provider CRUD** | Create, read, update, delete secret provider resources |
-| **Secret CRUD** | Create, read, update, delete secret resources |
+| **Secret CRUD** | Create, read, update, delete secret resources. Delete is rejected if the secret is referenced by an active [EgressRule.effect.inject](resource-definitions.md#egress-rule) |
 | **Image Pull Secret CRUD** | Create, read, update, delete image pull secret resources |
 | **Secret Resolution** | Resolve a secret ID to its actual value (local decryption or remote fetch) |
+| **Secret Existence Check** | `ResolveSecretExists(secret_id)` — verify a secret exists, used to validate a `secret_id` reference before it is persisted |
 | **Image Pull Secret Resolution** | Resolve an image pull secret ID to registry, username, and password (local decryption or remote fetch for the password) |
 
 ## Classification
@@ -90,7 +91,14 @@ All secret resources are org-scoped. Resolution calls are split between an inter
 | Create, Update, Delete (providers, secrets, image pull secrets) | `owner` on `organization:<org_id>` |
 | Get, List (providers, secrets, image pull secrets) | `member` on `organization:<org_id>` |
 | `ResolveSecretValue` (via Gateway) | `admin` on `cluster:global` |
-| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only — Orchestrator via Istio, no OpenFGA check |
+| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only — via Istio, no OpenFGA check |
+| `ResolveSecretExists` (internal) | Internal only — via Istio, no OpenFGA check |
+
+### Referential Integrity with EgressRules
+
+`DeleteSecret` calls the [EgressRules service](egress-rules-service.md) `CountRulesReferencingSecret(secret_id)` before deleting. If any active rule references the secret, the delete is rejected with a clear error pointing to the referencing rule(s). The caller must detach or update those rules first.
+
+This is the one place the Secrets service makes an outbound call to EgressRules. It is not a dependency cycle: Secrets calls EgressRules only on `DeleteSecret`, and EgressRules calls Secrets only on rule create/update (existence check) — the two calls never recurse into each other.
 
 See [Authorization — Secrets Service](authz.md#secrets-service) for the full reference.
 

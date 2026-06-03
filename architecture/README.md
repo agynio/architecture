@@ -64,6 +64,11 @@ Desired architecture state of the platform.
 - [Providers, Models, and Secrets](providers.md)
 - [Secrets](secrets.md)
 
+### Egress
+
+- [Egress Gateway](egress-gateway.md)
+- [EgressRules Service](egress-rules-service.md)
+
 ### Apps
 
 - [Apps](apps.md)

@@ -30,6 +30,10 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 All list endpoints use cursor-based pagination.
 
+### Egress Rules (managed elsewhere)
+
+[Egress Rules](resource-definitions.md#egress-rule) — which control outbound HTTP/HTTPS from agent workloads — are **not** owned by the Agents service. They live in the dedicated [EgressRules service](egress-rules-service.md), attached to agents via that service's `EgressRuleAttachment` resource. The Agents service is unaware of rules.
+
 ## Availability
 
 Every agent declares an `availability` value on its resource record (see [Resource Definitions — Agent](resource-definitions.md#agent)). The value gates who may initiate threads with the agent — that is, who may pass the agent as an initial participant on `CreateThread` or as the target of `AddParticipant`. Availability does **not** affect agent metadata visibility: `ListAgents` and the metadata view of `GetAgent` return every agent in the organization regardless of availability, so chat composers, group threads, and Console listings continue to display the agent's name and nickname. The check fires in the [Threads](threads.md#agent-availability-check) service at participation time.
@@ -82,7 +86,7 @@ The Agents service exposes role management RPCs as the external entry point — 
 |--------|-------------|
 | `ResolveAgentIdentity` | Resolves an OpenZiti platform `identity_id` to the corresponding `agent_id` and `organization_id` |
 
-This method is used by the [Tracing](tracing.md) service to derive agent and organization attribution from the authenticated OpenZiti connection identity. It is not exposed through the [Gateway](gateway.md).
+This method derives agent and organization attribution from an authenticated OpenZiti connection identity. It is internal only — not exposed through the [Gateway](gateway.md).
 
 **Request:**
 
@@ -131,7 +135,7 @@ Agent access is split into two layers: organization-level gates the creation and
 
 Agent workload identities (`identity_type == "agent"`) satisfy `member` on their organization and may call read APIs needed for self-configuration, including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. The role model gates access by other identities and does not alter agent self-read.
 
-`ResolveAgentIdentity` is internal only — called by [Tracing](tracing.md) over Istio — and has no OpenFGA check.
+`ResolveAgentIdentity` is internal only — not exposed through the [Gateway](gateway.md) — and has no OpenFGA check.
 
 The [Agents Orchestrator](agents-orchestrator.md) calls all Get/List methods over Istio for [workload spec assembly](agents-orchestrator.md#workload-spec-assembly). These internal reads are not exposed through the [Gateway](gateway.md), bypass all `member` and per-agent checks, and are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 

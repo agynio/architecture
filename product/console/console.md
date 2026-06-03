@@ -20,6 +20,7 @@ The Console is the platform's management interface for organizations, users, age
 - As an organization owner, I want to set each agent's availability and assign per-agent roles to specific identities so I can control who configures and chats with which agents.
 - As an organization owner, I want to manage LLM providers and models so agents have access to language models.
 - As an organization owner, I want to manage secret providers and secrets so agents can access sensitive credentials.
+- As an organization owner, I want to define egress rules and attach them to agents so I can control which destinations agents reach and inject credentials without exposing secrets to the agent container.
 - As an organization owner, I want to register org-scoped runners so I can control where my organization's agents execute.
 - As an organization owner, I want to install apps into my organization and configure them so agents can use app capabilities.
 - As an organization owner, I want to see the status and audit log reported by an installed app so I can diagnose configuration problems and understand what the app is doing.
@@ -138,6 +139,12 @@ Visible when an organization is selected in the context switcher. Available to o
 | Secrets | Secret CRUD |
 | Image Pull Secrets | Image pull secret CRUD |
 
+**Egress**
+
+| Section | Description |
+|---------|-------------|
+| Egress Rules | Egress rule CRUD and agent attachment |
+
 **Activity**
 
 | Section | Description |
@@ -229,6 +236,7 @@ Organization owners manage membership within their organization.
 - **Init Scripts** — shell scripts attached directly to the agent.
 - **Volume Attachments** — volumes mounted on the agent container. Select from organization's volumes.
 - **Image Pull Secrets** — image pull secrets attached to the agent container. Select from organization's image pull secrets.
+- **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their domain pattern and effect summary, each with a Detach button. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
 
 ### Volumes
 
@@ -332,6 +340,26 @@ Image pull secrets are attached to MCPs and hooks via the Manage menu on each ro
 
 - A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
 - A list of currently attached secrets (registry + username) each with a "Detach" button.
+
+### Egress Rules
+
+Rules that control and shape agent outbound HTTP/HTTPS traffic — denying destinations or injecting credentials on the fly. See [Egress Gateway](../egress-gateway/egress-gateway.md) for the model. Org-scoped resources, attached to agents.
+
+**Egress rule list** — table of egress rules in the organization. Columns: name, domain pattern, effect (summary — `allow`, `deny`, and/or injected header names), attached agent count, created date. Default sort: creation time, newest first.
+
+**Egress rule detail** — the matcher (domain pattern, ports, methods, path pattern), the effect (action plus the list of injected headers with credentials masked, reveal-on-click), and the list of agents the rule is attached to (each linking to the agent), with Attach/Detach controls.
+
+**Create / Edit egress rule:**
+
+- **Name** (required).
+- **Matcher** — domain pattern (required; single-segment wildcards like `*.github.com`; reserved zones `*.ziti`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range are rejected inline); ports (defaults to `80, 443`); methods (multi-select — `GET`, `POST`, …; empty means any); path pattern (glob, e.g. `/repos/**`; empty means any). Domain pattern is unique per organization — the form rejects a duplicate with a clear message.
+- **Action** — selector: `None` (injection only), `Allow`, or `Deny`.
+- **Injected headers** — editable list of header rows. Each row has: header name (e.g., `Authorization`, `X-Api-Key`), a scheme selector (`None`, `Bearer`, `Basic`), and one credential source — either a literal value (masked, reveal-on-click) or a reference to an organization Secret (secret selector). Exactly one credential source per row. When a scheme is set, the row shows a preview of the emitted header (e.g., `Authorization: Bearer ••••`); for `Basic`, helper text notes the credential must be the base64 of `user:pass`. This editor follows the same masked key/value pattern as the LLM provider [Custom headers](#llm-providers-and-models) editor.
+- Saving requires at least Action or one injected header — a rule with neither is rejected.
+
+**Delete egress rule** — requires confirmation. Rejected if the rule is attached to any agent; the dialog lists the attached agents and prompts the user to detach first.
+
+**Attaching to agents** — the same attachment is editable from both sides: the rule detail page (select from the organization's agents) and the agent detail page's [Egress Rules](#agents) section (select from the organization's rules). Attaching one rule to many agents — the common case for a shared credential-injection rule — is done from the rule detail page.
 
 ### Users (Cluster Admin)
 
@@ -459,3 +487,5 @@ Resource management views (agents, providers, models, secrets, members) do not r
 - [Secrets](../../architecture/secrets.md)
 - [Apps](../../architecture/apps.md)
 - [Apps service](../../architecture/apps-service.md)
+- [EgressRules service](../../architecture/egress-rules-service.md)
+- [Egress Gateway](../../architecture/egress-gateway.md)

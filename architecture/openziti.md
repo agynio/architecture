@@ -23,6 +23,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Gateway** | Bind (server) | `zitiContext.ListenWithOptions("gateway", ...)` → accept connections |
 | **LLM Proxy** | Bind (server) | `zitiContext.ListenWithOptions("llm-proxy", ...)` → accept connections |
 | **Tracing** | Bind (server) | `zitiContext.ListenWithOptions("tracing", ...)` → accept connections |
+| **Egress Gateway** | Bind (server) | `zitiContext.ListenWithOptions("@egress-services", ...)` → binds every per-rule egress service tagged `egress-services` |
 
 The Orchestrator, Gateway, and LLM Proxy obtain their OpenZiti identities at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. Runners and Apps obtain their identities via the service token enrollment flow — see [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle). See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
@@ -218,6 +219,7 @@ sequenceDiagram
 | **Gateway** | `["gateway-hosts"]` | `zitiContext.ListenWithOptions("gateway", ...)` — binds the `gateway` service |
 | **LLM Proxy** | `["llm-proxy-hosts"]` | `zitiContext.ListenWithOptions("llm-proxy", ...)` — binds the `llm-proxy` service |
 | **Tracing** | `["tracing-hosts"]` | `zitiContext.ListenWithOptions("tracing", ...)` — binds the `tracing` service |
+| **Egress Gateway** | `["egress-gateway-hosts"]` | `zitiContext.ListenWithOptions("@egress-services", ...)` — binds every service tagged `egress-services` |
 
 ## Service Policies
 
@@ -233,9 +235,10 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 | App | `["apps"]` |
 | LLM Proxy | `["llm-proxy-hosts"]` |
 | Tracing | `["tracing-hosts"]` |
+| Egress Gateway | `["egress-gateway-hosts"]` |
 | Device (user) | `["devices"]` |
 
-The `agent-<agentId>` attribute is assigned at creation time and used by per-exposure Bind policies (see [Expose Service](expose-service.md)) to scope hosting to the specific agent. The `devices` attribute is assigned to user device identities enrolled via the Console.
+The `agent-<agentId>` attribute is assigned at creation time and used by per-exposure Bind policies (see [Expose Service](expose-service.md)) and per-attachment Dial policies (see [EgressRules service](egress-rules-service.md)) to scope hosting and dialing to the specific agent. The `devices` attribute is assigned to user device identities enrolled via the Console.
 
 ### Static Policies
 
@@ -255,6 +258,7 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `apps-bind` | Bind | `#apps` | `#app-services` | Apps host their own services |
 | `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
 | `agents-host-exposed` | Host | `#agents` | `#exposed-services` | Agent sidecars can host exposed services (traffic forwarded to localhost) |
+| `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
@@ -262,7 +266,10 @@ Static policies, services, and edge router policies are provisioned by Terraform
 
 ### Dynamic Policies
 
-The [Expose Service](expose-service.md) creates per-exposure OpenZiti service policies at runtime when an agent exposes a port. These policies are dynamic — created and deleted with each exposure lifecycle. See [Expose Service — Add Exposure Flow](expose-service.md#add-exposure-flow) for the full flow.
+The [Expose Service](expose-service.md) and the [EgressRules service](egress-rules-service.md) create per-resource OpenZiti services and policies at runtime. These are dynamic — created and deleted with each resource's lifecycle.
+
+- [Expose Service — Add Exposure Flow](expose-service.md#add-exposure-flow): per-exposure service + Bind policy + Dial policy.
+- [EgressRules service — OpenZiti Resources](egress-rules-service.md#openziti-resources): per-rule service + per-attachment Dial policy.
 
 | Policy | Type | Identity Roles | Service Roles | Lifecycle |
 |--------|------|---------------|---------------|-----------|
@@ -464,6 +471,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
 | Tracing | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `tracing` service) |
+| Egress Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds every per-rule `egress-rule-<id>` service tagged `egress-services`) |
 | Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Users Service via Ziti Management | Exposed services (dial) |
 
 ## App Identity Lifecycle

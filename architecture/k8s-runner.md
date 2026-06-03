@@ -28,6 +28,8 @@ The Runner [workload model](runner.md#workload-model) maps to Kubernetes primiti
 | Ephemeral volume (`persistent: false`) | `emptyDir` volume |
 | Persistent volume (`persistent: true`) | PersistentVolumeClaim |
 | Image pull credential | Kubernetes Secret (`kubernetes.io/dockerconfigjson`) + Pod `imagePullSecrets` |
+| [Inline file](runner.md#inline-files) | Kubernetes Secret (with the file bytes as data) + projected volume + per-container `volumeMounts` |
+| [Network policy](runner.md#network-policy) | Kubernetes `NetworkPolicy` scoped to the workload Pod by label |
 | Labels | Pod labels |
 
 ```mermaid
@@ -52,8 +54,10 @@ When `StartWorkload` is called, the k8s-runner:
 
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
 2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
-3. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts, environment variables, resource requests/limits, `imagePullSecrets`, and labels.
-4. Creates the Pod via the Kubernetes API.
+3. Creates a Kubernetes Secret containing all [`inline_files`](runner.md#inline-files) (one Secret per workload), with one data key per file.
+4. Creates a Kubernetes `NetworkPolicy` from the workload spec's [`network_policy`](runner.md#network-policy), scoped to the workload Pod by label.
+5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, resource requests/limits, `imagePullSecrets`, and labels.
+6. Creates the Pod via the Kubernetes API.
 
 Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn-bin`).
 
@@ -179,9 +183,9 @@ All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This s
 
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
-| `StartWorkload` | Create Kubernetes Secrets for image pull credentials (if any) → create PVCs (if needed) → create Pod |
-| `StopWorkload` | Delete Pod (graceful termination) → delete image pull Kubernetes Secrets |
-| `RemoveWorkload` | Delete Pod, optionally its PVCs, and image pull Kubernetes Secrets |
+| `StartWorkload` | Create Kubernetes Secrets for image pull credentials (if any) → create inline-files Secret (if any) → create NetworkPolicy (if specified) → create PVCs (if needed) → create Pod |
+| `StopWorkload` | Delete Pod (graceful termination) → delete image pull Kubernetes Secrets → delete inline-files Secret → delete NetworkPolicy |
+| `RemoveWorkload` | Delete Pod, optionally its PVCs, image pull Kubernetes Secrets, inline-files Secret, and NetworkPolicy |
 | `InspectWorkload` | Read Pod status, container statuses, volume mounts |
 | `TouchWorkload` | Update a Pod annotation with the current timestamp |
 
@@ -237,6 +241,7 @@ The k8s-runner requires a Kubernetes ServiceAccount with permissions scoped to t
 | `persistentvolumeclaims` | `get`, `list`, `create`, `delete` |
 | `events` | `get`, `list`, `watch` |
 | `secrets` | `get`, `list`, `create`, `delete` |
+| `networkpolicies` (`networking.k8s.io`) | `get`, `list`, `create`, `delete` |
 
 These permissions are granted via a Role (not ClusterRole) bound to the workload namespace.
 
