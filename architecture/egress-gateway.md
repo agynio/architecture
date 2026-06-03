@@ -15,7 +15,7 @@ This document describes the **Egress Gateway** data-plane service. The control-p
 | `.ziti` hostnames (`gateway.ziti`, `llm-proxy.ziti`, `tracing.ziti`, exposed services) | Existing OpenZiti services bound by their respective platform services | Each platform service |
 | Hostnames matched by an attached rule's `matcher.domain_pattern` on a port in `matcher.ports` | Per-rule OpenZiti service → Egress Gateway → upstream | Egress Gateway |
 | Hostnames not matched by any attached rule | Direct from the agent container's `eth0` to public internet (subject to NetworkPolicy) | Pod's CNI |
-| Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by per-workload NetworkPolicy installed by the [Agents Orchestrator](agents-orchestrator.md) | Cluster network policy |
+| Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by the workload-namespace NetworkPolicy installed with the [k8s-runner](k8s-runner.md#workload-egress-networkpolicy) | Cluster network policy |
 | Pod-local (`localhost`, MCP sidecars on loopback) | Never leaves the pod | — |
 
 Egress rules apply to traffic from any container in the agent's pod (agent, MCP sidecars, hooks) because they share the pod network namespace. There is no per-container scoping in v1.

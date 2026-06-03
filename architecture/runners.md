@@ -56,9 +56,6 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
 | `openziti_service_name` | string | Per-runner OpenZiti service name (`runner-{id}`) |
-| `cluster_pod_cidr` | string | Cluster pod CIDR (e.g., `10.244.0.0/16`). Used by the [Agents Orchestrator](agents-orchestrator.md#workload-network-policy) to construct the workload NetworkPolicy. Auto-discovered for in-cluster runners; required at registration for external runners |
-| `cluster_service_cidr` | string | Cluster service CIDR (e.g., `10.96.0.0/12`). Same uses as `cluster_pod_cidr` |
-| `additional_excluded_cidrs` | list<string> | Operator-declared internal CIDRs to also block from agent workload egress (e.g., a private VPC range that hosts internal databases). Empty by default |
 | `status` | enum | `pending`, `enrolled`, `offline` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
@@ -66,18 +63,6 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 ### Organization Scoping
 
 Cluster-scoped runners (`organization_id: null`) are available to all organizations. Org-scoped runners are available only to the owning organization. See [Runner Selection](#runner-selection) for how the orchestrator picks a runner.
-
-### Cluster CIDR Configuration
-
-`cluster_pod_cidr`, `cluster_service_cidr`, and `additional_excluded_cidrs` describe the runner's local cluster network topology. The [Agents Orchestrator](agents-orchestrator.md#workload-network-policy) uses them to construct the per-workload NetworkPolicy that blocks cluster-internal egress from agent pods.
-
-| Field | Source for in-cluster runners | Source for external runners |
-|---|---|---|
-| `cluster_pod_cidr` | Auto-discovered from the K8s API at runner startup | Required at registration |
-| `cluster_service_cidr` | Auto-discovered from the K8s API at runner startup | Required at registration |
-| `additional_excluded_cidrs` | Empty unless explicitly set | Optional at registration |
-
-The fields are mutable via `UpdateRunner` — operators can adjust them if cluster topology changes. Workloads pick up the new values on the next start; existing workloads keep their installed NetworkPolicy until restart.
 
 ## Runner Selection
 
@@ -246,9 +231,6 @@ The [Terraform provider](operations/terraform-provider.md) exposes the `agyn_run
 | `organization_id` | string | | | | Organization scope. Omit for cluster-scoped runners. Immutable after creation |
 | `labels` | map(string) | | | ✓ | Key-value labels for routing and metadata. Used for [runner selection](#runner-selection) |
 | `capabilities` | list(string) | | | ✓ | Capability names this runner implements. Used for [runner selection](#runner-selection) |
-| `cluster_pod_cidr` | string | * | | ✓ | Cluster pod CIDR. Required for external runners (in-cluster runners auto-discover). See [Cluster CIDR Configuration](#cluster-cidr-configuration) |
-| `cluster_service_cidr` | string | * | | ✓ | Cluster service CIDR. Required for external runners |
-| `additional_excluded_cidrs` | list(string) | | | ✓ | Operator-declared internal CIDRs to also block from agent workload egress |
 | `identity_id` | string | | ✓ | | Runner's identity in the [Identity](identity.md) service |
 | `service_token` | string (sensitive) | | ✓ | | Service token returned on creation. Stored in Terraform state. Used by the runner to [enroll](#enrollment) |
 

@@ -39,18 +39,20 @@ Egress rules apply to outbound HTTP/HTTPS from **any container in the agent's po
 ### What is never intercepted
 
 - `.ziti` hostnames (platform services: Gateway, LLM Proxy, Tracing, exposed services) — routed via their own OpenZiti services.
-- Cluster-internal addresses — blocked by a NetworkPolicy the platform installs alongside each workload (see "Workload network policy" below).
+- Cluster-internal addresses — blocked by the workload-namespace NetworkPolicy installed with the runner (see "Workload network policy" below).
 - Pod-local (`localhost`, MCP sidecars accessed via loopback) — never leaves the pod.
 
 ### Workload network policy
 
-The platform installs a NetworkPolicy alongside each agent workload that restricts the pod's egress to:
+The runner's installation includes a NetworkPolicy in the workload namespace that restricts every agent workload pod's egress to:
 
 - The OpenZiti synthetic range (`100.64.0.0/10`) — for platform services and matched egress rules.
 - Cluster DNS — needed to resolve non-`.ziti` hostnames the agent legitimately calls (the resolved IP flows through the Ziti sidecar's interception for matched rules, or directly to public internet for unmatched destinations).
 - Public internet — for unmatched destinations and for the Ziti sidecar to reach edge routers.
 
 The policy **blocks** access to cluster pod CIDRs, cluster service CIDRs, and any operator-declared internal CIDRs. Agents cannot reach other in-cluster services from within the workload pod — the only platform-managed egress paths are `.ziti` services and rule-matched destinations.
+
+The policy is static infrastructure parameterized at runner install time, not per workload — see [k8s-runner — Workload Egress NetworkPolicy](../../architecture/k8s-runner.md#workload-egress-networkpolicy).
 
 ## Rule shape
 

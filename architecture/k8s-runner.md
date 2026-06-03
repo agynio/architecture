@@ -29,7 +29,6 @@ The Runner [workload model](runner.md#workload-model) maps to Kubernetes primiti
 | Persistent volume (`persistent: true`) | PersistentVolumeClaim |
 | Image pull credential | Kubernetes Secret (`kubernetes.io/dockerconfigjson`) + Pod `imagePullSecrets` |
 | [Inline file](runner.md#inline-files) | Kubernetes Secret (with the file bytes as data) + projected volume + per-container `volumeMounts` |
-| [Network policy](runner.md#network-policy) | Kubernetes `NetworkPolicy` scoped to the workload Pod by label |
 | Labels | Pod labels |
 
 ```mermaid
@@ -55,9 +54,10 @@ When `StartWorkload` is called, the k8s-runner:
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
 2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
 3. Creates a Kubernetes Secret containing all [`inline_files`](runner.md#inline-files) (one Secret per workload), with one data key per file.
-4. Creates a Kubernetes `NetworkPolicy` from the workload spec's [`network_policy`](runner.md#network-policy), scoped to the workload Pod by label.
-5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, resource requests/limits, `imagePullSecrets`, and labels.
-6. Creates the Pod via the Kubernetes API.
+4. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, resource requests/limits, `imagePullSecrets`, and labels.
+5. Creates the Pod via the Kubernetes API.
+
+The pod includes a label (`agyn.dev/managed-by: agents-orchestrator`) that the workload-namespace [Workload Egress NetworkPolicy](#workload-egress-networkpolicy) selects on. The runtime does not create or manage that NetworkPolicy — it is installed as part of the runner deployment.
 
 Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn-bin`).
 
@@ -183,9 +183,9 @@ All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This s
 
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
-| `StartWorkload` | Create Kubernetes Secrets for image pull credentials (if any) → create inline-files Secret (if any) → create NetworkPolicy (if specified) → create PVCs (if needed) → create Pod |
-| `StopWorkload` | Delete Pod (graceful termination) → delete image pull Kubernetes Secrets → delete inline-files Secret → delete NetworkPolicy |
-| `RemoveWorkload` | Delete Pod, optionally its PVCs, image pull Kubernetes Secrets, inline-files Secret, and NetworkPolicy |
+| `StartWorkload` | Create Kubernetes Secrets for image pull credentials (if any) → create inline-files Secret (if any) → create PVCs (if needed) → create Pod |
+| `StopWorkload` | Delete Pod (graceful termination) → delete image pull Kubernetes Secrets → delete inline-files Secret |
+| `RemoveWorkload` | Delete Pod, optionally its PVCs, image pull Kubernetes Secrets, and inline-files Secret |
 | `InspectWorkload` | Read Pod status, container statuses, volume mounts |
 | `TouchWorkload` | Update a Pod annotation with the current timestamp |
 
@@ -228,6 +228,62 @@ The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY
 
 All workload Pods are created in a single dedicated namespace (e.g., `agyn-workloads`). The namespace is configurable at deployment time.
 
+## Workload Egress NetworkPolicy
+
+A Kubernetes `NetworkPolicy` in the workload namespace restricts egress from agent workload pods to platform-managed channels: the OpenZiti synthetic range, cluster DNS, and the public internet — blocking cluster-internal addresses. The policy is **static infrastructure** — it is installed alongside the runner deployment (Helm chart, kustomize, Terraform module, or hand-applied manifest) and configured once with the cluster's CIDRs. The runner does not create, update, or delete the NetworkPolicy at runtime, and the runner ServiceAccount has no `networkpolicies` permissions.
+
+The policy targets agent workload pods by label — every pod the runner creates carries `agyn.dev/managed-by: agents-orchestrator`, which the policy's `podSelector` matches.
+
+### Template
+
+The runner repository ships a parameterizable manifest:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-workload-egress
+  namespace: agyn-workloads
+spec:
+  podSelector:
+    matchLabels:
+      agyn.dev/managed-by: agents-orchestrator
+  policyTypes: [Egress]
+  egress:
+    # OpenZiti synthetic range — platform services and matched egress rules
+    - to:
+        - ipBlock: { cidr: 100.64.0.0/10 }
+    # Cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+    # Public internet, minus operator-supplied cluster-internal CIDRs
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - <cluster-pod-cidr>
+              - <cluster-service-cidr>
+              # repeat per additional internal CIDR the operator wants blocked
+```
+
+Operator parameters at install time:
+
+- `<cluster-pod-cidr>` — the cluster's pod network CIDR (e.g., `10.244.0.0/16`).
+- `<cluster-service-cidr>` — the cluster's service network CIDR (e.g., `10.96.0.0/12`).
+- Any additional internal CIDRs that should be blocked (e.g., a VPC range hosting internal databases).
+
+The CNI must support `NetworkPolicy` (most production CNIs do — Calico, Cilium, Antrea, etc.). On a cluster whose CNI does not enforce NetworkPolicy, the operator is responsible for an equivalent CNI-specific construct.
+
+### When CIDRs change
+
+Cluster CIDRs change rarely (cluster rebuild, migration). When they do, the operator updates the NetworkPolicy via the same tooling that installed it (Helm upgrade, Terraform apply). All running workloads pick up the new policy immediately — NetworkPolicy is enforced live by the CNI.
 
 ## RBAC
 
@@ -241,7 +297,6 @@ The k8s-runner requires a Kubernetes ServiceAccount with permissions scoped to t
 | `persistentvolumeclaims` | `get`, `list`, `create`, `delete` |
 | `events` | `get`, `list`, `watch` |
 | `secrets` | `get`, `list`, `create`, `delete` |
-| `networkpolicies` (`networking.k8s.io`) | `get`, `list`, `create`, `delete` |
 
 These permissions are granted via a Role (not ClusterRole) bound to the workload namespace.
 

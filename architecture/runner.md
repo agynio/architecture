@@ -84,7 +84,6 @@ A workload consists of:
 - **Volumes** — ephemeral or named (persistent), mounted into containers.
 - **Image pull credentials** — optional registry credentials for pulling container images from private registries. The Runner receives resolved credentials (registry, username, password) from the Orchestrator.
 - **Inline files** — small files materialized into specific paths inside listed containers. See [Inline Files](#inline-files).
-- **Network policy** — optional egress restrictions applied at the workload network layer. See [Network Policy](#network-policy).
 
 ## Inline Files
 
@@ -100,19 +99,7 @@ A workload consists of:
 
 Primary use: distributing the platform's [Egress CA](egress-gateway.md#egress-ca) public certificate to agent pods uniformly across in-cluster and external runners. See [Agents Orchestrator — Egress CA Distribution](agents-orchestrator.md#egress-ca-distribution).
 
-## Network Policy
-
-`StartWorkloadRequest.network_policy` carries a declarative restriction on the workload pod's egress. The Runner creates a corresponding Kubernetes `NetworkPolicy` (or equivalent CNI-level construct) in its local cluster, scoped to the workload pod via labels.
-
-| Field | Description |
-|---|---|
-| `allow_cidrs` | List of CIDRs the pod is allowed to reach via egress |
-| `block_cidrs` | List of CIDRs the pod is forbidden to reach via egress |
-| `allow_cluster_dns` | If true, allow UDP/53 to cluster DNS regardless of CIDRs |
-
-The Runner does not interpret the policy semantically — it materializes the listed CIDRs and DNS exception into the cluster's NetworkPolicy resource. The Orchestrator computes the policy contents from the runner's CIDR configuration (see [Runners — Cluster CIDR Configuration](runners.md#cluster-cidr-configuration)).
-
-Primary use: blocking agent workload egress to cluster-internal addresses while still permitting `.ziti` overlay traffic and public-internet egress. See [Agents Orchestrator — Workload Network Policy](agents-orchestrator.md#workload-network-policy).
+Workload-namespace egress restrictions (blocking cluster-internal addresses while permitting the OpenZiti overlay and public-internet egress) are out of scope for the workload spec — they are installed alongside the runner deployment as static infrastructure. See [k8s-runner — Workload Egress NetworkPolicy](k8s-runner.md#workload-egress-networkpolicy).
 
 ## Authentication
 
