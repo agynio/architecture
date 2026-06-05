@@ -171,7 +171,7 @@ Static policies, networks, and resources don't conflict — each grant is its ow
 
 ## Provisioning Status
 
-`Network`, `PrivateResource`, and `PrivateResourceAccess` carry a `provisioning_state` enum reflecting whether their backing OpenZiti resources were successfully created. API calls persist desired state synchronously and attempt OpenZiti provisioning inline; failures don't roll back the local row — they leave it in `failed` and reconciliation retries.
+`Network`, `PrivateResource`, `PrivateResourceAccess`, and `TunnelCredential` carry a `provisioning_state` enum reflecting whether their backing OpenZiti resources were successfully created.
 
 | Value | Meaning |
 |---|---|
@@ -179,9 +179,63 @@ Static policies, networks, and resources don't conflict — each grant is its ow
 | `failed` | Local row exists; OpenZiti provisioning failed. Reconciliation will retry |
 | `removing` | Local row scheduled for deletion; OpenZiti cleanup pending. Reconciliation will remove orphans |
 
-The intermediate `pending` state isn't used — provisioning is a single Controller call, fast enough to complete inline. Either it succeeds (state `active`) or it fails (state `failed`).
+### API behavior
 
-Operators see `provisioning_state` in the Console and CLI; persistent `failed` states surface as a warning badge and a "retry" affordance that triggers an out-of-band reconciliation. Tunnel reachability (a separate concern) is shown alongside but derived from the `connectivity` field on TunnelCredentials, not from `provisioning_state`.
+Create / Update / Delete calls persist desired state synchronously to the local database and attempt OpenZiti provisioning inline:
+
+- **Provisioning succeeds**: row written with `provisioning_state: active`. API returns success.
+- **Provisioning fails**: row written with `provisioning_state: failed`. **API returns success** — the desired state was recorded, the OpenZiti materialization will be retried by reconciliation. The response includes the `failed` state so callers see it.
+- **Local DB write fails**: API returns error. Nothing was persisted, the caller retries.
+
+The API does not roll back the local row when OpenZiti fails — the desired-state record is the canonical source of truth and reconciliation is the materialization mechanism. Operators see `provisioning_state: failed` in the Console / CLI / Terraform refresh and can investigate.
+
+### Allowed transitions
+
+```
+                  Create API
+                       │
+                       ▼
+        ┌────────────────────────┐
+        │ Attempt OpenZiti ops   │
+        └────────────────────────┘
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+            active            failed
+              │                 │
+              │     Reconciler retry
+              │   ┌─────────────┘
+              ▼   ▼
+            active ◄────────── Delete API ────────► removing
+                                                       │
+                                              Reconciler completes cleanup
+                                                       │
+                                                       ▼
+                                                   (row deleted)
+```
+
+| From | To | Trigger |
+|---|---|---|
+| (none) | `active` | Create API + OpenZiti provisioning succeeded |
+| (none) | `failed` | Create API + OpenZiti provisioning failed |
+| `failed` | `active` | Reconciler re-provisioning succeeded, or operator-triggered retry |
+| `active` | `failed` | Reconciler observed drift it could not repair |
+| `active` or `failed` | `removing` | Delete API |
+| `removing` | (row deleted) | Reconciler completed OpenZiti cleanup |
+
+`Network` cascades through its dependents on `removing` — see [Deletion Semantics](#deletion-semantics).
+
+### Retry
+
+Failed provisioning is retried automatically by the reconciliation loop (default interval 60s). For faster feedback, operators can trigger an explicit retry:
+
+- Console: "Retry" affordance on any resource showing `provisioning_state: failed`.
+- CLI: `agyn <resource-type> reconcile <id>` triggers an out-of-band reconciliation pass scoped to the specified resource.
+- Terraform: `terraform apply` re-attempts on the next refresh; if the resource is `failed`, the provider issues a retry call.
+
+A persistent `failed` state across multiple reconciliation passes indicates a structural problem (e.g., OpenZiti Controller is unreachable, network configuration prevents binding). Operators investigate and may need to delete + recreate.
+
+Operators see `provisioning_state` in the Console and CLI; persistent `failed` states surface as a warning badge. Tunnel reachability (a separate concern) is shown alongside but derived from the `connectivity` field on TunnelCredentials, not from `provisioning_state`.
 
 ## OpenZiti Resource Tagging
 
@@ -348,6 +402,17 @@ The [Networks service](networks-service.md) runs a periodic reconciliation loop,
 6. **Orphaned Tunnel identities.** List OpenZiti identities with role attribute `tunnels`. Identities whose IDs do not correspond to a live `TunnelCredential` row → delete.
 
 ## Authorization
+
+The platform uses two distinct authorization layers and they enforce at different times:
+
+| Layer | When checked | What it enforces |
+|---|---|---|
+| **OpenFGA** ([Authorization](authz.md)) | Management plane — at every API call to Networks / Groups | Who may create, read, update, or delete resources and grants. The caller's organization role determines what they can manage |
+| **OpenZiti** policies | Data plane — at every connection attempt by a dialing identity | Whether an identity (agent workload, user device, app, tunnel) may bind or dial a specific service. Materialized as per-grant Dial policies and the per-network Bind policy |
+
+OpenFGA never gates a network connection. OpenZiti never gates a management API call. A group-based grant materializes in **both** layers: the OpenFGA `group` type (consulted when granting/revoking, e.g., to validate the principal exists in the org) and an OpenZiti Dial policy targeting `#group-<id>` (consulted when an identity carrying that role attribute tries to dial the resource's service). The two layers are kept in sync by the [event-driven role-attribute propagation](groups-service.md#group-role-attribute-sync-via-events) — but a revocation in OpenFGA does not require waiting for OpenZiti to catch up because Dial policies are also synchronously deleted on revoke.
+
+### Management-plane checks
 
 Authorization for Network/Tunnel/PrivateResource/PrivateResourceAccess operations is checked by the Networks service via the [Authorization](authz.md) service. The checks mirror the [EgressRules service — Authorization](egress-rules-service.md#authorization) shape — no new OpenFGA types are introduced for the resource layer (the new `group` type is introduced by the [Groups service](groups-service.md)).
 

@@ -184,13 +184,16 @@ Each subscriber re-reads source-of-truth (`Groups.ListMemberGroups`) and reconci
 
 ### Reading source of truth, not trusting the event payload
 
-The event payload contains only `{group_id, entity_type, entity_id}`. Consumers do not derive desired role attributes from the event itself — they call `Groups.ListMemberGroups(entity_id)` to get the entity's current group memberships and compute the role-attribute set from that. This pattern:
+The event payload contains only `{group_id, entity_type, entity_id}`. Consumers do **not** derive desired role attributes from the event payload — they call `Groups.ListMemberGroups(entity_id)` to fetch the entity's current group memberships and compute the role-attribute set from that. `Groups.ListMemberGroups` is the canonical source of truth for membership; the event is only a trigger for "re-check this entity."
 
-- Survives out-of-order delivery.
-- Handles missed events through reconciliation (next event for the same entity re-reads current state).
-- Eliminates the consumer needing to track "what attributes did I add for which event."
+This pattern:
 
-Worst-case staleness: bounded by the consumer's processing latency (typically sub-second on a healthy cluster) plus the OpenZiti SDK's service-list poll interval (≤15 seconds). The standard propagation window applies — see [Private Networks](private-networks.md).
+- **Survives out-of-order delivery.** Even if an add event arrives after a later remove event, both handlers re-read current state and reach the correct end-state.
+- **Handles missed events through reconciliation.** A missed event has no permanent effect — the next reconciliation pass against `Groups.ListMemberGroups` repairs the drift.
+- **Eliminates per-event state tracking.** Consumers don't track "what attributes did I add for which event" — they reconcile to the desired set.
+- **Avoids the publish-after-commit gap.** Per [Messaging — Producer Reliability Contract](messaging.md#producer-reliability-contract), publish is best-effort in v1; this pattern makes that acceptable because reconciliation is the correctness mechanism.
+
+Worst-case staleness: typically <1s on a healthy cluster (event → handler → PATCH → OpenZiti SDK service-list poll); bounded by the consumer's reconciliation interval (60s) in failure scenarios. See [Messaging — Propagation Guarantees](messaging.md#propagation-guarantees).
 
 ## Lifecycle Flows
 
@@ -253,12 +256,36 @@ OpenZiti role-attribute consistency is **not** the Groups service's concern. Eac
 
 ## Deletion Semantics
 
-| Delete | Cascades to |
-|---|---|
-| `Group` | All `GroupMembership` rows in the group, all OpenFGA tuples granting roles via this group (`*, *, group:<id>#member` reverse-resolved), all `group-<id>` role attributes on member identities |
-| `GroupMembership` | The OpenFGA `member` tuple, the `group-<id>` attribute on the member's identities |
+All deletions are hard — there is no soft-delete or invalid-mark state in v1. Auditability comes from service DB rows (`created_at` / `deleted_at` if a future audit log captures deletes) and from the event-bus trace, not from preserving deleted rows.
 
-Deleting a group also has knock-on effects on other services (e.g., revoking access grants in the [Networks service](networks-service.md) whose principal was the deleted group). Those services are notified via the change-event subscription model and clean up their own dependent state on `group.updated` events with a deletion marker.
+### Group deletion cascade
+
+When a `Group` is deleted, the Groups service:
+
+1. Reads the list of current members.
+2. Within a single DB transaction: deletes the `Group` row, deletes all `GroupMembership` rows, deletes all OpenFGA tuples on `group:<id>` (the `org` relation, every `member` and `admin` tuple).
+3. Publishes events to the [event bus](messaging.md):
+   - One `agyn.groups.membership.removed` event **per former member** — consumed by identity-owning services to PATCH the `group-<id>` attribute off each member's identities.
+   - One `agyn.groups.group.deleted` event — consumed by grant-holding services to delete rows referencing `group:<id>` as a principal.
+
+The two-event pattern ensures clean separation of concerns:
+
+| Event | Consumed by | Purpose |
+|---|---|---|
+| `agyn.groups.membership.removed` (one per former member) | Users / Apps / Orchestrator | PATCH `group-<id>` off the affected member's identities. Same handler as for normal member-remove |
+| `agyn.groups.group.deleted` (one per deleted group) | Networks, future Secrets, future Agents-secondary-grants, ... | Find rows where `principal_type=group, principal_id=<deleted>`, hard-delete them and their backing OpenZiti resources |
+
+Identity-owning services do not need to handle `group.deleted` separately — they react via the per-member `membership.removed` events. Grant-holding services do not walk identities — they only need the `group.deleted` event to find and delete their rows by group ID.
+
+### GroupMembership deletion
+
+| Step | Action |
+|---|---|
+| 1 | Delete the `GroupMembership` row |
+| 2 | Delete the OpenFGA `identity:<member>, member, group:<id>` tuple |
+| 3 | Publish `agyn.groups.membership.removed` |
+
+Identity-owning services consume the event and PATCH the affected identities. See [Group Role-Attribute Sync via Events](#group-role-attribute-sync-via-events).
 
 ## Events Published
 

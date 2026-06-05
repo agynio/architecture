@@ -69,9 +69,14 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `DeleteService` | Expose Service | Delete an OpenZiti service by ID |
 | `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices", "user-<userId>", "group-<groupId>"...]`, return identity ID + enrollment JWT |
 | `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
-| `CreateTunnelIdentity` | Networks Service | Create an OpenZiti identity for a private-network tunnel with `roleAttributes: ["tunnels", "network-<networkId>"]`, return identity ID + enrollment JWT |
-| `DeleteTunnelIdentity` | Networks Service | Delete a tunnel's OpenZiti identity |
-| `PatchIdentityRoleAttributes` | Groups Service, Users Service, Apps Service | Add or remove role attributes on an existing identity. Used to sync `group-<id>` membership without re-enrollment |
+| `CreateTunnelIdentity` | Networks Service | Create an OpenZiti identity for a private-network tunnel with `roleAttributes: ["tunnels", "network-<networkId>"]`, tags per [OpenZiti Resource Tagging](#openziti-resource-tagging), return identity ID + enrollment JWT |
+| `DeleteTunnelIdentity` | Networks Service | Delete a tunnel's OpenZiti identity by identity ID |
+| `PatchIdentityRoleAttributes` | Users Service, Apps Service, Agents Orchestrator | Add and/or remove role attributes on an existing identity without re-enrollment. See [Patch Semantics](#patchidentityroleattributes-semantics) |
+| `GetIdentityLiveness` | Networks Service | Fetch per-identity liveness state from the Controller (`enrollment.state`, `hasEdgeRouterConnection`). Wraps `GET /edge/management/v1/identities/<id>` |
+| `ListServicesByTag` | Networks Service, EgressRules Service | List OpenZiti services matching tag filters (`agyn.managed_by`, `agyn.resource_type`, etc.). Used by reconciliation to identify owned vs orphaned services |
+| `ListIdentitiesByTag` | Networks Service | List OpenZiti identities matching tag filters. Used by reconciliation |
+| `ListServicePoliciesByTag` | Networks Service, EgressRules Service | List OpenZiti service policies matching tag filters |
+| `UpdateService` | Networks Service | Update an existing OpenZiti service's attached configs (`host.v1` / `intercept.v1`). Used when resource target/intercept fields change |
 
 ### OpenZiti Controller Operations
 
@@ -637,3 +642,19 @@ Services that create OpenZiti resources (services, identities, policies, configs
 ```
 
 Each service's reconciliation lists OpenZiti resources by `agyn.managed_by = <service-name>` and joins by `agyn.resource_id` against its own database. Name conventions (e.g., `private-<id>`, `egress-rule-<id>`) are retained for human readability in the Controller UI but are not the authoritative ownership marker — tags are. See [Private Networks — OpenZiti Resource Tagging](private-networks.md#openziti-resource-tagging) for the canonical pattern used by the [Networks service](networks-service.md). Other services managing OpenZiti resources follow the same convention with their own `managed_by` value.
+
+OpenZiti's Edge Management API supports the `tags` field on identities, services, service-policies, and configs — all the resource types we provision. If a future OpenZiti version drops tag support on any of these, the fallback is a mapping table in the owning service's database (`{openziti_id, agyn_resource_id, agyn_resource_type}`) populated at create time and consulted during reconciliation. The Ziti Management service already maintains identity mappings in PostgreSQL — extending the mapping to other resource types is mechanical.
+
+## `PatchIdentityRoleAttributes` Semantics
+
+The `PatchIdentityRoleAttributes(identity_id, add: [string], remove: [string])` RPC mutates the role-attribute set on an existing OpenZiti identity without re-enrollment.
+
+| Property | Behavior |
+|---|---|
+| **Operation** | Add and/or remove specific attributes. The caller never sends a full replacement — only deltas. This prevents accidental clobbering of attributes owned by other services |
+| **Idempotency** | Adding an attribute already present is a no-op (no error). Removing an attribute that is absent is a no-op. Receiving the same patch twice produces the same end state |
+| **Concurrency** | OpenZiti Controller serializes patches per identity. Two consumers patching disjoint attributes (e.g., Users adds `group-X` while Orchestrator removes `group-Y` on the same workload identity) both succeed and produce the union of intended changes. Conflicting operations on the same attribute (one adds, one removes) resolve to whichever the Controller processes last — but this does not arise in practice because each attribute has a single owning service |
+| **Atomicity** | A single `PatchIdentityRoleAttributes` call is atomic per the Controller's identity update semantics. Either all listed adds and removes apply, or none do (on error) |
+| **Effect propagation** | Patches take effect at the Controller immediately. SDK-side, the dialer's service-list poll picks up the new policy applicability within ≤15s |
+
+Callers MUST NOT use `PATCH /edge/management/v1/identities/<id>` with a full `roleAttributes` array — only delta-based `PatchIdentityRoleAttributes`. Full-array replacement would let one service overwrite another service's attributes.

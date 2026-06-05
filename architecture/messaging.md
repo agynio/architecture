@@ -278,6 +278,52 @@ cons, _ := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 })
 ```
 
+## Producer Reliability Contract
+
+The event bus is **at-least-once on the delivery side** (NATS JetStream guarantees) but **publish is best-effort** in v1. Producers publish events after their database transaction commits. If the publish call fails (NATS unreachable, network blip between commit and publish), the event is lost.
+
+The platform compensates with the following layered guarantees:
+
+| Layer | Guarantee | Failure surfaces as |
+|---|---|---|
+| **Database** | Strong consistency. State is durable once the API returns success | — |
+| **NATS publish** | Best-effort in v1. Failure logged but not retried before API returns | Consumers don't see the change immediately |
+| **Per-consumer reconciliation** | Periodic re-read of source-of-truth from the producer (e.g., `Groups.ListMemberGroups`) followed by reconciliation against own state | Bounded staleness equal to the reconciliation interval (typically 60s) |
+
+**API success criteria.** A producer API call returns success once its DB transaction commits and OpenFGA tuples (if applicable) are written. NATS publish failure does not roll back the API response — the canonical state is recorded, and reconciliation will eventually catch up downstream consumers.
+
+For security-sensitive changes where eventual consistency is unacceptable at scale, the migration path is the **transactional outbox pattern**: the producer writes events to an `outbox` table in the same DB transaction as the state change, and a relayer process reads the outbox and publishes to NATS with retry. This is deferred from v1 — see [open-questions](../open-questions.md). The shape of the event contract does not change when outbox is added; only the publish mechanism in the producer.
+
+## Propagation Guarantees
+
+Group membership changes and other group-event-driven sync are **best-effort with bounded worst-case latency**, not a hard SLO:
+
+| Path | Typical | Worst case (single failure) |
+|---|---|---|
+| Producer DB commit → NATS publish → subscriber receives | <100ms | Bounded by NATS retention (7d) if subscriber is offline |
+| Subscriber receives → handler reconciles identities | <1s | Bounded by handler retry policy (5 redeliveries, then dead-letter) |
+| Identity PATCH → OpenZiti policy applies on dial | <15s | Bounded by OpenZiti SDK service-list poll interval |
+| Missed event → next reconciliation pass repairs | — | Bounded by reconciliation interval (60s default) |
+
+**End-to-end target on a healthy cluster: ≤15s.** This is dominated by the OpenZiti SDK poll interval, not the event bus. A consumer outage or a dead-lettered message stretches the worst case to the reconciliation interval (60s) before access is consistent.
+
+The platform does not offer a hard SLO on propagation. Security-critical access revocation should not depend solely on group membership propagation — see the [Networks](networks-service.md) authorization model where revoking a Dial policy is a separate, synchronous OpenZiti operation that takes effect immediately regardless of role-attribute state.
+
+## Observability Requirements
+
+Production deployments must instrument the following before NATS is on the critical path of any feature:
+
+| Signal | Required dashboard / alert |
+|---|---|
+| Stream depth (per stream) | Dashboard; alert when growing unbounded for >5min |
+| Consumer lag (per durable consumer) | Dashboard; alert when lag exceeds N events or grows unbounded |
+| Dead-letter count (per stream) | Alert on any non-zero value |
+| Handler latency (per consumer) | Dashboard with p50/p95/p99 |
+| Publish failure rate (per producer) | Dashboard; alert when above noise floor |
+| Replay-tooling readiness | Operator runbook for replay from `DeliverAll` if a subscriber needs to catch up |
+
+These observability primitives are platform infrastructure, not per-feature. The Networks/Groups rollout (the first NATS-dependent feature) must land them alongside the streams.
+
 ## Idempotency
 
 NATS JetStream provides **at-least-once** delivery. Consumers must tolerate seeing the same event more than once — through redelivery on consumer failure, network blips, or rebalancing across replicas.

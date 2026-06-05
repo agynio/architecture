@@ -339,7 +339,8 @@ The Users service subscribes to group lifecycle events from the platform [event 
 | Subject filter | Durable consumer | Purpose |
 |---|---|---|
 | `agyn.groups.membership.>` | `users-group-sync` | On membership change for a `user` entity, re-read the user's current group memberships from `Groups.ListMemberGroups` and PATCH every device identity for that user to match |
-| `agyn.groups.group.deleted` | `users-group-cleanup` | On group deletion, find users whose device identities still carry `group-<deleted-id>` and PATCH the attribute away |
+
+The Users service does **not** subscribe to `agyn.groups.group.deleted` separately. When a group is deleted, the Groups service publishes a `membership.removed` event per former member — including every affected user — and the existing `users-group-sync` handler reacts. Handling group deletion via the per-member cascade keeps the Users service from needing to walk all device identities for the deleted group.
 
 Handlers are idempotent by construction — each handler re-reads source-of-truth from the Groups service and reconciles its devices' role attributes to the desired set. Receiving the same event twice produces the same end state. See [Messaging — Idempotency](messaging.md#idempotency).
 

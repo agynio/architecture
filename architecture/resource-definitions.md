@@ -369,6 +369,7 @@ A relationship granting a principal (agent, user, or group) the ability to dial 
 | `private_resource_id` | string (UUID) | Reference to the [PrivateResource](#private-resource) |
 | `principal_type` | enum | `agent` \| `user` \| `group` \| `app` |
 | `principal_id` | string (UUID) | Identity or group ID |
+| `provisioning_state` | enum | `active` \| `failed` \| `removing`. Reflects whether the backing OpenZiti Dial policy was successfully provisioned. `failed` is retried by reconciliation |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant (one Dial policy per grant). Internal — not returned through the Gateway |
 
 Grants are immutable — create and delete only. Unique on `(private_resource_id, principal_type, principal_id)`. The resource and the principal must belong to the same organization — the [Networks service](networks-service.md#authorization) enforces this on create.
