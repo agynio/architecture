@@ -69,6 +69,10 @@ The registering service generates the `identity_id` (UUID) and calls `RegisterId
 
 Internal only — not exposed through the [Gateway](gateway.md). Owner services (Users, Agents, Apps) call the Identity service to manage nicknames on behalf of their resources. External clients interact with nicknames through those services, not through the Identity service directly.
 
+## Related Concepts
+
+**Groups are not part of the Identity service.** Groups are organization-scoped collections of identities used for bulk permission grants. Their CRUD, membership tracking, OpenFGA tuple writes, and OpenZiti role-attribute sync live in the dedicated [Groups service](groups-service.md). The Identity service is kept narrowly focused on identity registration and the cross-type type lookup that consumers like [Chat](chat.md) need on the hot path; Groups grows its own surface area (SCIM, sync workers, source-of-truth tracking) that does not belong here.
+
 ## Data Store
 
 PostgreSQL. System-wide — not scoped to an organization. See [Organizations](organizations.md).

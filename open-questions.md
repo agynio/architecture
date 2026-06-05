@@ -186,3 +186,80 @@ Unresolved product and architectural decisions requiring discussion.
 **Questions:**
 - Should the platform offer tooling to convert an ENV-based secret usage to an EgressRule with `effect.inject`?
 - Is there a transitional period where both work, and how does the platform detect the duplication?
+
+---
+
+## Private Networks: Injection on Private Resources
+
+**Context:** [Private Networks](architecture/private-networks.md) and [EgressRule](architecture/egress-rules-service.md) are independent primitives in v1. An operator picks one or the other per destination. The intended longer-term design extends `EgressRule.matcher` to accept a `private_resource_id` reference; the PrivateResource's OpenZiti bind flips from `#network-<id>` to `#egress-gateway-hosts` when the first rule is attached, and a second OpenZiti service is provisioned that the gateway dials to deliver traffic to the tunnel.
+
+**Questions:**
+- Is the topology flip (bind switch on first rule attached, reverse on last rule removed) acceptable, given the brief reconnect of in-flight connections — same propagation behavior as existing EgressRule attachments?
+- Alternative: route all HTTP/HTTPS private resource traffic through the Egress Gateway by default (constant overhead, no flip). Worth the consistency cost?
+- Alternative: push injection into the agent's Ziti sidecar (per-workload config, no central choke point). Significantly more sidecar surface area; likely worth pursuing for other reasons too (local rate limiting, finer observability).
+- How does this compose with per-agent injection variance below — does a per-resource shared OpenZiti service simplify the model?
+
+---
+
+## Private Networks: EgressRule and PrivateResource Hostname Conflicts
+
+**Context:** If an operator creates an EgressRule with `domain_pattern: <hostname>` and a PrivateResource with `intercept_host: <hostname>` in the same organization, the OpenZiti Controller rejects the second `CreateService` call due to intercept overlap. The error surfaces as whatever the Controller returns — no friendly cross-primitive validation in v1.
+
+**Questions:**
+- Should the [Networks service](architecture/networks-service.md) and [EgressRules service](architecture/egress-rules-service.md) cross-check on create and surface a structured error?
+- Should the conflict be detected at the resource layer (validate that no `intercept_host` matches an existing `EgressRule.matcher.domain_pattern` and vice versa)?
+
+---
+
+## Private Networks: Agent-Side Resource Discovery
+
+**Context:** Agents dial private resources by hostname blindly — the Ziti SDK only sees services it has Dial policy for, so unauthorized dials simply fail. Some agent workflows would benefit from enumerating accessible resources (e.g., "list databases I can reach").
+
+**Questions:**
+- Should the platform inject an ENV var listing accessible private resources (`AGYN_PRIVATE_RESOURCES=prod-postgres.corp:5432,internal-api.corp:443`)?
+- Or expose a platform API the agent calls (`ListAccessibleResources`) — gives fresher data, costs a round trip?
+- Or rely on agent skills / capability declarations to make the access list explicit at agent config time?
+
+---
+
+## Private Networks: Tracing and Metering for Resource Traffic
+
+**Context:** [EgressRule](architecture/egress-gateway.md#observability) traffic emits tracing spans (`egress.*` attributes) and metering records. Private resource traffic in v1 does not — OpenZiti circuit metadata is captured at the edge router but not exported as platform observability.
+
+**Questions:**
+- Should the platform emit a `private_resource.*` span per dialed connection? At which point in the path — Tunnel side? Agent sidecar? Egress Gateway (when in path)?
+- What metering granularity makes sense — connection count, bytes transferred, per-resource aggregation?
+- Does audit logging belong here (who-dialed-what-when-from-where) or as a separate concern?
+
+---
+
+## Groups: Nesting
+
+**Context:** v1 [Groups](architecture/groups-service.md) support flat membership only. The OpenFGA model and resource shape are forward-compatible with `group#member` recursion (`type group … define member: [identity, group#member]`), but the v1 model omits the recursive reference to keep evaluation paths shallow.
+
+**Questions:**
+- What use case justifies adding nesting — IdP groups that mirror nested org structure (engineering → backend, frontend)?
+- The OpenZiti role-attribute sync becomes more involved with nesting (child group's `group-<id>` must propagate to parent's effective members). Worth the indirection?
+- Cycle detection: OpenFGA itself handles cycles, but our reconciliation needs to walk the graph correctly. How much logic does this add?
+
+---
+
+## Groups: SCIM Endpoints
+
+**Context:** [Groups](architecture/groups-service.md) are designed for SCIM-driven sync from external IdPs (Okta, Azure AD). `Group.source` and `GroupMembership.source` fields support augmented membership (IdP-managed users + platform-added non-user members), but the SCIM endpoints themselves are not part of v1.
+
+**Questions:**
+- When to add SCIM v2 endpoints (`/scim/v2/Users`, `/scim/v2/Groups`, `/scim/v2/ServiceProviderConfig`)? Driven by a specific enterprise deal, or proactively?
+- Where do the SCIM endpoints live — alongside the [Users service](architecture/users.md) (it's fundamentally user-provisioning), or as a dedicated SCIM facade?
+- Which IdPs do we test against first (Okta and Azure AD cover most enterprise deployments; Google Workspace is a distant third)?
+- How are PATCH grammar quirks handled (each IdP has subtle differences in PATCH semantics)?
+
+---
+
+## Private Networks: App Principals on Resource Access
+
+**Context:** v1 access grants on [PrivateResources](architecture/private-networks.md) accept `agent`, `user`, and `group` principals — not `app`. Apps are platform-managed services; the immediate use cases for private-resource access (agent dials private DB, dev's laptop dials internal GitLab) don't include them.
+
+**Questions:**
+- Is there a real use case for granting an app direct access to a private resource (e.g., a reporting app dialing an internal data warehouse)?
+- If yes, the OpenZiti pattern is the same (per-grant Dial policy targeting `#app-<id>`); only the validation surface changes (Apps service org-membership check).

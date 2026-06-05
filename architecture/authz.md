@@ -119,15 +119,15 @@ When a model is created, the LLM service writes:
 
 #### agent
 
-Agents are org-scoped resources with per-agent roles and an availability gate. The type defines three direct roles, an optional `internal_access` tuple that exposes the agent to all org members for thread initiation, and the derived permissions consumed by the [Agents Service](agents-service.md#authorization) and [Threads](threads.md#agent-availability-check).
+Agents are org-scoped resources with per-agent roles and an availability gate. The type defines three direct roles, an optional `internal_access` tuple that exposes the agent to all org members for thread initiation, and the derived permissions consumed by the [Agents Service](agents-service.md#authorization) and [Threads](threads.md#agent-availability-check). Direct roles accept individual identities and group members (`group#member`) so a single group grant covers every member transitively.
 
 ```
 type agent
   relations
     define org: [organization]
-    define owner: [identity]
-    define maintainer: [identity]
-    define participant: [identity]
+    define owner: [identity, group#member]
+    define maintainer: [identity, group#member]
+    define participant: [identity, group#member]
     define internal_access: [organization]
     define can_initiate: owner or maintainer or participant or member from internal_access
     define can_read_config: owner or maintainer or owner from org
@@ -150,6 +150,33 @@ When an agent is created, the Agents service writes:
 - If `availability=internal`: `organization:<org_id>, internal_access, agent:<id>`
 
 Role mutations (`SetAgentRole`, `RemoveAgentRole`) and availability toggles update the corresponding tuples. `DeleteAgent` removes every tuple on `agent:<id>`. The full table is in [Tuple Lifecycle](#tuple-lifecycle) and [Agents Service — Tuple Lifecycle](agents-service.md#tuple-lifecycle).
+
+Granting an agent role to a group writes the tuple `group:<group_id>#member, <role>, agent:<id>`. Any identity holding `member` on `group:<group_id>` then resolves the agent role transitively. See [Groups Service](groups-service.md) for the group type and member resolution.
+
+#### group
+
+Groups are org-scoped collections of identities. The type defines membership, group-level admin, and computed view/edit permissions. See [Groups Service](groups-service.md) for the full lifecycle.
+
+```
+type group
+  relations
+    define org: [organization]
+    define member: [identity]
+    define admin: [identity]
+    define can_view: member or member from org
+    define can_edit: admin or owner from org
+```
+
+When a group is created, the Groups service writes:
+- `group:<id>, org, organization:<org_id>`
+- `identity:<creator_id>, admin, group:<id>` (optional — orgs may delegate group admin)
+
+When a member is added, the Groups service writes:
+- `identity:<member_id>, member, group:<id>`
+
+Members are individual identities only in v1 — see [Groups Service — Future: Group Nesting](groups-service.md#future-group-nesting) for the planned `group#member` recursive extension.
+
+Other types (agent, thread, organization, etc.) reference groups via `group#member` in their direct-role definitions. The `agent` type above is the first consumer; additional types will extend their roles similarly as group-based grants are needed.
 
 ### Organization Permissions
 
@@ -226,8 +253,13 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | `SetAgentRole(identity, role)` | `identity:<id>, <role>, agent:<agent_id>`; if the identity previously held a different role on the agent: delete `identity:<id>, <old_role>, agent:<agent_id>` | Agents |
+| `SetAgentRole(group, role)` | `group:<id>#member, <role>, agent:<agent_id>`; old role tuple removed if any | Agents |
 | `RemoveAgentRole(identity)` | Delete `identity:<id>, <role>, agent:<agent_id>` | Agents |
 | Agent deleted | Delete all tuples on `agent:<id>` (`org`, `internal_access`, every role tuple) | Agents |
+| Group created | `group:<id>, org, organization:<org_id>` | Groups |
+| Member added to group | `identity:<member_id>, member, group:<id>` | Groups |
+| Member removed from group | Delete `identity:<member_id>, member, group:<id>` | Groups |
+| Group deleted | Delete all tuples on `group:<id>` (`org`, every `member`, every `admin`); other services delete grants referencing `group:<id>#member` on consumption of `group.updated` | Groups |
 | Thread created | `organization:<org_id>, org, thread:<thread_id>` + participant tuples | Threads |
 | Participant added to thread | `identity:<id>, participant, thread:<thread_id>` | Threads |
 | App installed | Permission tuples per declared permission (see above) | Apps Service |
@@ -418,6 +450,35 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
 | `RemoveExposure` | Agent's own identity or `owner` on `organization:<workload.org_id>` |
 | `ListExposures` | Agent's own identity or `member` on `organization:<workload.org_id>` |
+
+### Networks Service
+
+Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all organization-scoped resources managed by the [Networks service](networks-service.md). No new OpenFGA types are introduced — checks rely on existing organization-level relations and per-agent `can_edit_config`.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateNetwork`, `UpdateNetwork`, `DeleteNetwork` | `owner` on `organization:<org_id>` |
+| `GetNetwork`, `ListNetworks` | `member` on `organization:<org_id>` |
+| `CreateTunnelCredential`, `DeleteTunnelCredential` | `owner` on `organization:<org_id>` |
+| `ListTunnelCredentials` | `member` on `organization:<org_id>` |
+| `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
+| `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
+| `CreatePrivateResourceAccess` (`agent` principal) | `can_edit_config` on `agent:<agent_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on `agent:<agent_id>`) |
+| `CreatePrivateResourceAccess` (`user` or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
+| `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
+| `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |
+
+### Groups Service
+
+| Operation | Check |
+|-----------|-------|
+| `CreateGroup`, `UpdateGroup`, `DeleteGroup` | `owner` on `organization:<org_id>` |
+| `GetGroup`, `ListGroups` | `member` on `organization:<org_id>` |
+| `AddMember`, `RemoveMember` | `can_edit` on `group:<group_id>` (group `admin` OR org `owner`) + cross-org guard (member belongs to the same org) |
+| `ListMembers` | `can_view` on `group:<group_id>` (group `member` OR org `member`) |
+| `ListMemberGroups` (other identity) | `member` on `organization:<org_id>` |
+| `ListMemberGroups` (self) | Authenticated (caller may list their own group memberships) |
+| `ListMemberGroupsBatch` (internal) | Internal only (Agents Orchestrator / Networks service via Istio) |
 
 ### EgressRules Service
 

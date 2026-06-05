@@ -302,6 +302,104 @@ Attachments are immutable — create and delete only. Unique on `(rule_id, agent
 
 ---
 
+## Network
+
+An organization-scoped logical container for a private network reachable through one or more [Tunnels](#tunnel-credential). Holds [PrivateResources](#private-resource). Materialized as an OpenZiti role attribute (`network-<id>`) that the per-network Bind policy and tunnel identities reference. Managed by the [Networks service](networks-service.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Human-readable label. Unique within the organization |
+| `description` | string | `""` | Free-form description |
+
+Networks have no configuration beyond name and description. Their purpose is to be the HA boundary (multiple tunnels share `network-<id>`) and the OpenZiti binding unit.
+
+---
+
+## Tunnel Credential
+
+An enrollment artifact for a single OpenZiti tunneler instance inside the operator's private network. Each credential maps 1:1 to an OpenZiti identity with role attributes `["tunnels", "network-<network_id>"]`. Managed by the [Networks service](networks-service.md).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `network_id` | string (UUID) | Reference to the [Network](#network) this credential belongs to |
+| `openziti_identity_id` | string | OpenZiti identity created at credential issuance. Internal — not returned through the Gateway |
+| `enrollment_jwt` | string | One-time-token JWT. Returned once at creation; not persisted in plaintext |
+| `enrollment_jwt_expires_at` | timestamp | JWT expiry (Controller-defined, typically 24h) |
+| `enrolled_at` | timestamp \| null | Set when the tunneler completes enrollment |
+| `last_seen_at` | timestamp \| null | Updated from the OpenZiti Controller's session info |
+
+Credentials are revocable. Revocation deletes the underlying OpenZiti identity, severing any tunneler that holds it. Other credentials in the same network are unaffected.
+
+---
+
+## Private Resource
+
+A single addressable endpoint behind a [Network](#network): a `host:ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. Managed by the [Networks service](networks-service.md). Access is granted via [PrivateResourceAccess](#private-resource-access).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `network_id` | string (UUID) | | Reference to the owning [Network](#network) |
+| `name` | string | | Human-readable label. Not unique |
+| `protocol` | enum | | `tcp` \| `http` \| `https`. A resource has a single protocol for all its ports |
+| `host` | string | | IP literal (v4/v6) or DNS name. Resolved at the tunnel-side at connect time |
+| `target_ports` | list<port_spec> | | Ports on the target. Each entry is a single port (`"5432"`) or a range (`"5432-5435"`) |
+| `intercept_host` | string | | Hostname the agent dials. Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti synthetic CIDR) are rejected at create time |
+| `intercept_ports` | list<port_spec> | | Ports the agent dials. Same shape as `target_ports`. Cardinality must match `target_ports` (1:1 mapping) |
+| `openziti_service_id` | string | | OpenZiti service ID created for this resource (`private-<id>`). Internal — not returned through the Gateway |
+
+Uniqueness: `(organization_id, intercept_host, intercept_port)` — no two resources in the same org may claim the same intercept hostname + port. OpenZiti routing would be ambiguous for any identity authorized to dial both.
+
+The `protocol` field is platform metadata used to gate features like header injection (see [Private Networks — EgressRule Interaction](private-networks.md#egressrule-interaction)). OpenZiti itself sees only TCP streams.
+
+---
+
+## Private Resource Access
+
+A relationship granting a principal (agent, user, or group) the ability to dial a [PrivateResource](#private-resource). Each grant materializes as an OpenZiti Dial policy. Managed by the [Networks service](networks-service.md).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `private_resource_id` | string (UUID) | Reference to the [PrivateResource](#private-resource) |
+| `principal_type` | enum | `agent` \| `user` \| `group` |
+| `principal_id` | string (UUID) | Identity or group ID |
+| `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant. Internal — not returned through the Gateway |
+
+Grants are immutable — create and delete only. Unique on `(private_resource_id, principal_type, principal_id)`. The resource and the principal must belong to the same organization — the [Networks service](networks-service.md#authorization) enforces this on create.
+
+For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `group` principals, the grant resolves to every member's identity (any identity with role attribute `group-<id>`).
+
+---
+
+## Group
+
+An organization-scoped named collection of platform identities used to grant permissions and resource access in bulk. Managed by the [Groups service](groups-service.md). Members are tracked via [GroupMembership](#group-membership).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Human-readable handle. Unique within `(organization_id, source)`. Pattern: `^[a-z0-9_-]+$`, max 64 chars |
+| `description` | string | `""` | Free-form description |
+| `source` | enum | `platform` | `platform` \| `scim`. Immutable after creation. `scim` groups have user membership reconciled by an external IdP |
+| `external_id` | string \| null | `null` | For `source: scim`, the IdP's group identifier. Null for `platform` groups |
+
+Group membership grants permissions via OpenFGA `group#member` references on other types (e.g., `agent.editor`), and via OpenZiti role attributes (`group-<id>` on each member's network identity) for dial/bind policies.
+
+---
+
+## Group Membership
+
+A relationship binding an identity to a [Group](#group). Managed by the [Groups service](groups-service.md).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `group_id` | string (UUID) | Reference to the [Group](#group) |
+| `member_type` | enum | `user` \| `agent` \| `app`. Runner identities are not eligible |
+| `member_id` | string (UUID) | Reference to the member identity |
+| `source` | enum | `platform` \| `scim`. Distinct from the parent group's `source` — a SCIM-managed group may carry platform-added non-user members that survive IdP syncs |
+
+Memberships are immutable — create and delete only. Unique on `(group_id, member_id)`. The member must belong to the same organization as the group.
+
+---
+
 ## Compute Resources
 
 Kubernetes-style container resource requests and limits. Used by [Agent](#agent), [MCP](#mcp), and [Hook](#hook).

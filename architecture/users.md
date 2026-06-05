@@ -255,7 +255,9 @@ Initial profile fields (name, photo) are populated from the IdP UserInfo respons
 
 ## Devices
 
-Users register devices to access [exposed agent ports](expose-service.md) from their machines. Device management is part of the Users service because devices are user-scoped identity resources — similar to API tokens.
+Users register devices to access [exposed agent ports](expose-service.md) and dial [private network resources](private-networks.md) from their machines. Device management is part of the Users service because devices are user-scoped identity resources — similar to API tokens.
+
+A user device's OpenZiti identity carries the user's `user-<id>` role attribute and one `group-<id>` attribute per group the user belongs to. These attributes back per-grant Dial policies in the [Networks service](networks-service.md) — when a `PrivateResourceAccess` grant targets a `user` or `group` principal, the resulting OpenZiti Dial policy matches the user's devices via these role attributes.
 
 ### Device Model
 
@@ -308,11 +310,17 @@ Device status transitions from `pending` to `enrolled` when the Ziti tunnel enro
 |-------|-------|
 | `name` | `device-<deviceId>` |
 | `type` | `Device` |
-| `roleAttributes` | `[devices]` |
+| `roleAttributes` | `["devices", "user-<userId>", "group-<groupId>"...]` (one entry per group the user belongs to) |
 | `externalId` | `<user_identity_id>` |
 | `enrollment` | `{ ott: true }` |
 
-The `devices` role attribute is used by Dial policies on exposed services. All enrolled devices can access all exposed services — scoped access control is not implemented in this version.
+| Attribute | Used by |
+|---|---|
+| `devices` | Dial policies on [exposed services](expose-service.md) — all enrolled devices can access all exposed services in v1 (see [open-questions.md](../open-questions.md) for scoped access) |
+| `user-<userId>` | Per-grant Dial policies in the [Networks service](networks-service.md) when a `PrivateResourceAccess` targets a `user` principal |
+| `group-<groupId>` | Per-grant Dial policies when a `PrivateResourceAccess` targets a `group` principal. Multiple group attributes coexist on a single identity |
+
+On device enrollment, the Users service queries `Groups.ListMemberGroups(user_id)` to determine the user's current group memberships and includes a `group-<id>` attribute for each. On subsequent group-membership changes, the [Groups service](groups-service.md#user-devices-per-device-persistent-identities) patches the user's device identities to add or remove the attribute.
 
 The enrollment JWT is shown once at creation time and cannot be retrieved again. If the user loses the JWT before enrolling, they must delete the device and create a new one.
 

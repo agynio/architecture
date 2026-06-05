@@ -34,7 +34,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data — executes operations it is told to perform; runs identity lease GC |
-| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment), Expose Service (port exposure resources), Users Service (device identities) |
+| **Consumers** | Agents Orchestrator (agent identity lifecycle), Gateway (identity resolution), Orchestrator / Gateway (service identity self-enrollment), Runners Service (runner enrollment), Apps Service (app enrollment), Expose Service (port exposure resources), Users Service (device identities), Networks Service (tunnel identities + per-resource services + per-network policies), Groups Service (role-attribute sync on group membership changes) |
 | **External dependency** | OpenZiti Edge Management API (`/edge/management/v1/`) via the generated Go client (`openziti/edge-api`, package `rest_management_api_client`) |
 | **Access to Controller** | Via Istio (in-cluster) — avoids circular dependency of using OpenZiti to manage OpenZiti |
 | **Authentication** | Certificate-based auth using a long-lived infrastructure credential provisioned at deployment |
@@ -67,8 +67,11 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `CreateServicePolicy` | Expose Service | Create a single OpenZiti service policy (Bind or Dial). Returns the policy ID |
 | `DeleteServicePolicy` | Expose Service | Delete an OpenZiti service policy by ID |
 | `DeleteService` | Expose Service | Delete an OpenZiti service by ID |
-| `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices"]`, return identity ID + enrollment JWT |
+| `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: ["devices", "user-<userId>", "group-<groupId>"...]`, return identity ID + enrollment JWT |
 | `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
+| `CreateTunnelIdentity` | Networks Service | Create an OpenZiti identity for a private-network tunnel with `roleAttributes: ["tunnels", "network-<networkId>"]`, return identity ID + enrollment JWT |
+| `DeleteTunnelIdentity` | Networks Service | Delete a tunnel's OpenZiti identity |
+| `PatchIdentityRoleAttributes` | Groups Service, Users Service, Apps Service | Add or remove role attributes on an existing identity. Used to sync `group-<id>` membership without re-enrollment |
 
 ### OpenZiti Controller Operations
 
@@ -229,16 +232,21 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>"]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>", "group-<groupId>"...]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
-| App | `["apps"]` |
+| App | `["apps", "app-<appId>", "group-<groupId>"...]` |
 | LLM Proxy | `["llm-proxy-hosts"]` |
 | Tracing | `["tracing-hosts"]` |
 | Egress Gateway | `["egress-gateway-hosts"]` |
-| Device (user) | `["devices"]` |
+| Device (user) | `["devices", "user-<userId>", "group-<groupId>"...]` |
+| Tunnel (private network) | `["tunnels", "network-<networkId>"]` |
 
-The `agent-<agentId>` attribute is assigned at creation time and used by per-exposure Bind policies (see [Expose Service](expose-service.md)) and per-attachment Dial policies (see [EgressRules service](egress-rules-service.md)) to scope hosting and dialing to the specific agent. The `devices` attribute is assigned to user device identities enrolled via the Console.
+The `agent-<agentId>` attribute is assigned at creation time and used by per-exposure Bind policies (see [Expose Service](expose-service.md)) and per-attachment Dial policies (see [EgressRules service](egress-rules-service.md)) to scope hosting and dialing to the specific agent. The `devices` attribute is assigned to user device identities enrolled via the Console. The `user-<userId>` attribute is added so per-grant Dial policies in [Private Networks](private-networks.md) can target a specific user's devices. The `app-<appId>` attribute likewise lets policies target individual apps.
+
+The `group-<groupId>` attribute is added to a member's identity when the member is added to a group via the [Groups service](groups-service.md). Multiple `group-<groupId>` attributes can coexist on a single identity (one per group). Group attributes power group-based access grants in [Private Networks](private-networks.md#dial-policy-per-access-grant) and any other dial/bind policy that scopes by group.
+
+The `network-<networkId>` attribute is assigned to tunnel identities at enrollment time and used by the per-network Bind policy in [Private Networks](private-networks.md#bind-policy-per-network). All tunnels within a network share this attribute, which is how multiple tunnel hosts provide HA for the network's resources.
 
 ### Static Policies
 
@@ -472,7 +480,8 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 | LLM Proxy | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `llm-proxy` service) |
 | Tracing | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `tracing` service) |
 | Egress Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds every per-rule `egress-rule-<id>` service tagged `egress-services`) |
-| Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Users Service via Ziti Management | Exposed services (dial) |
+| Device (user) | Persistent (enrolled via JWT from Console) | User creates device in Console → Users Service via Ziti Management | Exposed services (dial), Private resources (dial) |
+| Tunnel (private network) | Persistent (enrolled via JWT from Console) | Operator creates tunnel credential in Console → Networks Service via Ziti Management | — (binds per-network `private-<resourceId>` services) |
 
 ## App Identity Lifecycle
 
@@ -566,4 +575,61 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | Identity | Lifecycle | Provisioning | Calls via OpenZiti |
 |----------|-----------|--------------|--------------------|
 | App | Persistent (enrolled via service token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |
-| Device (user) | Persistent (enrolled via JWT from Console) | Users Service via Ziti Management | Exposed services (dial) |
+| Device (user) | Persistent (enrolled via JWT from Console) | Users Service via Ziti Management | Exposed services (dial), Private resources (dial) |
+| Tunnel (private network) | Persistent (enrolled via JWT from Console) | Networks Service via Ziti Management | — (binds per-network `private-<resourceId>` services) |
+
+## Tunnel Identity Lifecycle
+
+Tunnels are the user-managed binding side of [Private Networks](private-networks.md). The operator runs a standard OpenZiti tunneler inside their private network; the tunneler enrolls via a JWT issued by the [Networks service](networks-service.md) and binds the per-resource services its network owns.
+
+### Flow
+
+```mermaid
+sequenceDiagram
+    participant O as Operator (Console)
+    participant NS as Networks Service
+    participant ZM as Ziti Management
+    participant ZC as OpenZiti Controller
+    participant T as Tunneler (operator-run)
+
+    O->>NS: CreateTunnelCredential(network_id)
+    NS->>ZM: CreateTunnelIdentity(network_id)
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["tunnels", "network-<id>"], enrollment.ott)
+    ZC-->>ZM: Identity ID + enrollment JWT
+    ZM-->>NS: (openziti_identity_id, enrollment_jwt)
+    NS-->>O: TunnelCredential (JWT shown once) + install snippet
+
+    Note over O,T: Operator installs the tunneler with the JWT
+    T->>ZC: Exchange JWT for x509 cert
+    T->>ZC: Open session; list services bindable by role attributes
+    Note over T,ZC: Tunneler binds private-<resource_id> services matched by the per-network Bind policy
+```
+
+The tunneler's standard service-discovery mechanism (OpenZiti SDK / Controller-driven) picks up new bindable services as the [Networks service](networks-service.md) provisions resources. No separate config push channel — the tunneler reads bindable services from the Controller via its role attributes.
+
+### Identity Creation Request
+
+```json
+{
+  "name": "tunnel-<networkId>-<shortUuid>",
+  "type": "Device",
+  "isAdmin": false,
+  "roleAttributes": ["tunnels", "network-<networkId>"],
+  "enrollment": { "ott": true }
+}
+```
+
+| Field | Purpose |
+|---|---|
+| `name` | Human-readable, unique per identity. Includes network ID for debugging |
+| `type` | `Device` — same as agents, runners, apps, and user devices |
+| `roleAttributes` | `tunnels` for cross-network policies; `network-<networkId>` for the per-network Bind policy that grants binding rights to every resource in the network |
+| `enrollment.ott` | One-time-token enrollment. Controller generates a JWT valid for 24 hours |
+
+The tunneler does not receive an `externalId` — there is no platform identity beyond the credential record itself, and credentials are managed in the Networks service's own database.
+
+## Group Role Attribute Sync
+
+When the [Groups service](groups-service.md) adds or removes a member from a group, it patches the member's existing OpenZiti identities to add or remove the `group-<groupId>` role attribute. For ephemeral identities (agent workloads), the orchestrator queries group membership when assembling the identity creation request — see [Groups Service — OpenZiti Role-Attribute Sync](groups-service.md#openziti-role-attribute-sync).
+
+Role-attribute patches are non-disruptive — OpenZiti supports `PATCH /identities/{id}` on already-enrolled, connected identities, and policy changes take effect at the SDK's next service-list poll (≤15s).
