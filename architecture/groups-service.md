@@ -25,9 +25,12 @@ Group nesting (a group as a member of another group) is **not** supported in v1,
 | **Group CRUD** | Create, read, update, delete `Group` resources. Validate `name` uniqueness within `(organization_id, source)` |
 | **GroupMembership CRUD** | Add and remove members. Validate the member exists and belongs to the same organization. Reject `runner` member type |
 | **OpenFGA tuple writes** | On group create, write `group:<id>, org, organization:<org_id>`. On member add, write `identity:<member_id>, member, group:<id>`. On member remove, delete the same tuple |
-| **OpenZiti role-attribute sync** | On member add, patch the member's existing OpenZiti identities to add `group-<id>` to `roleAttributes`. On member remove, patch to drop the attribute. For ephemeral identities (agent workloads), surface group memberships via internal lookup for consumers (Orchestrator) to apply at identity creation |
-| **Reconciliation** | Periodic sweep to repair drift between membership records, OpenFGA tuples, and OpenZiti role attributes |
-| **Change notifications** | Publish `group.updated` and `group_membership.updated` events to the organization's [Notifications](notifications.md) room |
+| **Membership lookup** | Serve `ListMemberGroups(entity_id)` for identity-owning services to query an entity's current group memberships when creating new identities (new user devices, new agent workloads) |
+| **Event publication** | Publish `agyn.groups.membership.added`, `agyn.groups.membership.removed`, and `agyn.groups.group.deleted` events via the platform [event bus](messaging.md). Identity-owning services consume these events and update their own OpenZiti identities |
+| **Reconciliation** | Periodic sweep to repair drift between membership records and OpenFGA tuples |
+| **Client-facing updates** | Publish `group.updated` and `group_membership.updated` events to the organization's [Notifications](notifications.md) room for Console reactivity (separate from the service-to-service event bus) |
+
+The Groups service does **not** patch OpenZiti identities directly. Each identity-owning service ([Users](users.md), [Apps Service](apps-service.md), [Agents Orchestrator](agents-orchestrator.md)) subscribes to group events and PATCHes the identities it owns. This keeps role-attribute ownership co-located with identity lifecycle ownership — see [Group Role-Attribute Sync via Events](#group-role-attribute-sync-via-events).
 
 ## Classification
 
@@ -40,7 +43,7 @@ Control plane — CRUD with periodic reconciliation. Membership lookups are also
 | **Repository** | `agynio/groups` |
 | **API** | gRPC (internal) + Gateway (external via ConnectRPC) |
 | **State** | PostgreSQL — `groups` and `group_memberships` tables |
-| **External dependencies** | [Ziti Management](openziti.md) (role-attribute patches on member identities), [Authorization](authz.md) (OpenFGA tuple writes + permission checks), [Identity](identity.md) (existence + type checks for members), [Notifications](notifications.md) |
+| **External dependencies** | [Authorization](authz.md) (OpenFGA tuple writes + permission checks), [Identity](identity.md) (existence + type checks for members), [Messaging](messaging.md) (event-bus publication), [Notifications](notifications.md) (client-facing UI updates) |
 
 ## API
 
@@ -120,29 +123,74 @@ A grant `group:eng-team#member, editor, agent:my-agent` resolves to `editor` for
 
 For the full model and which existing types extend their roles, see [Authorization](authz.md).
 
-## OpenZiti Role-Attribute Sync
+## Group Role-Attribute Sync via Events
 
-The OpenFGA model is sufficient for application-level permission checks. For OpenZiti policy enforcement on network connections, the Groups service additionally maintains the `group-<id>` role attribute on each member's OpenZiti identity. This is what lets a per-grant Dial policy in [Private Networks](private-networks.md#dial-policy-per-access-grant) target `#group-<id>` and have it resolve to every member's network identity.
+The OpenFGA model is sufficient for application-level permission checks. For OpenZiti policy enforcement on network connections, member identities additionally need to carry the `group-<id>` role attribute so per-grant Dial policies in [Private Networks](private-networks.md#dial-policy-per-access-grant) targeting `#group-<id>` resolve to every member's network identity.
 
-The sync strategy varies by member type because different identity types have different lifecycle characteristics:
+The Groups service does not patch OpenZiti identities itself. Instead, on every membership change it publishes an event via the platform [event bus](messaging.md). Each identity-owning service subscribes and PATCHes the identities it owns. This co-locates role-attribute mutation with identity lifecycle ownership and removes the Groups service's dependency on identity-storage knowledge for every member type.
 
-### Apps and Runners (single persistent identity)
+### Event-driven sync flow
 
-Apps have a single OpenZiti identity per app (see [Apps Service](apps-service.md)). On `AddMember(group_id, app_id)`, the Groups service calls `ZitiManagement.PatchIdentityRoleAttributes(identity_id, add: ["group-<group_id>"])`. On `RemoveMember`, the reciprocal.
+```mermaid
+sequenceDiagram
+    participant O as Operator
+    participant GW as Gateway
+    participant GS as Groups Service
+    participant AS as Authorization
+    participant NATS as Event Bus
+    participant US as Users Service
+    participant Apps as Apps Service
+    participant Orch as Orchestrator
+    participant ZM as Ziti Management
 
-(Runners are not eligible group members in v1, so no sync for them.)
+    O->>GW: AddMember(group_id, member_type, member_id)
+    GW->>GS: AddMember
+    GS->>GS: Insert membership row
+    GS->>AS: Write(identity:<member_id>, member, group:<group_id>)
+    GS->>NATS: Publish agyn.groups.membership.added
+    GS-->>O: OK
 
-### User Devices (per-device persistent identities)
+    par Per identity-owning service
+        US->>NATS: Consume agyn.groups.membership.>
+        Note over US: If event entity_type == "user":
+        US->>GS: ListMemberGroups(user_id)
+        US->>US: List user's device identities
+        US->>ZM: PatchIdentityRoleAttributes(...) per device
+    and
+        Apps->>NATS: Consume agyn.groups.membership.>
+        Note over Apps: If event entity_type == "app":
+        Apps->>GS: ListMemberGroups(app_id)
+        Apps->>ZM: PatchIdentityRoleAttributes(app's identity, ...)
+    and
+        Orch->>NATS: Consume agyn.groups.membership.>
+        Note over Orch: If event entity_type == "agent":
+        Orch->>GS: ListMemberGroups(agent_id)
+        Orch->>Orch: List live workloads for agent
+        Orch->>ZM: PatchIdentityRoleAttributes(...) per live workload
+    end
+```
 
-A user may have multiple enrolled device identities (see [Users](users.md)). On group membership change, the Groups service iterates over the user's devices and patches each.
+Each subscriber re-reads source-of-truth (`Groups.ListMemberGroups`) and reconciles its identities to match. This makes handlers idempotent by construction — receiving the same event twice produces the same end state. See [Messaging — Idempotency](messaging.md#idempotency).
 
-When a new device is enrolled, the Users service queries `Groups.ListMemberGroups(user_id)` and includes `group-<id>` attributes for each group in the enrollment request.
+### Per identity-type behavior
 
-### Agent Workloads (per-workload ephemeral identities)
+| Identity type | Owner service | New-identity bootstrap | Membership-change reaction |
+|---|---|---|---|
+| App | [Apps Service](apps-service.md) | On app enrollment, query `Groups.ListMemberGroups(app_id)` and include `group-<id>` attributes in the identity creation request | Consume `agyn.groups.membership.>` events; PATCH the app's single identity when its membership changes |
+| User devices | [Users Service](users.md) | On device enrollment, query `Groups.ListMemberGroups(user_id)` and include `group-<id>` attributes | Consume `agyn.groups.membership.>` events; PATCH every device identity for the affected user |
+| Agent workloads | [Agents Orchestrator](agents-orchestrator.md) | On workload creation, query `Groups.ListMemberGroups(agent_id)` and include `group-<id>` attributes | Consume `agyn.groups.membership.>` events; for each live workload of the affected agent, PATCH the identity. Workload identities are ephemeral — new workloads picked up at creation, live workloads patched on event |
+| Runners | — | Not eligible group members. No sync | — |
+| Tunnels | — | Tunnels are not group members. Group-based access to private resources happens via Dial policies on the **dialer** side (user/agent/app); tunnel identities only carry `network-<id>` | — |
 
-Agents do not have a persistent OpenZiti identity. The [Agents Orchestrator](agents-orchestrator.md) creates a fresh identity per workload (see [OpenZiti — Agent Identity Lifecycle](openziti.md#agent-identity-lifecycle)). For group memberships to take effect, the Orchestrator queries `Groups.ListMemberGroupsBatch([agent_id])` when assembling the identity creation request and includes `group-<id>` for each group the agent belongs to.
+### Reading source of truth, not trusting the event payload
 
-For mid-workload group membership changes (an agent added to or removed from a group while the workload is running), the Groups service patches the live workload identity directly. OpenZiti supports `PATCH /identities/{id}` on already-enrolled identities and reflects role-attribute changes within the SDK's service-list poll interval (≤15 seconds).
+The event payload contains only `{group_id, entity_type, entity_id}`. Consumers do not derive desired role attributes from the event itself — they call `Groups.ListMemberGroups(entity_id)` to get the entity's current group memberships and compute the role-attribute set from that. This pattern:
+
+- Survives out-of-order delivery.
+- Handles missed events through reconciliation (next event for the same entity re-reads current state).
+- Eliminates the consumer needing to track "what attributes did I add for which event."
+
+Worst-case staleness: bounded by the consumer's processing latency (typically sub-second on a healthy cluster) plus the OpenZiti SDK's service-list poll interval (≤15 seconds). The standard propagation window applies — see [Private Networks](private-networks.md).
 
 ## Lifecycle Flows
 
@@ -172,7 +220,7 @@ sequenceDiagram
     participant GS as Groups Service
     participant I as Identity
     participant AS as Authorization
-    participant ZM as Ziti Management
+    participant NATS as Event Bus
 
     O->>GW: AddMember(group_id, member_type, member_id)
     GW->>GS: AddMember
@@ -181,31 +229,27 @@ sequenceDiagram
     GS->>GS: Insert membership row
     GS->>AS: Write(identity:<member_id>, member, group:<group_id>)
     AS-->>GS: OK
-    alt Member is App or User
-        GS->>ZM: PatchIdentityRoleAttributes(identity_id, add: "group-<group_id>")
-        Note over GS,ZM: For users, repeated per device identity
-    end
-    Note over GS: For agents: change reflected on next workload start; for running workloads, patched directly
+    GS->>NATS: Publish agyn.groups.membership.added
     GS-->>O: GroupMembership record
+    Note over NATS: Users / Apps / Orchestrator consume the event and PATCH their identities — see "Role-Attribute Sync via Events"
 ```
 
 ### Remove Member
 
-Symmetric to Add — delete the membership row, delete the OpenFGA tuple, patch role attributes to drop `group-<id>`.
+Symmetric to Add — delete the membership row, delete the OpenFGA tuple, publish `agyn.groups.membership.removed`. Identity-owning services consume the event and PATCH their identities to drop the `group-<id>` attribute.
 
 ## Reconciliation
 
-The Groups service runs a periodic reconciliation loop to repair drift between persistent state, OpenFGA tuples, and OpenZiti role attributes.
+The Groups service runs a periodic reconciliation loop to repair drift between its persistent state and OpenFGA.
 
 ### Reconciliation Logic
 
 Each pass:
 
 1. **OpenFGA tuple consistency.** For each `Group` and `GroupMembership` row, verify the corresponding tuples exist in OpenFGA. Write missing tuples; delete tuples without backing rows.
-2. **OpenZiti role-attribute consistency.** For each App, User-device, and live Agent workload identity, verify the set of `group-<id>` attributes matches the member's current group memberships. Patch identities to add missing attributes and drop extras.
-3. **Orphaned memberships.** For each `GroupMembership` row, verify the referenced member identity still exists (via [Identity](identity.md)). If the identity has been deleted (e.g., user removed from org), delete the membership.
+2. **Orphaned memberships.** For each `GroupMembership` row, verify the referenced member identity still exists (via [Identity](identity.md)). If the identity has been deleted (e.g., user removed from org), delete the membership.
 
-This ensures eventual consistency without requiring synchronous error handling on every membership change.
+OpenZiti role-attribute consistency is **not** the Groups service's concern. Each identity-owning service (Users, Apps, Orchestrator) runs its own reconciliation pass that compares its identities' `group-<id>` attributes against the current group memberships from `Groups.ListMemberGroups`. This keeps reconciliation scoped to the identities each service actually owns and avoids cross-service traversal at scale.
 
 ## Deletion Semantics
 
@@ -216,20 +260,33 @@ This ensures eventual consistency without requiring synchronous error handling o
 
 Deleting a group also has knock-on effects on other services (e.g., revoking access grants in the [Networks service](networks-service.md) whose principal was the deleted group). Those services are notified via the change-event subscription model and clean up their own dependent state on `group.updated` events with a deletion marker.
 
-## Notifications
+## Events Published
 
-Events published to the organization's [Notifications](notifications.md) room (`organization:<org_id>`):
+Durable service-to-service events on the platform [event bus](messaging.md). Stream: `AGYN_GROUPS`.
+
+| Subject | Schema | Published when |
+|---|---|---|
+| `agyn.groups.membership.added` | `agyn.groups.v1.GroupMembershipAddedEvent` | `AddMember` RPC completes — DB row and OpenFGA tuple committed |
+| `agyn.groups.membership.removed` | `agyn.groups.v1.GroupMembershipRemovedEvent` | `RemoveMember` RPC completes — DB row and OpenFGA tuple deleted |
+| `agyn.groups.group.deleted` | `agyn.groups.v1.GroupDeletedEvent` | `DeleteGroup` RPC completes — DB row, memberships, and OpenFGA tuples deleted |
+
+Known consumers (informational):
+
+- [Users Service](users.md) — PATCHes user device identities on membership change
+- [Apps Service](apps-service.md) — PATCHes app identity on membership change
+- [Agents Orchestrator](agents-orchestrator.md) — PATCHes live agent workload identities on membership change
+- [Networks Service](networks-service.md) — cleans up `PrivateResourceAccess` grants on `group.deleted`
+
+## Client-Facing Updates
+
+Separately from the service-to-service event bus, the Groups service publishes UI-facing updates to the organization's [Notifications](notifications.md) room (`organization:<org_id>`) for Console reactivity:
 
 | Event | Emitted when |
 |---|---|
 | `group.updated` | A `Group` is created, updated, or deleted |
 | `group_membership.updated` | A `GroupMembership` is created or deleted |
 
-Subscribers:
-
-- **Networks service** — invalidates cached principal resolution; reconciles dependent access grants on deletion.
-- **Agents Orchestrator** — reapplies role attributes to live workload identities on membership change.
-- **Console** — UI reactivity.
+These are fire-and-forget Socket.IO-style updates for the browser — they are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
 
 ## Authorization
 
@@ -281,10 +338,10 @@ See [open-questions.md](../open-questions.md).
 |---|---|---|
 | `LISTEN_ADDRESS` | Deployment config | gRPC listen address |
 | `DATABASE_URL` | Deployment config | PostgreSQL connection string |
-| `ZITI_MANAGEMENT_ADDRESS` | Deployment config | gRPC address of [Ziti Management](openziti.md) |
 | `AUTHORIZATION_SERVICE_ADDRESS` | Deployment config | gRPC address of [Authorization](authz.md) |
 | `IDENTITY_SERVICE_ADDRESS` | Deployment config | gRPC address of [Identity](identity.md) |
-| `NOTIFICATIONS_ADDRESS` | Deployment config | gRPC address of [Notifications](notifications.md) |
+| `NATS_URL` | Deployment config | NATS connection URL for the platform [event bus](messaging.md) |
+| `NOTIFICATIONS_ADDRESS` | Deployment config | gRPC address of [Notifications](notifications.md) (client-facing UI updates) |
 | `RECONCILIATION_INTERVAL` | Deployment config | How often the reconciliation loop runs (default `60s`) |
 
 ## Data Store
@@ -302,9 +359,11 @@ PostgreSQL. The Groups service owns its database with `groups` and `group_member
 
 ## Related Architecture
 
+- [Messaging](messaging.md) — platform event bus contract for service-to-service async events
 - [Identity](identity.md) — type-agnostic identity registry; resolves `member_id` to `member_type`
 - [Authorization](authz.md) — OpenFGA `group` type and `group#member` references on other types
-- [OpenZiti Integration](openziti.md) — role-attribute patches on member identities
-- [Users](users.md) — device-identity lifecycle; consumes group memberships when enrolling new devices
-- [Agents Orchestrator](agents-orchestrator.md) — consumes group memberships when creating per-workload identities
+- [OpenZiti Integration](openziti.md) — `group-<id>` role attribute on identities; patches owned by identity-creating services
+- [Users](users.md) — device-identity lifecycle; subscribes to group events and consumes group memberships when enrolling new devices
+- [Apps Service](apps-service.md) — app-identity lifecycle; subscribes to group events
+- [Agents Orchestrator](agents-orchestrator.md) — consumes group memberships when creating per-workload identities; subscribes to group events for live workloads
 - [Networks Service](networks-service.md) — first downstream consumer; accepts `group:<id>` as a principal on resource access grants

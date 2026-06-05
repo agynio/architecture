@@ -464,7 +464,7 @@ Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all or
 | `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
 | `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
 | `CreatePrivateResourceAccess` (`agent` principal) | `can_edit_config` on `agent:<agent_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on `agent:<agent_id>`) |
-| `CreatePrivateResourceAccess` (`user` or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
+| `CreatePrivateResourceAccess` (`user`, `app`, or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
 | `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
 | `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |
 

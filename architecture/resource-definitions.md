@@ -310,6 +310,7 @@ An organization-scoped logical container for a private network reachable through
 |-------|------|---------|-------------|
 | `name` | string | | Human-readable label. Unique within the organization |
 | `description` | string | `""` | Free-form description |
+| `provisioning_state` | enum | | `active` \| `failed` \| `removing`. Reflects whether the per-network Bind policy was successfully provisioned in OpenZiti. `failed` is retried by reconciliation |
 
 Networks have no configuration beyond name and description. Their purpose is to be the HA boundary (multiple tunnels share `network-<id>`) and the OpenZiti binding unit.
 
@@ -323,10 +324,13 @@ An enrollment artifact for a single OpenZiti tunneler instance inside the operat
 |-------|------|-------------|
 | `network_id` | string (UUID) | Reference to the [Network](#network) this credential belongs to |
 | `openziti_identity_id` | string | OpenZiti identity created at credential issuance. Internal — not returned through the Gateway |
-| `enrollment_jwt` | string | One-time-token JWT. Returned once at creation; not persisted in plaintext |
+| `enrollment_jwt` | string | One-time-token JWT. **Returned only in the `CreateTunnelCredential` response.** Omitted from `GetTunnelCredential` and `ListTunnelCredentials` responses. Not persisted in plaintext — if the operator loses it before enrolling, they must delete the credential and create a new one |
+| `enrollment_jwt_revealed` | bool | `true` after `CreateTunnelCredential` has returned the JWT to a caller. Visible on reads as a hint that the JWT has been issued and cannot be retrieved again |
 | `enrollment_jwt_expires_at` | timestamp | JWT expiry (Controller-defined, typically 24h) |
-| `enrolled_at` | timestamp \| null | Set when the tunneler completes enrollment |
-| `last_seen_at` | timestamp \| null | Updated from the OpenZiti Controller's session info |
+| `enrollment_state` | enum | `pending` (JWT issued, identity not yet enrolled) \| `enrolled` (Controller reports identity as enrolled). Sourced from the OpenZiti Controller's `enrollment.state` on the identity |
+| `connectivity` | enum | `online` (Controller reports `hasEdgeRouterConnection: true`) \| `offline`. Polled every `TUNNEL_LIVENESS_INTERVAL` (default 30s) |
+| `enrolled_at` | timestamp \| null | Set the first time the Controller reports the identity as enrolled |
+| `last_seen_at` | timestamp \| null | Updated whenever the Controller poll observes `hasEdgeRouterConnection: true` |
 
 Credentials are revocable. Revocation deletes the underlying OpenZiti identity, severing any tunneler that holds it. Other credentials in the same network are unaffected.
 
@@ -334,20 +338,23 @@ Credentials are revocable. Revocation deletes the underlying OpenZiti identity, 
 
 ## Private Resource
 
-A single addressable endpoint behind a [Network](#network): a `host:ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. Managed by the [Networks service](networks-service.md). Access is granted via [PrivateResourceAccess](#private-resource-access).
+A single addressable endpoint behind a [Network](#network): a `target_host:target_ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. Managed by the [Networks service](networks-service.md). Access is granted via [PrivateResourceAccess](#private-resource-access).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `network_id` | string (UUID) | | Reference to the owning [Network](#network) |
 | `name` | string | | Human-readable label. Not unique |
-| `protocol` | enum | | `tcp` \| `http` \| `https`. A resource has a single protocol for all its ports |
-| `host` | string | | IP literal (v4/v6) or DNS name. Resolved at the tunnel-side at connect time |
-| `target_ports` | list<port_spec> | | Ports on the target. Each entry is a single port (`"5432"`) or a range (`"5432-5435"`) |
-| `intercept_host` | string | | Hostname the agent dials. Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti synthetic CIDR) are rejected at create time |
-| `intercept_ports` | list<port_spec> | | Ports the agent dials. Same shape as `target_ports`. Cardinality must match `target_ports` (1:1 mapping) |
+| `protocol` | enum | | `tcp` \| `http` \| `https`. A resource has a single protocol for all its ports. UDP is not supported in v1 |
+| `target_host` | string | | IP literal (v4/v6) or DNS name. Resolved at the tunnel-side at connect time |
+| `target_ports` | list<uint16> | | Ports on the target. List of individual port numbers (e.g., `[5432]`, `[80, 443]`, `[9200, 9300]`). Port ranges are not supported in v1 |
+| `intercept_host` | string | | Hostname the agent dials. Reserved zones (see below) are rejected at create time |
+| `intercept_ports` | list<uint16> | | Ports the agent dials. Cardinality must match `target_ports` exactly; positional 1:1 mapping (i.e., `intercept_ports[i]` forwards to `target_ports[i]`) |
+| `provisioning_state` | enum | | `active` \| `failed` \| `removing`. Reflects whether the backing OpenZiti service was successfully provisioned. `failed` is retried by reconciliation |
 | `openziti_service_id` | string | | OpenZiti service ID created for this resource (`private-<id>`). Internal — not returned through the Gateway |
 
-Uniqueness: `(organization_id, intercept_host, intercept_port)` — no two resources in the same org may claim the same intercept hostname + port. OpenZiti routing would be ambiguous for any identity authorized to dial both.
+Uniqueness: for each `port` in `intercept_ports`, the tuple `(organization_id, intercept_host, port)` must be unique across all resources in the organization. Two resources in the same org may not claim the same intercept hostname on overlapping ports — OpenZiti routing would be ambiguous for any identity authorized to dial both.
+
+Reserved `intercept_host` patterns rejected at create time: `*.ziti`, `*.svc`, `*.cluster.local`, anything overlapping `100.64.0.0/10` (OpenZiti synthetic CIDR), `localhost`, `127.0.0.0/8`, and `::1/128`.
 
 The `protocol` field is platform metadata used to gate features like header injection (see [Private Networks — EgressRule Interaction](private-networks.md#egressrule-interaction)). OpenZiti itself sees only TCP streams.
 
@@ -360,13 +367,13 @@ A relationship granting a principal (agent, user, or group) the ability to dial 
 | Field | Type | Description |
 |-------|------|-------------|
 | `private_resource_id` | string (UUID) | Reference to the [PrivateResource](#private-resource) |
-| `principal_type` | enum | `agent` \| `user` \| `group` |
+| `principal_type` | enum | `agent` \| `user` \| `group` \| `app` |
 | `principal_id` | string (UUID) | Identity or group ID |
-| `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant. Internal — not returned through the Gateway |
+| `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant (one Dial policy per grant). Internal — not returned through the Gateway |
 
 Grants are immutable — create and delete only. Unique on `(private_resource_id, principal_type, principal_id)`. The resource and the principal must belong to the same organization — the [Networks service](networks-service.md#authorization) enforces this on create.
 
-For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `group` principals, the grant resolves to every member's identity (any identity with role attribute `group-<id>`).
+For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `app` principals, the grant resolves to the app's single OpenZiti identity (role attribute `app-<id>`). For `group` principals, the grant resolves to every member's identity transitively (any identity with role attribute `group-<id>` — includes apps, users' devices, and agent workloads that are members of the group).
 
 ---
 

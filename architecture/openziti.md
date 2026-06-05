@@ -559,24 +559,7 @@ Each app binds its own OpenZiti service (named `app-{slug}`). The service is cre
 | `CreateService` | App registration — creates the app's service (e.g., `app-reminders`) with `roleAttributes: ["app-services"]` |
 | `DeleteAppIdentity` | App deletion — deletes the identity, service, and platform mapping |
 
-### Updated Role Attributes Table
-
-| Identity Type | Role Attributes |
-|---|---|
-| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>"]` |
-| Runner | `["runners"]` |
-| Orchestrator | `["orchestrators"]` |
-| App | `["apps"]` |
-| Tracing | `["tracing-hosts"]` |
-| Device (user) | `["devices"]` |
-
-### Updated Identities Summary
-
-| Identity | Lifecycle | Provisioning | Calls via OpenZiti |
-|----------|-----------|--------------|--------------------|
-| App | Persistent (enrolled via service token) | Apps Service via Ziti Management | Gateway (dial) + own service (bind) |
-| Device (user) | Persistent (enrolled via JWT from Console) | Users Service via Ziti Management | Exposed services (dial), Private resources (dial) |
-| Tunnel (private network) | Persistent (enrolled via JWT from Console) | Networks Service via Ziti Management | — (binds per-network `private-<resourceId>` services) |
+The canonical Role Attributes table and Identities Summary live at the top of this document — see [Role Attributes](#role-attributes) and [OpenZiti Identities Summary](#openziti-identities-summary). The previous "Updated" tables in this section are removed as redundant.
 
 ## Tunnel Identity Lifecycle
 
@@ -630,6 +613,27 @@ The tunneler does not receive an `externalId` — there is no platform identity 
 
 ## Group Role Attribute Sync
 
-When the [Groups service](groups-service.md) adds or removes a member from a group, it patches the member's existing OpenZiti identities to add or remove the `group-<groupId>` role attribute. For ephemeral identities (agent workloads), the orchestrator queries group membership when assembling the identity creation request — see [Groups Service — OpenZiti Role-Attribute Sync](groups-service.md#openziti-role-attribute-sync).
+Group membership changes propagate to OpenZiti identities via the platform [event bus](messaging.md), not via direct calls from the Groups service. When membership changes, the [Groups service](groups-service.md) publishes an `agyn.groups.membership.added` or `agyn.groups.membership.removed` event. Each identity-owning service subscribes and PATCHes the identities it owns:
 
-Role-attribute patches are non-disruptive — OpenZiti supports `PATCH /identities/{id}` on already-enrolled, connected identities, and policy changes take effect at the SDK's next service-list poll (≤15s).
+- [Users service](users.md) subscribes for `entity_type: user` events and patches the user's device identities.
+- [Apps service](apps-service.md) subscribes for `entity_type: app` events and patches the app's identity.
+- [Agents Orchestrator](agents-orchestrator.md) subscribes for `entity_type: agent` events and patches every live workload identity for the agent.
+
+Each subscriber re-reads source of truth (`Groups.ListMemberGroups`) and reconciles its identities' `group-<id>` attribute set — idempotent by construction. See [Groups Service — Group Role-Attribute Sync via Events](groups-service.md#group-role-attribute-sync-via-events).
+
+Role-attribute patches are non-disruptive — OpenZiti supports `PATCH /identities/{id}` on already-enrolled, connected identities (`PatchIdentityRoleAttributes` on [Ziti Management](#api-surface)), and policy changes take effect at the SDK's next service-list poll (≤15s).
+
+## OpenZiti Resource Tagging
+
+Services that create OpenZiti resources (services, identities, policies, configs) tag them with an ownership marker so each service can reliably identify the resources it manages during reconciliation. The tagging convention:
+
+```json
+{
+  "agyn.managed_by": "<service-name>",
+  "agyn.resource_type": "<service-defined>",
+  "agyn.resource_id": "<uuid>",
+  "agyn.<service-specific>": "..."
+}
+```
+
+Each service's reconciliation lists OpenZiti resources by `agyn.managed_by = <service-name>` and joins by `agyn.resource_id` against its own database. Name conventions (e.g., `private-<id>`, `egress-rule-<id>`) are retained for human readability in the Controller UI but are not the authoritative ownership marker — tags are. See [Private Networks — OpenZiti Resource Tagging](private-networks.md#openziti-resource-tagging) for the canonical pattern used by the [Networks service](networks-service.md). Other services managing OpenZiti resources follow the same convention with their own `managed_by` value.

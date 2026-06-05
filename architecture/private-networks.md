@@ -15,8 +15,8 @@ For the user-facing model, see [Product — Private Networks](../product/private
 | **Network** | An organization-scoped logical group that owns a set of [PrivateResources](#privateresource) and is reachable through one or more [Tunnels](#tunnel). Materialized as an OpenZiti role attribute (`network-<id>`) that backs the bind side of every resource in the network. Networks have no settings beyond a name and description; their purpose is to be the HA boundary and the OpenZiti binding unit. |
 | **Tunnel** | A long-running OpenZiti tunneler instance inside the operator's private network. Enrolls into the platform via a one-time-token JWT issued from the [Networks service](networks-service.md), then phones home to the OpenZiti Controller and binds the services its network's resources expose. One Tunnel belongs to exactly one Network. A Network can have many Tunnels for HA. |
 | **TunnelCredential** | The enrollment artifact issued by the platform for a new tunnel instance — a one-time-token JWT plus a recommended install snippet per supported tunneler distribution. Credentials are revocable; revocation deletes the underlying OpenZiti identity, severing any tunneler that holds it. |
-| **PrivateResource** | A single addressable endpoint behind a Network: a `host:ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. One resource has a single protocol (`tcp` / `http` / `https`). |
-| **Resource access grant** | A `(PrivateResource, principal)` tuple authorizing the principal to dial the resource. Principals may be an `agent`, `user`, or `group`. Underneath, each grant materializes as an OpenZiti Dial policy. |
+| **PrivateResource** | A single addressable endpoint behind a Network: a `target_host:target_ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. One resource has a single protocol (`tcp` / `http` / `https`). UDP is not supported in v1. |
+| **Resource access grant** | A `(PrivateResource, principal)` tuple authorizing the principal to dial the resource. Principals may be an `agent`, `user`, `app`, or `group`. Underneath, each grant materializes as exactly one OpenZiti Dial policy. |
 
 Networks, Tunnels, PrivateResources, and access grants are all organization-scoped. There is no cross-org reachability.
 
@@ -53,15 +53,25 @@ For canonical field-by-field schemas see [Resource Definitions](resource-definit
 | `id` | string (UUID) | Unique identifier |
 | `network_id` | string (UUID) | Owning network |
 | `name` | string | Free-form human-readable label. Not unique |
-| `protocol` | enum | `tcp` \| `http` \| `https` |
+| `protocol` | enum | `tcp` \| `http` \| `https` (UDP not supported in v1) |
 | `target_host` | string | IP or DNS name the Tunnel forwards to. Resolved at the tunnel-side at connect time |
-| `target_ports` | list of port specs | Single ports (`"5432"`), ranges (`"5432-5435"`), or mixed |
-| `intercept_host` | string | Hostname the agent dials. Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti synthetic CIDR) rejected |
-| `intercept_ports` | list of port specs | Same shape as `target_ports`. Cardinality must match `target_ports` (1:1 mapping) |
+| `target_ports` | list<uint16> | List of port numbers (e.g., `[5432]`, `[80, 443]`, `[9200, 9300]`). Port ranges are not supported in v1 |
+| `intercept_host` | string | Hostname the agent dials. Reserved zones rejected at create time (see below) |
+| `intercept_ports` | list<uint16> | Cardinality must match `target_ports`; positional 1:1 mapping |
+| `provisioning_state` | enum | `active` \| `failed` \| `removing` — see [Provisioning Status](#provisioning-status) |
 | `openziti_service_id` | string | OpenZiti service for this resource |
 | `created_at`, `updated_at` | timestamp | |
 
-Uniqueness: `(organization_id, intercept_host, intercept_port)` — no two resources in the same org may claim the same intercept hostname + port (OpenZiti routing would be ambiguous for any identity authorized to dial both).
+Uniqueness: for each `port` in `intercept_ports`, the tuple `(organization_id, intercept_host, port)` must be unique across all PrivateResources in the organization — OpenZiti routing would be ambiguous for any identity authorized to dial both. Because v1 uses individual ports (not ranges), uniqueness checks are exact-match per port.
+
+Reserved `intercept_host` patterns (rejected at create time):
+
+- `*.ziti`
+- `*.svc`, `*.cluster.local`
+- Anything overlapping `100.64.0.0/10` (OpenZiti synthetic CIDR)
+- `localhost`, `127.0.0.0/8`, `::1/128`
+
+Public hostnames (e.g., `gitlab.com`) are not in the reserved list and are allowed with a warning — the operator may shadow real public DNS if they want, knowing that all agent traffic for that hostname will route through the tunnel.
 
 ### PrivateResourceAccess
 
@@ -69,9 +79,9 @@ Uniqueness: `(organization_id, intercept_host, intercept_port)` — no two resou
 |---|---|---|
 | `id` | string (UUID) | Unique identifier |
 | `private_resource_id` | string (UUID) | Reference to the PrivateResource |
-| `principal_type` | enum | `agent` \| `user` \| `group` |
+| `principal_type` | enum | `agent` \| `user` \| `app` \| `group` |
 | `principal_id` | string (UUID) | Identity or group ID |
-| `openziti_dial_policy_id` | string | OpenZiti Dial policy backing this grant |
+| `openziti_dial_policy_id` | string | OpenZiti Dial policy backing this grant (one Dial policy per grant — simpler reconciliation and revocation) |
 | `created_at` | timestamp | |
 
 Unique on `(private_resource_id, principal_type, principal_id)`. Grants are immutable — create and delete only.
@@ -154,9 +164,45 @@ Where `<principal-role-attribute>` resolves by principal type:
 |---|---|
 | `agent:<id>` | `agent-<id>` |
 | `user:<id>` | `user-<id>` |
+| `app:<id>` | `app-<id>` |
 | `group:<id>` | `group-<id>` |
 
 Static policies, networks, and resources don't conflict — each grant is its own policy.
+
+## Provisioning Status
+
+`Network`, `PrivateResource`, and `PrivateResourceAccess` carry a `provisioning_state` enum reflecting whether their backing OpenZiti resources were successfully created. API calls persist desired state synchronously and attempt OpenZiti provisioning inline; failures don't roll back the local row — they leave it in `failed` and reconciliation retries.
+
+| Value | Meaning |
+|---|---|
+| `active` | Local row + corresponding OpenZiti resource(s) both exist and are consistent |
+| `failed` | Local row exists; OpenZiti provisioning failed. Reconciliation will retry |
+| `removing` | Local row scheduled for deletion; OpenZiti cleanup pending. Reconciliation will remove orphans |
+
+The intermediate `pending` state isn't used — provisioning is a single Controller call, fast enough to complete inline. Either it succeeds (state `active`) or it fails (state `failed`).
+
+Operators see `provisioning_state` in the Console and CLI; persistent `failed` states surface as a warning badge and a "retry" affordance that triggers an out-of-band reconciliation. Tunnel reachability (a separate concern) is shown alongside but derived from the `connectivity` field on TunnelCredentials, not from `provisioning_state`.
+
+## OpenZiti Resource Tagging
+
+Every OpenZiti resource (service, identity, policy, config) that the Networks service creates is tagged for ownership identification. Reconciliation joins by tag, not by name conventions.
+
+```json
+{
+  "agyn.managed_by": "networks-service",
+  "agyn.resource_type": "private_resource | tunnel_credential | network_bind_policy | resource_access | private_resource_config",
+  "agyn.resource_id": "<uuid>",
+  "agyn.network_id": "<uuid>"
+}
+```
+
+The Networks service's reconciliation lists OpenZiti resources by `agyn.managed_by = networks-service`, joins each against the corresponding DB row by `agyn.resource_id`, and acts on mismatches:
+
+- Orphaned OpenZiti resource (no matching DB row) → delete.
+- Missing OpenZiti resource (DB row says `active` but no matching tag) → re-create.
+- Drifted config (tags match but config differs from DB) → update.
+
+Name prefixes (`private-<id>`, `tunnel-<network>-<id>`, etc.) are retained for human readability in the Controller UI but are not the authoritative ownership marker. The [Groups service](groups-service.md) and other future OpenZiti consumers follow the same tagging convention with `agyn.managed_by` set to their own service name.
 
 ## Lifecycle Flows
 
@@ -315,6 +361,7 @@ Authorization for Network/Tunnel/PrivateResource/PrivateResourceAccess operation
 | PrivateResource read (`GetPrivateResource`, `ListPrivateResources`) | `member` on `organization:<org_id>` |
 | Access grant for an `agent` principal | `can_edit_config` on `agent:<agent_id>` (the existing per-agent role) |
 | Access grant for a `user` principal | `owner` on `organization:<org_id>` |
+| Access grant for an `app` principal | `owner` on `organization:<org_id>` |
 | Access grant for a `group` principal | `owner` on `organization:<org_id>` |
 | Access grant read (`ListPrivateResourceAccess`) | `member` on `organization:<org_id>` |
 

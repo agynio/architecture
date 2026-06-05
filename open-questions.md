@@ -254,12 +254,3 @@ Unresolved product and architectural decisions requiring discussion.
 - Which IdPs do we test against first (Okta and Azure AD cover most enterprise deployments; Google Workspace is a distant third)?
 - How are PATCH grammar quirks handled (each IdP has subtle differences in PATCH semantics)?
 
----
-
-## Private Networks: App Principals on Resource Access
-
-**Context:** v1 access grants on [PrivateResources](architecture/private-networks.md) accept `agent`, `user`, and `group` principals — not `app`. Apps are platform-managed services; the immediate use cases for private-resource access (agent dials private DB, dev's laptop dials internal GitLab) don't include them.
-
-**Questions:**
-- Is there a real use case for granting an app direct access to a private resource (e.g., a reporting app dialing an internal data warehouse)?
-- If yes, the OpenZiti pattern is the same (per-grant Dial policy targeting `#app-<id>`); only the validation surface changes (Apps service org-membership check).

@@ -320,7 +320,7 @@ Device status transitions from `pending` to `enrolled` when the Ziti tunnel enro
 | `user-<userId>` | Per-grant Dial policies in the [Networks service](networks-service.md) when a `PrivateResourceAccess` targets a `user` principal |
 | `group-<groupId>` | Per-grant Dial policies when a `PrivateResourceAccess` targets a `group` principal. Multiple group attributes coexist on a single identity |
 
-On device enrollment, the Users service queries `Groups.ListMemberGroups(user_id)` to determine the user's current group memberships and includes a `group-<id>` attribute for each. On subsequent group-membership changes, the [Groups service](groups-service.md#user-devices-per-device-persistent-identities) patches the user's device identities to add or remove the attribute.
+On device enrollment, the Users service queries `Groups.ListMemberGroups(user_id)` to determine the user's current group memberships and includes a `group-<id>` attribute for each. On subsequent group-membership changes, the Users service consumes `agyn.groups.membership.>` events from the platform [event bus](messaging.md) and PATCHes the user's device identities to reflect the new membership set — see [Events Consumed](#events-consumed) below.
 
 The enrollment JWT is shown once at creation time and cannot be retrieved again. If the user loses the JWT before enrolling, they must delete the device and create a new one.
 
@@ -330,6 +330,20 @@ The enrollment JWT is shown once at creation time and cannot be retrieved again.
 |-----|--------|-------------|
 | `CreateDeviceIdentity` | Users Service | Create an OpenZiti identity for a user device with `roleAttributes: [devices]` and `enrollment.ott: true`. Returns the identity ID and enrollment JWT |
 | `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
+| `PatchIdentityRoleAttributes` | Users Service | Add or remove role attributes on an existing device identity. Called from the group-event subscription handler |
+
+## Events Consumed
+
+The Users service subscribes to group lifecycle events from the platform [event bus](messaging.md) and reconciles its device identities accordingly.
+
+| Subject filter | Durable consumer | Purpose |
+|---|---|---|
+| `agyn.groups.membership.>` | `users-group-sync` | On membership change for a `user` entity, re-read the user's current group memberships from `Groups.ListMemberGroups` and PATCH every device identity for that user to match |
+| `agyn.groups.group.deleted` | `users-group-cleanup` | On group deletion, find users whose device identities still carry `group-<deleted-id>` and PATCH the attribute away |
+
+Handlers are idempotent by construction — each handler re-reads source-of-truth from the Groups service and reconciles its devices' role attributes to the desired set. Receiving the same event twice produces the same end state. See [Messaging — Idempotency](messaging.md#idempotency).
+
+Reconciliation: the Users service runs a periodic sweep that, for each user with at least one device, compares the device identities' `group-<id>` attribute set to the current memberships from `Groups.ListMemberGroups(user_id)` and patches drift. Catches missed events; bounded by reconciliation interval.
 
 ## Data Store
 

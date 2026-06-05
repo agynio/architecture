@@ -26,8 +26,8 @@ The agent runs unmodified tools (`psql`, `curl`, `git`, language-specific HTTP c
 |---|---|
 | **Network** | A named container for a private network's resources and the tunneler instances that reach it. Networks are organization-scoped. A Network has no settings beyond a name and description — its purpose is to be the OpenZiti binding boundary and the unit of HA. |
 | **Tunnel credential** | An enrollment artifact issued by the platform for a single tunneler instance. The credential is a one-time-token JWT plus an install snippet for the supported tunneler distributions (Docker, Linux/macOS binary, Kubernetes helm chart). One Tunnel belongs to exactly one Network; a Network can have many Tunnels. |
-| **Private resource** | A single addressable endpoint behind the Network — a `host:ports` target the Tunnel forwards to, exposed to agents as a hostname they dial. A resource has a single protocol (`tcp`, `http`, or `https`). |
-| **Access** | The list of principals (agents, users, groups) authorized to dial a Private Resource. A user with access dials from their enrolled devices; a group with access grants every member transitively. |
+| **Private resource** | A single addressable endpoint behind the Network — a `target_host:target_ports` target the Tunnel forwards to, exposed to agents as a hostname they dial. A resource has a single protocol (`tcp`, `http`, or `https`). UDP is not supported in v1. |
+| **Access** | The list of principals (agents, users, apps, groups) authorized to dial a Private Resource. A user with access dials from their enrolled devices; an app dials via its own identity; a group with access grants every member transitively. |
 | **Group** | An org-scoped named collection of identities (users, agents, apps). Granting access to a group is equivalent to granting to every member. See [Groups](../../architecture/groups-service.md). |
 
 ## How traffic flows
@@ -53,6 +53,12 @@ For HTTP/HTTPS resources with injection rules attached, the Egress Gateway is in
 
 For HA, issue multiple credentials in the same Network and run each on a separate host. All tunnels in a Network share the same set of bindable resources; OpenZiti picks one transparently and fails over if a tunnel goes offline.
 
+### Console layout
+
+Private Networks lives as a top-level item in the Console sidebar under the **Infrastructure** group (alongside Egress Gateway, Runners, etc.) — it's operational machinery operators set up once, not per-thread configuration. Groups live separately under **Org Settings → Groups**, but are also reachable as an inline "Create group" affordance in the resource access picker — same data, two entry points.
+
+Each resource detail page surfaces a **Copy connection string** affordance (`prod-postgres.corp:5432`) for fast paste-into-agent-config or paste-into-tooling workflows. There is no agent-side discovery API in v1 — operators configure agents with hostnames through the agent's system prompt, skills, or external runbooks.
+
 ## Adding a private resource
 
 Each resource declares a target (what the tunnel forwards to) and an intercept (what agents dial):
@@ -60,13 +66,13 @@ Each resource declares a target (what the tunnel forwards to) and an intercept (
 | Field | Description |
 |---|---|
 | **Name** | A human-readable label (e.g., `prod-postgres`). Not unique — names are for operators, IDs are for routing |
-| **Protocol** | `tcp`, `http`, or `https`. Determines whether header injection via [EgressRule](../../architecture/egress-rules-service.md) is possible later |
-| **Host** | IP literal or DNS name the tunneler forwards to. Resolved at the tunnel side at connect time — internal DNS names (`prod-db.internal.corp`, `*.us-west-2.rds.amazonaws.com`) work because the tunneler sits inside the operator's network |
-| **Target ports** | One or more ports on the target host. Supports single ports (`5432`), lists, and ranges (`5432-5435`) |
+| **Protocol** | `tcp`, `http`, or `https`. Determines whether header injection via [EgressRule](../../architecture/egress-rules-service.md) is possible later. UDP is not supported in v1 |
+| **Target host** | IP literal or DNS name the tunneler forwards to. Resolved at the tunnel side at connect time — internal DNS names (`prod-db.internal.corp`, `*.us-west-2.rds.amazonaws.com`) work because the tunneler sits inside the operator's network |
+| **Target ports** | List of port numbers on the target host (e.g., `5432`, or `[80, 443]`, or `[9200, 9300]`). Port ranges are not supported in v1 |
 | **Intercept host** | Hostname the agent dials. The operator picks this freely — it can match the real internal hostname (`gitlab.internal.corp`), or use a synthetic platform-side name |
-| **Intercept ports** | Ports the agent dials. 1:1 mapping with target ports |
+| **Intercept ports** | Ports the agent dials. Cardinality and order must match Target ports; the mapping is positional 1:1 |
 
-Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti's synthetic CIDR) are rejected to avoid collision with platform routing.
+Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti's synthetic CIDR, `localhost`, `127.0.0.0/8`, `::1/128`) are rejected to avoid collision with platform routing.
 
 If an operator picks a real public hostname (e.g., `gitlab.com`) as the intercept, **all** agent traffic to that hostname is routed through the tunnel, including legitimate public traffic. The Console warns at create time but does not block — this is an operator choice.
 
@@ -80,7 +86,8 @@ Access is managed on the resource detail page or via the resource's access list.
 |---|---|
 | **Agent** | The agent's workloads can dial the resource |
 | **User** | The user's enrolled devices can dial the resource. Useful for human-driven workflows — a dev's laptop can `psql` an internal DB through the same network |
-| **Group** | Every group member (across types — users, agents, apps) can dial. Membership changes propagate automatically |
+| **App** | The app dials the resource using its own OpenZiti identity. Useful for platform-installed apps that need direct access to a private service |
+| **Group** | Every group member (users, agents, apps) can dial. Membership changes propagate automatically |
 
 Revocation deletes the underlying OpenZiti dial policy immediately. In-flight connections that depended on the policy are torn down. **Propagation window** to live workloads / SDKs: ≤15 seconds (dominated by the SDK's service-list poll interval, the same propagation behavior the [Egress Gateway](../egress-gateway/egress-gateway.md#attaching-rules-to-agents) uses).
 
@@ -122,13 +129,12 @@ Resources are created, edited, and deleted by organization owners through the Co
 
 ## Constraints
 
-- A resource has a single protocol (`tcp`, `http`, or `https`). Mixed-protocol targets on the same host = multiple resources.
-- A resource is one logical endpoint. A resource may declare multiple ports (single, list, or range), but the intercept-to-target port mapping is 1:1 and the protocol is shared.
-- Reserved zones are rejected on `intercept_host`: `*.ziti`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
-- Two resources in the same organization may not share the same `(intercept_host, intercept_port)`. Operators namespace by hostname (`prod-postgres.corp:5432` vs `dev-postgres.corp:5432`).
+- A resource has a single protocol (`tcp`, `http`, or `https`). UDP is not supported in v1. Mixed-protocol targets on the same host = multiple resources.
+- A resource may declare multiple ports as a list (e.g., `[5432]`, `[80, 443]`, `[9200, 9300]`), but port ranges are not supported in v1. The intercept-to-target port mapping is positional 1:1 and the protocol is shared.
+- Reserved zones are rejected on `intercept_host`: `*.ziti`, `*.svc`, `*.cluster.local`, any pattern overlapping `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, and `::1/128`.
+- For each port in `intercept_ports`, the tuple `(intercept_host, port)` must be unique across all resources in the organization. Operators namespace by hostname (`prod-postgres.corp:5432` vs `dev-postgres.corp:5432`).
 - A Tunnel belongs to one Network. Running one tunneler for two networks requires two separate tunneler installations.
 - Runners are not eligible group members and not eligible access principals — they are infrastructure, not actors in the access model.
-- Apps are not eligible access principals in v1 (open question for future).
 - A private resource conflict with an EgressRule on the same hostname surfaces as an OpenZiti Controller error at the second `CreateService` call — no friendly cross-primitive detection in v1.
 
 ## Related Architecture
