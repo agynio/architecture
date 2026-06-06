@@ -29,7 +29,7 @@ Control plane — Gateway-exposed CRUD with periodic reconciliation. Not on a re
 | **Repository** | `agynio/networks` |
 | **API** | gRPC (internal) + Gateway (external via ConnectRPC) |
 | **State** | PostgreSQL — `networks`, `tunnel_credentials`, `private_resources`, `private_resource_access` tables |
-| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (permission checks + agent / group org-membership checks on grant), [Groups](groups-service.md) (existence checks on `group_id` principals), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
+| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (caller-permission checks + cross-org guard via OpenFGA `org` relation on the principal — covers `agent`, `user`, `app`, and `group` principals uniformly), [Identity](identity.md) (existence check + type validation for individual principals `agent`/`user`/`app` via `GetIdentityType`), [Groups](groups-service.md) (existence check for `group` principals via `GetGroup`), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
 
 ## API
 
@@ -66,7 +66,7 @@ Control plane — Gateway-exposed CRUD with periodic reconciliation. Not on a re
 
 | Method | Description |
 |---|---|
-| **CreatePrivateResourceAccess** | Grant access. Validates: the resource belongs to the principal's organization (cross-org `Check` via [Authorization](authz.md)), the principal exists, the grant is unique on `(resource_id, principal_type, principal_id)`. Creates the per-grant Dial policy |
+| **CreatePrivateResourceAccess** | Grant access. Validates: principal exists (for `agent` / `user` / `app` via `Identity.GetIdentityType` — also confirms `principal_type` matches the registered identity type; for `group` via `Groups.GetGroup`); the principal belongs to the resource's organization (cross-org `Check` via [Authorization](authz.md) `org` relation on `<principal_type>:<principal_id>`); the grant is unique on `(resource_id, principal_type, principal_id)`. Creates the per-grant Dial policy |
 | **DeletePrivateResourceAccess** | Revoke access. Deletes the Dial policy |
 | **ListPrivateResourceAccess** | List grants, filterable by `resource_id`, by `principal_type` + `principal_id`, or by `network_id` |
 
