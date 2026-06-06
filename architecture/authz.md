@@ -460,7 +460,7 @@ Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all or
 | `CreateNetwork`, `UpdateNetwork`, `DeleteNetwork` | `owner` on `organization:<org_id>` |
 | `GetNetwork`, `ListNetworks` | `member` on `organization:<org_id>` |
 | `CreateTunnelCredential`, `DeleteTunnelCredential` | `owner` on `organization:<org_id>` |
-| `ListTunnelCredentials` | `member` on `organization:<org_id>` |
+| `GetTunnelCredential`, `ListTunnelCredentials` | `member` on `organization:<org_id>` |
 | `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
 | `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
 | `CreatePrivateResourceAccess` (`agent` principal) | `can_edit_config` on `agent:<agent_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on `agent:<agent_id>`) |

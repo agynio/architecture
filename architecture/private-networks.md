@@ -40,10 +40,14 @@ For canonical field-by-field schemas see [Resource Definitions](resource-definit
 | `id` | string (UUID) | Unique identifier |
 | `network_id` | string (UUID) | Network this credential belongs to |
 | `openziti_identity_id` | string | OpenZiti identity created at credential issuance (carries role attributes `["tunnels", "network-<network_id>"]`) |
-| `enrollment_jwt` | string | One-time-token JWT, returned once at creation; not persisted in plaintext |
+| `enrollment_jwt` | string | One-time-token JWT, returned only in the `CreateTunnelCredential` response; omitted from `GetTunnelCredential` and `ListTunnelCredentials`; not persisted in plaintext |
+| `enrollment_jwt_revealed` | bool | `true` after the JWT has been returned to a caller. Surfaced on reads so callers know the JWT was issued and cannot be retrieved again |
 | `enrollment_jwt_expires_at` | timestamp | JWT expiry (controller-defined, typically 24h) |
-| `enrolled_at` | timestamp \| null | Set when the tunneler completes enrollment |
-| `last_seen_at` | timestamp \| null | Updated from the OpenZiti Controller's session info |
+| `enrollment_state` | enum | `pending` \| `enrolled` — sourced from the Controller's `enrollment.state` |
+| `connectivity` | enum | `online` \| `offline` — sourced from the Controller's `hasEdgeRouterConnection` |
+| `provisioning_state` | enum | `active` \| `failed` \| `removing` — reflects whether the OpenZiti identity was successfully created. See [Provisioning Status](#provisioning-status) |
+| `enrolled_at` | timestamp \| null | Set the first time the Controller reports the identity as enrolled |
+| `last_seen_at` | timestamp \| null | Updated each poll observing `hasEdgeRouterConnection: true` |
 | `created_at` | timestamp | |
 
 ### PrivateResource
@@ -81,6 +85,7 @@ Public hostnames (e.g., `gitlab.com`) are not in the reserved list and are allow
 | `private_resource_id` | string (UUID) | Reference to the PrivateResource |
 | `principal_type` | enum | `agent` \| `user` \| `app` \| `group` |
 | `principal_id` | string (UUID) | Identity or group ID |
+| `provisioning_state` | enum | `active` \| `failed` \| `removing` — reflects whether the backing OpenZiti Dial policy was successfully provisioned. See [Provisioning Status](#provisioning-status) |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy backing this grant (one Dial policy per grant — simpler reconciliation and revocation) |
 | `created_at` | timestamp | |
 

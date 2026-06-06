@@ -511,13 +511,15 @@ sequenceDiagram
     Note over App: App deployed with service token
     App->>AS: EnrollApp(service token)
     AS->>AS: Validate token (hash lookup)
-    AS->>ZM: CreateAppIdentity(appId, slug, roleAttributes: ["apps"])
+    AS->>GS: ListMemberGroups(appId) — gather initial group memberships
+    GS-->>AS: [group_id, ...]
+    AS->>ZM: CreateAppIdentity(appId, slug, roleAttributes: ["apps", "app-<appId>", "group-<id>"...])
     ZM->>ZM: Lookup existing identity by appId
     opt Previous identity exists
         ZM->>ZC: DELETE /identities/{previousZitiId}
         ZM->>ZM: Delete previous managed identity record
     end
-    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps"], externalId: appId, enrollment.ott)
+    ZM->>ZC: POST /identities (type: Device, roleAttributes: ["apps", "app-<appId>", "group-<groupId>"...], externalId: appId, enrollment.ott)
     ZC->>ZM: Identity ID + enrollment JWT
     ZM->>ZC: Enroll (exchange JWT for x509 cert + key)
     ZC->>ZM: Certificate + private key
@@ -537,11 +539,13 @@ This follows the same pattern as [runner enrollment](#runner-provisioning). The 
   "name": "app-<slug>-<shortUuid>",
   "type": "Device",
   "isAdmin": false,
-  "roleAttributes": ["apps"],
-  "externalId": "<platformIdentityId>",
+  "roleAttributes": ["apps", "app-<platformAppId>", "group-<groupId>"],
+  "externalId": "<platformAppId>",
   "enrollment": { "ott": true }
 }
 ```
+
+`roleAttributes` always includes `apps` (cross-cutting) and `app-<platformAppId>` (per-app targeting for [Private Networks](private-networks.md) Dial policies). One additional `group-<groupId>` entry is included per group the app belongs to, sourced from `Groups.ListMemberGroups(appId)` at identity creation time. Subsequent group membership changes propagate via the event-driven sync — see [Group Role Attribute Sync](#group-role-attribute-sync).
 
 `Device` is the standard OpenZiti type for non-human identities — same as agents and runners.
 

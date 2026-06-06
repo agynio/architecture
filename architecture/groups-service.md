@@ -61,8 +61,8 @@ Control plane — CRUD with periodic reconciliation. Membership lookups are also
 
 | Method | Description |
 |---|---|
-| **AddMember** | Add a member. Validates the member exists (via [Identity](identity.md)), belongs to the same organization, and is not of type `runner`. Writes the OpenFGA tuple and patches OpenZiti role attributes on the member's existing identities |
-| **RemoveMember** | Remove a member. Deletes the OpenFGA tuple and patches OpenZiti role attributes |
+| **AddMember** | Add a member. Validates the member exists (via [Identity](identity.md)), belongs to the same organization, and is not of type `runner`. Writes the OpenFGA tuple, then publishes `agyn.groups.membership.added` to the [event bus](messaging.md). Identity-owning services consume the event and PATCH their own OpenZiti identities — Groups does not call Ziti Management |
+| **RemoveMember** | Remove a member. Deletes the OpenFGA tuple, then publishes `agyn.groups.membership.removed`. Identity-owning services consume and PATCH |
 | **ListMembers** | List members of a group, optionally filtered by `member_type` |
 | **ListMemberGroups** | List groups a given member belongs to. Used by [Agents Orchestrator](agents-orchestrator.md) when assembling agent identity role attributes |
 | **ListMemberGroupsBatch** | Internal-only. Batch variant for hot-path callers (e.g., workload-creation fan-out) |

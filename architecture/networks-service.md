@@ -206,7 +206,7 @@ These are fire-and-forget Socket.IO-style updates for the browser. They are dist
 | `CreateNetwork`, `UpdateNetwork`, `DeleteNetwork` | `owner` on `organization:<org_id>` |
 | `GetNetwork`, `ListNetworks` | `member` on `organization:<org_id>` |
 | `CreateTunnelCredential`, `DeleteTunnelCredential` | `owner` on `organization:<org_id>` |
-| `ListTunnelCredentials` | `member` on `organization:<org_id>` |
+| `GetTunnelCredential`, `ListTunnelCredentials` | `member` on `organization:<org_id>` |
 | `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
 | `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
 | `CreatePrivateResourceAccess` (agent principal) | `can_edit_config` on `agent:<agent_id>` + resource org-membership check |
@@ -220,7 +220,7 @@ See [Authorization — Networks Service](authz.md#networks-service) for the full
 
 | Gateway Proto Service | Methods |
 |---|---|
-| `NetworksGateway` | `CreateNetwork`, `GetNetwork`, `ListNetworks`, `UpdateNetwork`, `DeleteNetwork`, `CreateTunnelCredential`, `ListTunnelCredentials`, `DeleteTunnelCredential`, `CreatePrivateResource`, `GetPrivateResource`, `ListPrivateResources`, `UpdatePrivateResource`, `DeletePrivateResource`, `CreatePrivateResourceAccess`, `DeletePrivateResourceAccess`, `ListPrivateResourceAccess` |
+| `NetworksGateway` | `CreateNetwork`, `GetNetwork`, `ListNetworks`, `UpdateNetwork`, `DeleteNetwork`, `CreateTunnelCredential`, `GetTunnelCredential`, `ListTunnelCredentials`, `DeleteTunnelCredential`, `CreatePrivateResource`, `GetPrivateResource`, `ListPrivateResources`, `UpdatePrivateResource`, `DeletePrivateResource`, `CreatePrivateResourceAccess`, `DeletePrivateResourceAccess`, `ListPrivateResourceAccess` |
 
 All RPCs are external; the Networks service has no internal-only methods today.
 

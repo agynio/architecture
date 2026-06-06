@@ -329,6 +329,7 @@ An enrollment artifact for a single OpenZiti tunneler instance inside the operat
 | `enrollment_jwt_expires_at` | timestamp | JWT expiry (Controller-defined, typically 24h) |
 | `enrollment_state` | enum | `pending` (JWT issued, identity not yet enrolled) \| `enrolled` (Controller reports identity as enrolled). Sourced from the OpenZiti Controller's `enrollment.state` on the identity |
 | `connectivity` | enum | `online` (Controller reports `hasEdgeRouterConnection: true`) \| `offline`. Polled every `TUNNEL_LIVENESS_INTERVAL` (default 30s) |
+| `provisioning_state` | enum | `active` \| `failed` \| `removing`. Reflects whether the underlying OpenZiti identity was successfully created. `failed` is retried by reconciliation |
 | `enrolled_at` | timestamp \| null | Set the first time the Controller reports the identity as enrolled |
 | `last_seen_at` | timestamp \| null | Updated whenever the Controller poll observes `hasEdgeRouterConnection: true` |
 
