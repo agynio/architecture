@@ -6,6 +6,18 @@ Threads is the messaging service for conversations between participants. It stor
 
 Business logic (chat UX, agent processing, app integration) is implemented by services built on top of Threads.
 
+## Runtime Associations
+
+Threads owns messages and participants. It does not own workload or storage
+runtime state; those records are owned by [Runners](runners.md).
+
+Associated workloads are queried from Runners with
+`ListWorkloadsByThread(thread_id)`. Thread storage is queried from Runners with
+`ListVolumesByThread(thread_id)`. When storage is shown from a workload context,
+the Console passes the workload's `thread_id` to Runners and shows storage
+associated with that thread. That storage is not an exact per-workload mounted
+storage list unless a workload-scoped mount API provides that evidence.
+
 ## Interface
 
 | Method | Description |
@@ -172,4 +184,3 @@ When `SendMessage` is called with a `sender_id` whose `identity_type` is `app`:
 4. Notifications are published to all participants' rooms.
 
 Authorization is checked via [OpenFGA](authz.md) — the app must have `thread:write` permission. For cluster-scoped apps, this permission covers all threads in the platform. See [Apps — Permissions](apps.md#permissions).
-

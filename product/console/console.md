@@ -412,11 +412,17 @@ The workload detail view shows:
 
 - Workload metadata — agent name (link to agent detail), runner name (link to runner detail), thread ID, status, started, duration. Names are resolved server-side like in the list; raw `agent_id` / `runner_id` are not displayed.
 - A list of containers, ordered init containers first (in declaration order), then the main container, then sidecars. Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
+- Thread storage associated with the workload's thread, loaded via `RunnersGateway.ListVolumesByThread(workload.thread_id)`. This section is labeled as thread storage, not mounted volumes or workload volumes: it lists provisioned volumes associated with the thread and is not evidence of the exact volumes mounted by the workload's current pod.
 - A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload (init containers included). There are no tail-length or since-time controls — the fixed window keeps the UI simple.
   - If the container cannot be reached (unknown workload or container, or the Pod has already been deleted), the viewer shows an empty state: "Container no longer exists on the runner. Logs are only available while the container exists."
   - When the runtime closes the stream cleanly (logs exhausted, or the container terminated with the Pod still present), the viewer stays visible with a "Stream ended" marker so the user can scroll through what was captured; it does not clear or auto-close.
 
 Container state refreshes within one reconciliation interval — a crash, image pull failure, or successful completion appears in the detail view and in the list's container summary without a manual refresh, even when the workload-level status is unchanged.
+
+Backing RunnersGateway APIs:
+
+- `GetWorkload(workload_id)` for workload metadata and containers.
+- `ListVolumesByThread(workload.thread_id)` for thread storage shown from the workload context.
 
 ### Storage
 
@@ -446,7 +452,11 @@ Read-only view of all threads in the organization. Available to organization own
 
 **Filters** — filter bar with Status (multi-select), Participant (multi-select of identities), and Created range (from / to). All sort, filter, and search are server-side — see [Threads — ListOrganizationThreads request shape](../../architecture/threads.md#listorganizationthreads-request-shape).
 
-**Thread detail** — participant list and paginated message history (newest first). Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view.
+**Thread detail** — participant list, paginated message history (newest first), and associated workloads. Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view. Associated workloads are loaded through `RunnersGateway.ListWorkloadsByThread(thread_id)` and are associated to the thread by each workload record's `thread_id` field.
+
+Backing RunnersGateway API:
+
+- `ListWorkloadsByThread(thread_id)` for associated workloads in Thread Detail.
 
 ### Usage
 
