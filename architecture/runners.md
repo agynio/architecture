@@ -6,6 +6,7 @@ The Runners service manages runner registrations and workload runtime state. It 
 
 1. **Runners** — registered runner instances (cluster-scoped and org-scoped), their enrollment state, and metadata.
 2. **Workloads** — the runtime state of workloads running on registered runners. Which workloads are running, on which runner, with which containers.
+3. **Provisioned volumes** — storage instances provisioned on runners for specific threads.
 
 The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload state through this service. The [Gateway](gateway.md) exposes query methods for the UI. The [Terminal Proxy](terminal-proxy.md) resolves which runner hosts a workload to route exec connections.
 
@@ -28,9 +29,9 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID and sets `status=starting`. Called before `Runner.StartWorkload` to avoid a reconciliation race |
 | **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
-| **GetWorkload** | Get a workload by ID. Returns workload details including runner ID and containers |
+| **GetWorkload** | Get a workload by ID. Returns workload metadata and containers for views such as Console Workload Detail |
 | **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include denormalized `agent_name` and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
-| **ListWorkloadsByThread** | List workloads for a thread. Supports optional filtering by `agent_id` and `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for a `(thread_id, agent_id)` pair |
+| **ListWorkloadsByThread** | List workload records whose `thread_id` matches the requested thread. Supports optional filtering by `agent_id` and `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for a `(thread_id, agent_id)` pair and by Console Thread Detail to show associated workloads |
 | **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. When `agent_state` is `idle`, atomically transitions it to `processing` and emits a `workload.updated` event. Otherwise lightweight — updates only the timestamp with no event |
 
 ### Volume State
@@ -42,7 +43,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **BatchUpdateVolumeSampledAt** | Set `last_metering_sampled_at` for a list of volume IDs in a single DB write |
 | **GetVolume** | Get a volume by ID |
 | **ListVolumes** | List volumes in an organization with server-side sort, filter, and pagination. See [ListVolumes request shape](#listvolumes-request-shape) |
-| **ListVolumesByThread** | List volumes for a thread |
+| **ListVolumesByThread** | List provisioned volume records whose `thread_id` matches the requested thread. This is a thread-associated storage query, not a workload-mounted-volume list. Used by Console Workload Detail to show storage associated with the workload's thread |
 
 ## Runner Resource
 
@@ -115,6 +116,22 @@ Tracks persistent volumes actually provisioned on runners. Each record represent
 | `removed_at` | timestamp (nullable) | When the volume reached `deleted` status. NULL while active. Record is retained for audit history |
 | `last_metering_sampled_at` | timestamp (nullable) | Timestamp through which storage usage has been recorded to the [Metering Service](metering.md). NULL until the first sample |
 
+## Thread Associations
+
+Workloads and provisioned volumes are associated to threads through their
+`thread_id` fields. Runners owns those runtime records; Threads owns messages and
+participants and does not own workload or storage runtime state.
+
+`ListWorkloadsByThread(thread_id)` returns workload records whose `thread_id`
+matches the requested thread. Console Thread Detail uses this association to show
+workloads related to the thread.
+
+`ListVolumesByThread(thread_id)` returns provisioned volume records whose
+`thread_id` matches the requested thread. Console Workload Detail calls this with
+`workload.thread_id` to show thread storage from a workload context. The result
+is storage associated with the thread; it is not a guaranteed exact list of
+volumes mounted by the workload's current pod.
+
 ### Container
 
 | Field | Type | Description |
@@ -135,7 +152,7 @@ Per-container fields are refreshed by the [Agents Orchestrator](agents-orchestra
 
 ## List Query Shape
 
-`ListWorkloads` and `ListVolumes` are the Activity-view read paths exposed through the Gateway. Both lists are too large to load in one shot, so sort, filter, and pagination are server-side. Callers must not filter or sort across pages on the client. See [Console — Resource Lists](../product/console/console.md#resource-lists).
+`ListWorkloads` and `ListVolumes` are the Activity-view read paths exposed through the Gateway. Console Thread Detail uses `ListWorkloadsByThread`, and Console Workload Detail uses `GetWorkload` plus `ListVolumesByThread`. The organization-wide lists are too large to load in one shot, so sort, filter, and pagination are server-side. Callers must not filter or sort across pages on the client. See [Console — Resource Lists](../product/console/console.md#resource-lists).
 
 ### ListWorkloads request shape
 
@@ -340,7 +357,7 @@ Workload query methods (`ListWorkloads`, `ListWorkloadsByThread`, `GetWorkload`)
 
 `StreamWorkloadLogs` is a server-streaming method for reading container logs. The Runners service authorizes the caller as a member of the workload's organization, looks up the hosting runner from the workload record, dials the runner via OpenZiti (`zitiContext.Dial("runner-{runnerId}")`), and forwards [`Runner.StreamWorkloadLogs`](runner.md#streaming) output back to the caller. The Gateway exposes the method as a pass-through — it does not interpret the stream.
 
-Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByThread`) provide external access to provisioned volume state. Used by the Console's Storage view to list persistent volumes across the organization.
+Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByThread`) provide external access to provisioned volume state. The Console's Storage view uses `ListVolumes` to list persistent volumes across the organization. Console Workload Detail uses `ListVolumesByThread` to show storage associated with the workload's thread; that thread-scoped query is not a workload-mounted-volume list.
 
 Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt`, `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
 
