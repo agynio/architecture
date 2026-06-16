@@ -243,7 +243,7 @@ A rule that mediates outbound HTTP/HTTPS traffic from agent workloads. Org-scope
 | `name` | string | | Human-readable label |
 | `matcher` | object | | Which requests the rule applies to. See [Matcher](#matcher) |
 | `effect` | object | | What happens to matching requests. See [Effect](#effect) |
-| `openziti_service_id` | string | | OpenZiti service ID created for this rule (`egress-rule-<id>`). Internal — not returned through the Gateway |
+| `openziti_service_id` | string | | OpenZiti service ID returned by Ziti Management for this rule. The OpenZiti service name is `egress-rule-<id>`; Dial policy selectors target the concrete ID as `@<openziti_service_id>`. Internal — not returned through the Gateway |
 
 Uniqueness: `(organization_id, matcher.domain_pattern)`. Reserved domain patterns are rejected at create time: `*.ziti`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
 
