@@ -114,9 +114,11 @@ When a rule is attached to an agent, the EgressRules service issues:
 CreateServicePolicy(
   type: Dial,
   identityRoles: ["#agent-<agent_id>"],
-  serviceRoles:  ["@egress-rule-<rule_id>"],
+  serviceRoles:  ["@<openziti_service_id>"],
 )
 ```
+
+`<openziti_service_id>` is the actual OpenZiti service ID returned by Ziti Management and stored on the `EgressRule` row. It is not the `egress-rule-<rule_id>` service name.
 
 The `agent-<agent_id>` role attribute is the per-agent OpenZiti role already used by [Expose Service](expose-service.md) (assigned to every agent workload at identity creation — see [OpenZiti — Identity Creation Request](openziti.md#identity-creation-request)). One Dial policy per `(rule, agent)` pair. Detaching the rule deletes the policy.
 

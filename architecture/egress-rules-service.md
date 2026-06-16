@@ -13,7 +13,7 @@ The service is structurally analogous to [Expose Service](expose-service.md) —
 | **Egress Rule CRUD** | Create, read, update, delete `EgressRule` resources. Validate matcher and effect on create/update |
 | **Egress Rule Attachment CRUD** | Create, read, delete attachments binding a rule to an agent. List attachments by rule, by agent, by organization |
 | **Per-rule OpenZiti service lifecycle** | On rule create, call Ziti Management to create the OpenZiti service `egress-rule-<rule_id>` with `intercept.v1` and `host.v1` configs. On rule delete, delete the service. On rule update where `matcher.domain_pattern` or `matcher.ports` changed, update the service's intercept config |
-| **Per-attachment Dial policy lifecycle** | On attachment create, call Ziti Management to create a Dial policy granting `agent-<agent_id>` access to `@egress-rule-<rule_id>`. On detach, delete the policy |
+| **Per-attachment Dial policy lifecycle** | On attachment create, call Ziti Management to create a Dial policy granting `agent-<agent_id>` access to `@<openziti_service_id>` (the concrete OpenZiti service ID stored on the rule). On detach, delete the policy |
 | **Reconciliation** | Periodic sweep to repair drift between rule/attachment records and actual OpenZiti state |
 | **Change notifications** | Publish `egress_rule.updated` and `egress_rule_attachment.updated` events to the organization's [Notifications](notifications.md) room for cache invalidation by the gateway |
 | **Internal rule lookup** | Provide `ListEgressRulesByAgent(agent_id)` for the Egress Gateway data path |
@@ -88,11 +88,13 @@ For each rule, two OpenZiti resources via [Ziti Management](openziti.md):
 | **Service** `egress-rule-<rule_id>` (with attached `intercept.v1` and `host.v1` configs, role attribute `egress-services`) | `CreateService` | On `CreateEgressRule` |
 | **Service** deletion | `DeleteService` | On `DeleteEgressRule` |
 
+The service name is `egress-rule-<rule_id>`. The EgressRules service stores the OpenZiti service ID returned by Ziti Management as `openziti_service_id`; Dial policies target that concrete service ID with `@<openziti_service_id>`, not the service name.
+
 For each attachment, one OpenZiti policy:
 
 | Resource | Ziti Management RPC | When |
 |---|---|---|
-| **Dial policy** (`identityRoles: ["#agent-<agent_id>"]`, `serviceRoles: ["@egress-rule-<rule_id>"]`) | `CreateServicePolicy` | On `CreateEgressRuleAttachment` |
+| **Dial policy** (`identityRoles: ["#agent-<agent_id>"]`, `serviceRoles: ["@<openziti_service_id>"]`) | `CreateServicePolicy` | On `CreateEgressRuleAttachment` |
 | **Dial policy** deletion | `DeleteServicePolicy` | On `DeleteEgressRuleAttachment` |
 
 Config object shapes for `intercept.v1` and `host.v1` are in [Egress Gateway — Service Configs](egress-gateway.md#service-configs).
@@ -115,7 +117,7 @@ Each pass:
 1. **Missing OpenZiti services for active rules.** For each `EgressRule` row, verify the corresponding OpenZiti service exists. If absent, re-create it. If present but its `intercept.v1` config drifts from the rule's `matcher`, update the config.
 2. **Missing Dial policies for active attachments.** For each `EgressRuleAttachment` row, verify the corresponding Dial policy exists. If absent, re-create it.
 3. **Orphaned OpenZiti services.** List OpenZiti services with role attribute `egress-services`. Any service `egress-rule-<id>` whose `<id>` does not correspond to a live `EgressRule` row → delete.
-4. **Orphaned Dial policies.** List Dial policies whose `serviceRoles` reference an `egress-rule-<id>` service. Any policy whose `(agent_id, rule_id)` does not correspond to a live attachment → delete.
+4. **Orphaned Dial policies.** List Dial policies whose `serviceRoles` reference stored OpenZiti service IDs for egress services. Any policy whose `(agent_id, rule_id)` does not correspond to a live attachment → delete.
 
 This ensures eventual cleanup of all OpenZiti resources regardless of transient failures or missed events.
 
