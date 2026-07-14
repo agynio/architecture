@@ -172,7 +172,7 @@ Agent access is split into two layers: organization-level gates the creation and
 
 `SetAgentRole` rejects identities that are not members of the agent's organization. The check is performed against the `member` relation on the agent's org before the role tuple is written.
 
-Agent workload identities (`identity_type == "agent"`) satisfy `member` on their organization and may call read APIs needed for self-configuration, including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. The role model gates access by other identities and does not alter agent self-read.
+Agent workload identities (`identity_type == "agent_instance"`) satisfy `member` on their organization — resolved through the instance's `org` relation (see [Authorization — agent_instance](authz.md#agent_instance)) — and may call read APIs needed for self-configuration, including `ListENVs` against their class (via the instance's `class` relation). `ListENVs` never returns resolved secret values — secret-backed ENVs return only the `secret_id` reference. The role model gates access by other identities and does not alter instance self-read.
 
 `ResolveAgentIdentity` is internal only — not exposed through the [Gateway](gateway.md) — and has no OpenFGA check.
 

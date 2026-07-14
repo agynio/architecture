@@ -73,11 +73,12 @@ type organization
     define thread_create: [identity]
     define thread_write: [identity]
     define participant_add: [identity]
+    define inbox_write: [identity]
 ```
 
 `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes`. `owner` does **not** imply `can_create_thread` directly — instead `can_create_thread` is computed from `member`, and owners are also members, so owners can always create threads.
 
-`thread_create`, `thread_write`, and `participant_add` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions).
+`thread_create`, `thread_write`, `participant_add`, and `inbox_write` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions). `inbox_write` is consumed by the [`agent_instance`](#agent_instance) type via `inbox_write from org`.
 
 #### thread
 
@@ -365,7 +366,7 @@ All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, Vo
 | Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
 
-Agent workload identities (`identity_type == "agent"`) satisfy `member` on their organization and may call read APIs needed for self-configuration, including `ListENVs`. `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time. The per-agent role model gates access by other identities and does not alter agent self-read.
+Agent workload identities (`identity_type == "agent_instance"`) satisfy `member` on their organization — resolved through the instance's `org` relation on the [`agent_instance` type](#agent_instance) — and may call read APIs needed for self-configuration, including `ListENVs` against their class (via the instance's `class` relation). `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time. The per-agent role model gates access by other identities and does not alter instance self-read.
 
 ### Runners Service
 

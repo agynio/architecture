@@ -13,7 +13,7 @@ Agent state is managed entirely by each agent implementation and persisted local
 
 ## How It Works
 
-The [Agents Orchestrator](../agents-orchestrator.md) assembles the workload spec with persistent volumes defined as [Volume](../resource-definitions.md#volume) resources, keyed by `instance_id`. The [Runner](../runner.md) creates PersistentVolumeClaims on first use and reuses them on subsequent starts for the same instance. When the agent container starts, the instance's persistent volume is mounted at the configured path, and the agent reads/writes state to it as a regular filesystem.
+The [Agents Orchestrator](../agents-orchestrator.md) assembles the workload spec with persistent volumes defined as [Volume](../resource-definitions.md#volume) resources, keyed by `agent_instance_id` in the [Runners](../runners.md#volume-resource) records (distinct from the runner-local `instance_id`, which is the PVC name). The [Runner](../runner.md) creates PersistentVolumeClaims on first use and reuses them on subsequent starts for the same instance. When the agent container starts, the instance's persistent volume is mounted at the configured path, and the agent reads/writes state to it as a regular filesystem.
 
 When a workload stops (idle timeout, crash, or explicit stop), the PVC survives. On the next start for the same instance, the same PVC is mounted and the agent resumes from its persisted state. Deletion of the instance (see [Agent Instances — Lifecycle](../agent-instances.md#lifecycle)) is what eventually releases the volume.
 

@@ -456,7 +456,7 @@ All containers in the pod share the same network namespace and the same OpenZiti
 - **Agent container (`agynd`)**: receives agent ENVs (including resolved secrets), `AGENT_SKILLS`, `AGENT_INIT_SCRIPTS`, `GATEWAY_ADDRESS`. Calls `gateway.ziti` for platform APIs.
 - **MCP sidecar containers**: receive only their own MCP ENVs — no agent secrets, no agent configuration. They are local HTTP servers accessed by the agent CLI at `localhost:<port>`. They can reach `.ziti` services via TPROXY if needed, but they hold no agent credentials.
 - **Hook containers**: receive only their own hook ENVs.
-- **Gateway authorization**: agent workload identities (`identity_type == "agent"`) are explicitly denied access to Agents Service configuration APIs — even if an MCP container somehow obtained the agent's identity context, it cannot read agent ENVs, skills, or secrets via the API.
+- **Gateway authorization**: agent workload identities (`identity_type == "agent_instance"`) are explicitly denied access to Agents Service configuration APIs — even if an MCP container somehow obtained the instance's identity context, it cannot read agent ENVs, skills, or secrets via the API.
 
 ### Connection Overview
 

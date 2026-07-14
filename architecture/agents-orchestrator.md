@@ -122,7 +122,7 @@ StartWorkload(...)
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `BACKOFF_SCHEDULE` | `[10s, 30s, 1m, 5m, 15m]` | Delay after the N-th consecutive failure. The final entry is repeated for subsequent failures |
-| `MAX_ATTEMPTS` | `10` | Consecutive failures after which the thread is degraded rather than retried |
+| `MAX_ATTEMPTS` | `10` | Consecutive failures after which the instance is paused (`pause_reason=start_failures_exhausted`) rather than retried |
 
 With the defaults, an unrecoverable configuration pauses the instance after roughly two hours — long enough for most human-in-the-loop fixes, short enough that a single-instance connector (e.g., [Telegram](apps/telegram-connector.md)) is not silently blocked indefinitely. Changing the schedule or the attempt cap at the orchestrator takes effect immediately for all failed workloads — no migration is needed because retry state is derived, not stored.
 
