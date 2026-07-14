@@ -80,13 +80,14 @@ Rooms are scoped by resource type and ID:
 
 | Pattern | Example | Used by |
 |---------|---------|---------|
-| `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients (agents, apps, users) |
+| `thread_participant:{id}` | `thread_participant:550e8400-...` | Threads → message recipients of type `user` or `app` |
+| `instance_inbox:{id}` | `instance_inbox:9c1e6679-...` | Threads and apps → new [inbox items](agent-instances.md#inbox) for an [agent instance](agent-instances.md) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
-| `agent:{id}` | `agent:f47ac10b-...` | Agents → agent resource updates |
+| `agent:{id}` | `agent:f47ac10b-...` | Agents → agent (class) resource updates |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
 | `organization:{id}` | `organization:9f8e7d6c-...` | EgressRules → `egress_rule.updated` / `egress_rule_attachment.updated` events |
 
-Consumers subscribe to rooms matching their identity or the resources they observe. A UI client displaying agent logs subscribes to `workload:{workloadId}`.
+Consumers subscribe to rooms matching their identity or the resources they observe. A UI client displaying agent logs subscribes to `workload:{workloadId}`. `agynd` subscribes to `instance_inbox:me` (rewritten to the workload's instance id — see [Self-Subscription Sentinel](#self-subscription-sentinel)).
 
 ### Self-Subscription Sentinel
 
@@ -95,10 +96,11 @@ For identity-scoped rooms, the literal string `me` is reserved as the id segment
 | Room | Resolved to |
 |------|-------------|
 | `thread_participant:me` | `thread_participant:{caller.identity_id}` |
+| `instance_inbox:me` | `instance_inbox:{caller.identity_id}` — only valid when the caller's identity is an `agent_instance` |
 
 The Notifications service rewrites `:me` to the caller's `identity_id` on receipt, before authorization. Authorization rules are unchanged — the rewritten room passes the existing `id == caller.identity_id` check by construction.
 
-`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies only to identity-scoped rooms (currently `thread_participant:`); for `workload:`, `agent:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
+`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies to identity-scoped rooms (`thread_participant:`, `instance_inbox:`); for `workload:`, `agent:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
 
 Identity ids are UUIDs, so the literal `me` cannot collide with any real id.
 
@@ -127,6 +129,7 @@ External `Subscribe` (Socket.IO) requires an authenticated caller. Room access i
 | Room pattern | Access check |
 |--------------|-------------|
 | `thread_participant:{id}` | `id == caller.identity_id` (identity equality — only the participant subscribes to their own room). The [`:me` sentinel](#self-subscription-sentinel) is rewritten to the caller's `identity_id` before this check. |
+| `instance_inbox:{id}` | `id == caller.identity_id` and `caller.identity_type == agent_instance` (only the instance itself subscribes). `:me` is rewritten before the check. |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |

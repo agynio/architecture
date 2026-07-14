@@ -22,11 +22,11 @@ storage list unless a workload-scoped mount API provides that evidence.
 
 | Method | Description |
 |--------|-------------|
-| **CreateThread** | Create a new thread with initial participants. Requires `organization_id`. For each agent participant, additionally enforces the [Agent Availability Check](#agent-availability-check) |
+| **CreateThread** | Create a new thread with initial participants. Requires `organization_id`. For each agent-class participant, additionally enforces the [Agent Availability Check](#agent-availability-check) and applies the [class → instance rewrite](#class-on-add-rewrite) |
 | **ArchiveThread** | Archive a thread (soft-delete) |
 | **DegradeThread** | Mark a thread as degraded. Internal only — called by the [Agents Orchestrator](agents-orchestrator.md) when a thread cannot be recovered (persistent volume lost, hosting runner deprovisioned, or agent start failures exhausted — see [Start Decision](agents-orchestrator.md#start-decision)). Accepts a `reason` string. Idempotent — repeated calls on an already-degraded thread are a no-op |
-| **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). Accepts a `passive` flag — passive participants receive messages but do not trigger workload starts in the [Agents Orchestrator](agents-orchestrator.md). If the participant is an agent, additionally enforces the [Agent Availability Check](#agent-availability-check) |
-| **SendMessage** | Send a message to a thread (text and/or file references). Creates a `MessageRecipient` row per recipient and publishes a `message.created` notification to each recipient's room |
+| **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). If the resolved identity is an agent class, applies the [class → instance rewrite](#class-on-add-rewrite) and enforces the [Agent Availability Check](#agent-availability-check) |
+| **SendMessage** | Send a message to a thread (text and/or file references). For each non-sender participant, delivers the message to that participant's consumer channel — `MessageRecipient` for users and apps, [inbox item](agent-instances.md#inbox) for agent instances — and publishes a `message.created` notification to the corresponding room. See [Message Delivery](#message-delivery) |
 | **GetThreads** | List threads the caller participates in, with pagination |
 | **ListOrganizationThreads** | List all threads in an organization with server-side sort, filter, and pagination. Requires `can_view_threads` on the organization. See [ListOrganizationThreads request shape](#listorganizationthreads-request-shape) |
 | **GetMessages** | List messages in a thread with pagination. Read-only — does not change acknowledgment state. Accessible to thread participants and identities with `can_view_threads` on the thread's organization |
@@ -51,9 +51,10 @@ storage list unless a workload-scoped mount API provides that evidence.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string (UUID) | Participant identifier |
-| `passive` | boolean | When `true`, the [Agents Orchestrator](agents-orchestrator.md) does not start a workload for this participant when there are unread messages. The participant is expected to consume messages via the API directly |
+| `id` | string (UUID) | Participant identity id. For agents this is always an [agent instance](agent-instances.md) id — classes are rewritten to instances on add |
 | `joined_at` | timestamp | When the participant joined |
+
+Threads stores identities, not classes. When a caller adds an agent class as a participant, Threads rewrites the stored id to a fresh instance's id (see [Class-on-Add Rewrite](#class-on-add-rewrite)). From the thread's perspective, an agent participant is always an instance.
 
 ### Message
 
@@ -68,16 +69,38 @@ storage list unless a workload-scoped mount API provides that evidence.
 
 ### MessageRecipient
 
-Tracks acknowledgment state per participant per message. Created by `SendMessage` — one row per recipient (all thread participants except the sender).
+Tracks acknowledgment state for **user and app** participants. Created by `SendMessage` — one row per non-sender participant of type `user` or `app`. Agent-instance participants receive [inbox items](agent-instances.md#inbox) instead; see [Message Delivery](#message-delivery).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `message_id` | string (UUID) | FK to Message |
 | `thread_id` | string (UUID) | Denormalized for query efficiency |
-| `participant_id` | string (UUID) | Recipient |
+| `participant_id` | string (UUID) | Recipient identity id (`user` or `app`) |
 | `acked_at` | timestamp (nullable) | NULL = unacknowledged |
 
 Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
+
+## Message Delivery
+
+`SendMessage` delivers to each non-sender participant according to the participant's identity type:
+
+| Participant type | Delivery |
+|------------------|----------|
+| `user`, `app` | Insert `MessageRecipient` row; publish `message.created` to `thread_participant:{participant_id}` |
+| `agent_instance` | Insert an [inbox item](agent-instances.md#inbox) on the instance's inbox with `source_kind=thread`; publish `message.created` to `instance_inbox:{instance_id}` |
+
+The two paths are mutually exclusive per participant. `GetUnackedMessages` / `AckMessages` remain the surface for `user` and `app` consumers; agent-instance consumers use `GetUnackedInboxItems` / `AckInboxItems` on the [Agents Service](agents-service.md) inbox API. Threads does not expose the inbox surface itself — it only writes into it during fan-out.
+
+## Class-on-Add Rewrite
+
+`CreateThread` and `AddParticipant` accept either an instance id, a user/app id, or an agent class id (directly or resolved from a class `@nickname`). When the resolved identity is an agent class:
+
+1. Threads calls the [Agents Service](agents-service.md) to create a fresh instance of the class in the thread's organization.
+2. The [Agent Availability Check](#agent-availability-check) is performed against the class (not the instance) — the caller must satisfy `can_initiate` on the class.
+3. The participant is stored with the newly-created instance's id, not the class's id.
+4. The response returns the resolved participant id so the caller can address the specific instance for follow-up (e.g., `@bob#7a2f`).
+
+Adding an **existing instance** id skips instance creation but still enforces the same availability check against the instance's class. Adding the caller's own running instance (agent-to-agent delegation) reuses that instance — no new one is spawned.
 
 ## Thread Status
 
@@ -123,7 +146,14 @@ This separation handles crash recovery: a consumer can read messages, process th
 
 ## Notification Publishing
 
-On `SendMessage`, Threads publishes a `message.created` event to the [Notifications](notifications.md) service for each recipient. The target room is `thread_participant:{participantId}`. Each consumer subscribes to its own room — one subscription regardless of how many threads it participates in.
+On `SendMessage`, Threads publishes a `message.created` event to the [Notifications](notifications.md) service for each recipient. The target room depends on the recipient's identity type:
+
+| Recipient type | Room |
+|----------------|------|
+| `user`, `app` | `thread_participant:{participant_id}` |
+| `agent_instance` | `instance_inbox:{instance_id}` |
+
+Each consumer subscribes to its own room. Users and apps subscribe to their `thread_participant` room across all their threads; agent-instance consumers subscribe to their inbox room.
 
 Consumers combine notifications with pull to avoid duplicates — see [Consumer Sync Protocol](notifications.md#consumer-sync-protocol).
 
@@ -147,7 +177,7 @@ Thread access is enforced via [OpenFGA](authz.md). Each thread is an OpenFGA obj
 | `can_write` | Participants; app identities with `thread_write` on the org |
 | `can_add_participant` | Participants; app identities with `participant_add` on the org |
 
-**Per-participant agent check.** `CreateThread` and `AddParticipant` additionally check `Check(caller, can_initiate, agent:<participant_id>)` for every participant being added whose `identity_type` is `agent`. See [Agent Availability Check](#agent-availability-check). The thread-level `can_add_participant` check still applies; both must pass.
+**Per-participant agent check.** `CreateThread` and `AddParticipant` additionally check `Check(caller, can_initiate, agent:<class_id>)` for every participant being added whose `identity_type` is `agent` (a class) or `agent_instance` (resolved through the instance's class). See [Agent Availability Check](#agent-availability-check). The thread-level `can_add_participant` check still applies; both must pass.
 
 **Tuple writes:**
 - `CreateThread`: writes `organization:<org_id>, org, thread:<id>` and `identity:<id>, participant, thread:<id>` for each initial participant.
@@ -157,11 +187,13 @@ There are no tuple deletes when participants leave or when threads are archived 
 
 ## Agent Availability Check
 
-When `CreateThread` or `AddParticipant` adds an identity whose `identity_type` is `agent`, Threads performs a second OpenFGA check in addition to the thread-level participant-add check:
+When `CreateThread` or `AddParticipant` adds an identity whose `identity_type` is `agent` (a class) or `agent_instance`, Threads performs a second OpenFGA check in addition to the thread-level participant-add check. The check is always against the **class**:
 
 ```
-Check(caller, can_initiate, agent:<participant_id>) → allowed
+Check(caller, can_initiate, agent:<class_id>) → allowed
 ```
+
+For `agent_instance` inputs, Threads resolves the class id from the instance record via the [Agents Service](agents-service.md).
 
 If the check fails, the operation is rejected with a permission error. The check semantics derive from the agent's [availability](agents-service.md#availability) value and its [role assignments](agents-service.md#roles):
 
@@ -170,7 +202,7 @@ If the check fails, the operation is rejected with a permission error. The check
 
 The check is always against the **caller**, never against existing thread participants. Sharing a thread with an agent does not transitively grant the right to add the agent (or any other private agent) elsewhere. App identities holding `participant:add` or `thread:create` on the organization are subject to the same check — those org-level permissions are not enough to bypass per-agent gating. To make a private agent addable by an app (for example, a Telegram connector adding the agent to an inbound chat), an agent `owner` must grant the app a role on the agent via `SetAgentRole`.
 
-Identity-type resolution reuses the same [Identity](identity.md) lookup that resolves `@nickname` to `identity_id`. Threads issues `BatchGetIdentityTypes` for all participants being added, then issues `Check` calls only for participants of type `agent`.
+Identity-type resolution reuses the same [Identity](identity.md) lookup that resolves `@nickname` to `identity_id`. Threads issues `BatchGetIdentityTypes` for all participants being added, then issues `Check` calls for participants of type `agent` or `agent_instance` (using the class id in the latter case).
 
 ## Non-Participant Senders
 
@@ -180,7 +212,7 @@ When `SendMessage` is called with a `sender_id` whose `identity_type` is `app`:
 
 1. The sender is **not** required to be a thread participant.
 2. The message is created with the app's `sender_id`.
-3. `MessageRecipient` rows are created for **all** thread participants (since the sender is not a participant, no participant is excluded from the recipient list).
+3. Delivery rows are created for **all** thread participants (since the sender is not a participant, no participant is excluded) per the [Message Delivery](#message-delivery) rules — `MessageRecipient` for users/apps, inbox items for agent instances.
 4. Notifications are published to all participants' rooms.
 
 Authorization is checked via [OpenFGA](authz.md) — the app must have `thread:write` permission. For cluster-scoped apps, this permission covers all threads in the platform. See [Apps — Permissions](apps.md#permissions).

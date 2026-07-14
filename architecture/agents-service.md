@@ -18,7 +18,9 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent definitions: identity, model, image, init image, compute resources, behavioral configuration, [availability](#availability) | ✓ |
+| **Agents** | Agent class definitions: identity, model, image, init image, compute resources, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
+| **Agent Instances** | Instantiations of a class with their own state and [inbox](agent-instances.md#inbox). See [Agent Instances](agent-instances.md) | Create, Get, List, Pause, Resume, Delete |
+| **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
 | **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
 | **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and containers (agents, MCPs, hooks). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
@@ -29,6 +31,38 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 | **InitScripts** | Shell scripts for container initialization. Belong to an agent, MCP, or hook | ✓ |
 
 All list endpoints use cursor-based pagination.
+
+## Agents vs. Agent Instances
+
+Agents describe **what** an agent is (image, model, prompt, tools). Agent Instances are **specific running (or eligible-to-run) copies** — each with its own state volume, its own inbox, and its own identity. Threads, workloads, and inbox items always reference an instance; the class is only referenced transiently, at participant-add time, before being resolved to a fresh instance (see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
+
+The full entity model, inbox schema, routing rules, and lifecycle live in [Agent Instances](agent-instances.md). This service owns the CRUD surface for both resources.
+
+## Agent Instance API
+
+| Method | Description |
+|--------|-------------|
+| **CreateInstance** | Create an instance of a class. Called by Threads during class-on-add rewrite; also exposed to callers directly (e.g., `agyn agents instantiate`). Enforces the [Agent Availability Check](threads.md#agent-availability-check) against the class |
+| **GetInstance** | Fetch instance record (id, agent_id, state, label, timestamps) |
+| **ListInstances** | List instances in an organization with server-side sort/filter/pagination. Filters include `agent_id`, `state_in`, and `has_unacked` (true when the instance has unacked inbox items). The Orchestrator uses `state=active, has_unacked=true` for its desired-state query |
+| **PauseInstance** | Transition `active → paused`. Called by the Orchestrator on start-failure exhaustion, or by an authorized caller. Inbox continues to accept writes |
+| **ResumeInstance** | Transition `paused → active`. Wakes the Orchestrator's reconciliation if inbox items are pending |
+| **DeleteInstance** | Transition to `terminated`. Inbox rejects further writes. State volume TTL and cleanup follow the standard [Runners volume reconciliation](agents-orchestrator.md#volume-reconciliation) |
+
+### Inbox API
+
+| Method | Description |
+|--------|-------------|
+| **WriteInboxItem** | Write an item directly to an instance's inbox with `source_kind=direct`. Used by apps to address an instance without joining a thread. Requires an app-level permission on the org (or scoped to the class) |
+| **GetUnackedInboxItems** | List unacked items for an instance. Self-only — the caller must be the instance itself. Used by `agynd` |
+| **AckInboxItems** | Acknowledge processed items. Self-only |
+| **GetUnackedInboxCount** | Count-only complement of `GetUnackedInboxItems`, used by the Orchestrator's desired-state query when it doesn't need item bodies |
+
+Fan-out from `Threads.SendMessage` uses an **internal-only** RPC (`FanoutInboxItem`) that bypasses the app permission check on `WriteInboxItem` — Threads is trusted to enforce thread participation before calling it. See [Authorization — Agents Service](authz.md#agents-service) (to be updated).
+
+### Idle GC
+
+Instances transition `active → paused` when idle for the class's `instance_idle_ttl` (default `30d`) without new inbox items. The Agents service runs a background loop (default 60s) that scans `active` instances and pauses those past TTL. This is instance-level idle detection, separate from the workload-level idle timeout owned by the [Agents Orchestrator](agents-orchestrator.md#idle-timeout).
 
 ### Egress Rules (managed elsewhere)
 
@@ -105,11 +139,13 @@ Returns `NOT_FOUND` if the identity does not correspond to an agent.
 
 ## Notifications
 
-The Agents service publishes events to the [Notifications](notifications.md) service on the `agent:{id}` room so subscribers can react to configuration changes without polling.
+The Agents service publishes events to the [Notifications](notifications.md) service so subscribers can react to configuration changes without polling.
 
-| Event | Emitted when |
-|-------|--------------|
-| `agent.updated` | The agent resource is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, Hook, ENV, InitScript, Volume, Volume Attachment, Image Pull Secret Attachment) is created, updated, or deleted |
+| Event | Room | Emitted when |
+|-------|------|--------------|
+| `agent.updated` | `agent:{class_id}` | The agent class is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, Hook, ENV, InitScript, Volume, Volume Attachment, Image Pull Secret Attachment) is created, updated, or deleted |
+| `message.created` | `instance_inbox:{instance_id}` | A new [inbox item](agent-instances.md#inbox) is written for an instance (via `FanoutInboxItem` from Threads or `WriteInboxItem` from an app) |
+| `instance.updated` | `agent:{class_id}` | Instance state transitions (`active`, `paused`, `terminated`) or metadata changes on any instance of the class |
 
 **Transitive `updated_at` propagation.** A successful write to a sub-resource bumps the owning agent's `updated_at` in the same transaction. Consumers that compare timestamps — for example, the [Agents Orchestrator's Start Decision](agents-orchestrator.md#start-decision), which uses `Agent.updated_at > failed_workload.removed_at` to decide whether a configuration change warrants a retry — therefore only need to read the agent record. No traversal of sub-resources is required.
 

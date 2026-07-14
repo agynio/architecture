@@ -1,0 +1,157 @@
+# Agent Instances
+
+## Overview
+
+An **agent instance** is a specific, persistent instantiation of an agent [class](agents-service.md). The class defines what an agent *is* (image, model, prompt, tools); the instance is a running (or eligible-to-run) copy of it with its own state and its own inbox.
+
+Every message addressed to an agent lands in exactly one instance's **inbox**. Workloads are scheduled on instances (not on `(agent, thread)` pairs). State is keyed per instance. Threads reference instances as participants; classes are only referenced transiently, at participant-add time, before being resolved to a fresh instance.
+
+This document defines the entity, its inbox, the routing rules that get messages into it, and its lifecycle. Related surfaces:
+
+- [Threads](threads.md) — participants reference instances; class → instance rewrite on add
+- [Agents Orchestrator](agents-orchestrator.md) — reconciliation on instances with unacked inbox items
+- [Agents Service](agents-service.md) — manages both classes and instances
+- [Identity](identity.md) — instance identities and `@nick#suffix` handles
+- [`agyn` CLI](agyn-cli.md) — mandatory `--thread` on send; class vs. instance in thread commands
+- [`agynd`](agynd-cli.md) — inbox fetch/ack protocol replaces per-thread reads
+
+## Entity
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Instance identifier. Also the identity id registered with [Identity](identity.md) with `identity_type = agent_instance` |
+| `agent_id` | string (UUID) | Class this instance was spawned from |
+| `organization_id` | string (UUID) | Denormalized from the class for authorization scope |
+| `label` | string (nullable) | Optional user-visible suffix on the handle (see [Handles](#handles)). Not unique on its own — combined with the instance id it forms the unique handle |
+| `state` | enum | `active` (workload eligible), `paused` (no workload spawns; inbox still accepts writes), `terminated` (soft-deleted; inbox rejects writes) |
+| `created_at` | timestamp | Creation time |
+| `last_activity_at` | timestamp | Set by `agynd` when the workload last did work. Drives idle GC (see [Lifecycle](#lifecycle)) |
+
+An instance is a first-class platform identity. It appears in `MessageRecipient`-equivalent rows, in authorization checks, and in the Identity service's `@mention` resolution.
+
+## Inbox
+
+Every instance owns one inbox: an ordered log of messages addressed to it. The inbox is the single accumulation point for anything the instance needs to process — regardless of source.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Inbox identifier. One inbox per instance; `inbox.id` is derivable from `instance.id` |
+| `instance_id` | string (UUID) | Owning instance |
+
+Inbox items:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Item identifier |
+| `inbox_id` | string (UUID) | Parent inbox |
+| `source_kind` | enum | `thread` (routed from a thread the instance participates in) or `direct` (written directly by an app via the inbox write API) |
+| `thread_id` | string (UUID, nullable) | Set when `source_kind = thread` |
+| `message_id` | string (UUID, nullable) | Set when `source_kind = thread` — the underlying [Threads Message](threads.md#message) |
+| `sender_id` | string (UUID) | Identity that produced this item |
+| `body` | string | Text content |
+| `files` | list of string (UUID) | Referenced file IDs |
+| `accepted_at` | timestamp | Server-side acceptance time; drives inbox ordering |
+| `acked_at` | timestamp (nullable) | NULL = unacknowledged |
+
+**Ordering.** Global FIFO by `accepted_at` across all sources. The instance processes items in acceptance order regardless of which thread they came from. Presentation to the LLM (interleaved vs. grouped) is an agent-implementation concern, not a platform contract.
+
+**Ack semantics.** Items are unacked until the owning workload calls `AckInboxItems`. Unacked items keep the instance in the Orchestrator's reconciliation set (a workload is running or will be started). See [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+
+**Write paths.**
+
+- **Thread fan-out** (see [Routing rules](#routing-rules)) — the [Threads](threads.md) service creates one inbox item per participating instance on every `SendMessage`.
+- **Direct write** — [apps](apps.md) with the appropriate permission call `WriteInboxItem(instance_id, body, files, ...)` on the Agents service. `source_kind = direct`, `thread_id` and `message_id` are NULL. Useful for connectors/reminders that address the agent without joining a thread.
+
+Reads/acks are always instance-scoped: `GetUnackedInboxItems(instance_id)`, `AckInboxItems(instance_id, item_ids)`. No cross-thread merging inside the agent — the inbox is that merge.
+
+## Participation
+
+Threads reference instances, not classes. A thread [Participant](threads.md#participant) row's `identity_id` is either a user id, an app installation id, or an **agent instance id**. Classes never appear stored on a thread — they are input to participant-add, not output.
+
+### Class-on-add rewrite
+
+`CreateThread` and `AddParticipant` accept either an instance identity or a class identity (i.e., a class `@nickname` or class `identity_id`).
+
+- **Instance provided** — stored as-is. The instance is added to the thread; a new inbox item is created for it on every subsequent `SendMessage`.
+- **Class provided** — the Agents service creates a fresh instance of the class (`state = active`), registers its identity, and the stored participant is that instance's id. From the thread's perspective the participant is (and always will be) the instance. The caller learns the instance id on the response.
+
+This makes "spawn a fresh assistant for this conversation" (class-add) and "reuse this specific running assistant" (instance-add) explicit at the participant level, with a uniform downstream storage shape.
+
+### Delegation across threads
+
+Preserving context across a sub-thread is achieved by adding **the same instance** to both threads. When agent instance A (running on thread X) creates thread Y and adds itself as an instance (not as its class), messages on Y for A route to A's inbox — the same inbox A processes for X. No separate workload on Y, no fresh context.
+
+### Passive participation removed
+
+The [`passive` participant flag](threads.md) is removed. Every participant is a consumer of its inbox by default. The original passive use case (A subscribes to Y's responses without spawning a new workload on Y) is served by explicit instance participation: A adds `@a#N` (its running instance), not `@a` (the class).
+
+## Routing rules
+
+On `SendMessage(thread_id, sender_id, body, files)`:
+
+1. Look up thread participants (excluding `sender_id`).
+2. For each participant, resolve identity type via [Identity](identity.md):
+   - `user`, `app` — create a [`MessageRecipient`](threads.md#messagerecipient) row as today. Notification to `thread_participant:{participant_id}`.
+   - `agent_instance` — create an inbox item on the participant instance's inbox with `source_kind = thread`, `thread_id`, `message_id`, `sender_id`, `body`, `files`, `accepted_at = server time`. Notification to `instance_inbox:{instance_id}`.
+
+The two paths are mutually exclusive per participant. There is no double-write: an `agent_instance` participant does not get a `MessageRecipient` row; a `user`/`app` participant does not get an inbox item. Reads for the participant (unacked messages) go through the corresponding read API.
+
+Cross-thread ordering is not guaranteed globally, only within a single inbox. A `SendMessage` on thread X at wall-clock time T and a `SendMessage` on thread Y at time T' > T are ordered `T` before `T'` inside any inbox that receives items from both.
+
+## Lifecycle
+
+### Creation
+
+- **Lazy** — a fresh instance is created by `CreateThread` / `AddParticipant` when a class is provided. This is the primary path.
+- **Explicit** — `agyn agents instantiate @class [--label LABEL]` creates an instance without joining a thread. Useful when an app wants to address an instance directly before any conversation exists.
+
+The class must satisfy the agent [availability](agents-service.md#availability) check for the caller (`can_initiate`). Instance creation is authorized by the same rule as adding the class to a thread.
+
+### Idle GC and pausing
+
+Instances persist beyond individual workload lifecycles. State on disk (see [Agent State](agent/state.md)) survives workload restarts. A workload is only running when there's work to do; the instance stays around.
+
+An instance transitions `active → paused` when:
+
+- Idle for more than the class's `instance_idle_ttl` (default `30d`) without new inbox items.
+- Explicit `PauseInstance(instance_id)` by an authorized caller.
+
+`paused` means: no workloads spawn, but the inbox continues to accept writes. Unpausing (`ResumeInstance`) or a new inbox item under a policy that auto-resumes flips it back to `active`.
+
+An instance transitions to `terminated` on explicit `DeleteInstance`. Terminated is soft-delete — the inbox rejects new writes, existing state is retained for audit until a hard retention cutoff.
+
+### State and workload
+
+- **State volume** is per-instance. The Agents service records a persistent volume attachment keyed by `instance_id`. Workload starts mount this volume; workload stops leave it in place.
+- **Workload identity** is the instance identity. The [Orchestrator](agents-orchestrator.md) starts a workload with `INSTANCE_ID = instance.id` in the environment; `agynd` uses this to fetch its inbox and to identify itself in platform calls.
+- One workload at a time per instance. A `starting`/`running`/`stopping` workload precludes another for the same instance.
+
+## Handles
+
+Instance handles use the form `@nick#suffix`:
+
+- `@nick` — the class's nickname (unchanged; still stored on the class in the [Identity](identity.md) nickname index).
+- `#suffix` — instance-scoped. Either system-generated (opaque, e.g., `#7a2f`) or the instance's optional `label` field (user-chosen).
+
+Handle resolution: `ResolveHandle("@bob#research", org_id)` returns the instance identity id; `ResolveHandle("@bob", org_id)` returns the class identity id. The `#` split is a first-class part of the resolver.
+
+Uniqueness: `UNIQUE(agent_id, label)` for labeled instances within a class. System-generated suffixes are UUID-derived and cannot collide.
+
+## Authorization
+
+Instance authorization derives from the class. Adding an instance to a thread requires `can_initiate` on the class (same as adding the class itself). Direct inbox writes by apps require an app-level permission (`inbox:write` on the org or scoped to the class).
+
+The `agent_instance` identity itself holds `member` on its organization (via its class) — enough for `agynd` to make platform API calls in the same way today's agent workload identities do. Full authorization model: [Authorization — Agent Instance type](authz.md#agent-instance) (to be defined; the initial model can reuse the `agent` type's derivations by traversing `instance → class`).
+
+## Relationship to existing concepts
+
+| Concept | Change |
+|---------|--------|
+| Agent (class) | Unchanged — still the configuration entity in [Agents Service](agents-service.md) |
+| Agent workload | Now scoped to an instance (was: `(agent, thread)`) |
+| Thread participant | References an instance (was: an agent identity) |
+| `MessageRecipient` | Only created for `user`/`app` participants; agent-instance participants get inbox items instead |
+| `passive` participant | Removed |
+| Agent state volume | Keyed by instance (was: keyed by `(agent, thread)`) |
+| `THREAD_ID` env var | Removed; replaced by `INSTANCE_ID` |
+| `thread_participant:{id}` notification room (for agents) | Replaced by `instance_inbox:{id}` for agent instances; users and apps still use `thread_participant` |

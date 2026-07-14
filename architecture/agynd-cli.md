@@ -15,33 +15,37 @@
 
 ### 1. Platform Connection
 
-`agynd` implements the [agent contract](agent/overview.md):
+`agynd` implements the [agent contract](agent/overview.md) on behalf of a specific [agent instance](agent-instances.md):
 
-- Subscribes to `thread_participant:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` before authorization, so `agynd` does not need to know its `identity_id`.
-- Pulls unacknowledged messages via `GetUnackedMessages(thread_id: THREAD_ID)` (Gateway → [Threads](threads.md)), scoped to the thread the Orchestrator assigned this workload to process.
-- Posts agent responses back to the thread via `SendMessage`.
-- Acknowledges processed messages via `AckMessages`.
-- Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable message delivery.
+- Subscribes to `instance_inbox:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` (this workload's instance id) before authorization, so `agynd` does not need to hard-code its id.
+- Pulls unacknowledged [inbox items](agent-instances.md#inbox) via `GetUnackedInboxItems(instance_id: INSTANCE_ID)` on the [Agents Service](agents-service.md) (via Gateway). Each item is tagged with `source_kind` (`thread` or `direct`), and — when routed from a thread — `thread_id`, `message_id`, and `sender_id`.
+- Posts agent responses to threads via `Threads.SendMessage(thread_id, ...)`. Every send specifies an explicit `thread_id` — there is no "current thread" default.
+- Acknowledges processed inbox items via `AckInboxItems(instance_id, item_ids)`.
+- Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable delivery.
 - Sends keepalive signals to the [Runners](runners.md) service (via [Gateway](gateway.md)) while the agent is actively processing. See [Activity Keepalive](#5-activity-keepalive).
 
 ### 2. Message Formatting
 
-`agynd` translates thread messages into the format expected by the agent CLI before feeding them via the SDK. Thread messages contain structured data (`body`, `files[]`), but agent CLIs receive plain text.
+`agynd` translates inbox items into the format expected by the agent CLI before feeding them via the SDK. Inbox items contain structured data (`body`, `files[]`, `thread_id`, `sender_id`, `source_kind`), but agent CLIs receive plain text.
 
-When a thread message has file attachments, `agynd` appends `agyn://file/` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm).
+Every item is prefixed with a compact header identifying its source, so the LLM can address replies correctly:
 
 ```
+thread: <thread-id-or-ref>
+from: @sender-handle
 What's in this image?
 agyn://file/file-uuid-1
 ```
 
-Messages without file attachments are sent as the `body` field only. The `agyn://file/` scheme is only appended when the `files` array is non-empty.
+For `source_kind = direct` (app-written) items, `thread:` is replaced by `source: direct` — the agent has no thread to reply on for these; it must decide where to write (typically a thread it already participates in).
 
-The agent CLI has no knowledge of thread messages, file IDs, or the `files` array — it receives pre-formatted plain text.
+When an item has file attachments, `agynd` appends `agyn://file/` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm). Items without file attachments contain only the header + body. The `agyn://file/` scheme is only appended when the `files` array is non-empty.
+
+The agent CLI has no knowledge of the inbox schema, file IDs, or the `files` array — it receives pre-formatted plain text with the thread-source header.
 
 ### 3. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches agent configuration from the platform via the Gateway (`gateway.ziti`) using its own agent OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads its `agent_id` from the `AGENT_ID` environment variable and passes it explicitly in each API call. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
+Before spawning the agent CLI, `agynd` fetches class configuration from the platform via the Gateway (`gateway.ziti`) using its own agent-instance OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads two identifiers from environment variables: `INSTANCE_ID` (this workload's instance) and `AGENT_ID` (the class the instance was spawned from). Class configuration is fetched with `AGENT_ID`; inbox and workload calls use `INSTANCE_ID`. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|
@@ -243,23 +247,23 @@ sequenceDiagram
     R->>D: Start pod (Ziti sidecar enrolls identity)
     Note over D: Ziti sidecar resolves OpenZiti hostnames and intercepts traffic (DNS + TPROXY)
     D->>GW: GetAgent(agent_id) + ListSkills + ListInitScripts + ListMCPs
-    GW-->>D: Agent config, skills, init scripts, MCP definitions
+    GW-->>D: Class config, skills, init scripts, MCP definitions
     D->>D: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
     D->>D: Execute init scripts in order (/bin/sh -lc each)
-    D->>GW: Subscribe to thread_participant:me
+    D->>GW: Subscribe to instance_inbox:me
     D->>A: Spawn agent CLI via SDK
 
-    loop Message processing
-        D->>GW: GetUnackedMessages(agentId)
-        GW-->>D: Messages
-        D->>A: Feed messages via SDK
+    loop Inbox processing
+        D->>GW: GetUnackedInboxItems(instanceId)
+        GW-->>D: Inbox items (tagged with thread/sender)
+        D->>A: Feed items via SDK (with thread-source headers)
         A->>A: Process (LLM loop, tools, etc.)
-        A-->>D: Events/responses via SDK
-        D->>GW: SendMessage (post response)
-        D->>GW: AckMessages
+        A-->>D: Events/responses via SDK (each specifies target thread)
+        D->>GW: Threads.SendMessage(thread_id, body, files)
+        D->>GW: AckInboxItems(instanceId, itemIds)
     end
 
     Note over D: Wait for notification or poll
-    GW-->>D: message.created
-    Note over D: Resume message processing
+    GW-->>D: message.created on instance_inbox:me
+    Note over D: Resume inbox processing
 ```

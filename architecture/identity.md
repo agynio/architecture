@@ -6,15 +6,17 @@ The Identity service is the platform's central registry of all identities. It ma
 
 ## Why
 
-The platform has four identity types (user, agent, runner, app), each provisioned and profiled by a different service. Services like [Threads](threads.md) store only opaque identity UUIDs. Consumers that need to display identity information (e.g., [Chat](chat.md) showing sender name and photo) query the Identity service to determine the type, then fetch the profile from the appropriate source.
+The platform has five identity types (user, agent, agent_instance, runner, app), each provisioned and profiled by a different service. Services like [Threads](threads.md) store only opaque identity UUIDs. Consumers that need to display identity information (e.g., [Chat](chat.md) showing sender name and photo) query the Identity service to determine the type, then fetch the profile from the appropriate source.
 
 ## Identity Model
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier. Primary key |
-| `identity_type` | enum | `user`, `agent`, `runner`, `app` |
+| `identity_type` | enum | `user`, `agent` (class), `agent_instance`, `runner`, `app` |
 | `created_at` | timestamp | Registration time |
+
+`agent` identifies an agent **class** (the configuration entity in [Agents Service](agents-service.md)); `agent_instance` identifies a specific [instance](agent-instances.md) of a class. Both may appear as `sender_id` on messages; only `agent_instance` appears as a thread participant (classes are rewritten to instances on add — see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
 
 ## Nickname Index
 
@@ -23,15 +25,16 @@ Nicknames are stored in a separate `org_nicknames` table, independent of the cor
 | Field | Type | Description |
 |-------|------|-------------|
 | `org_id` | string (UUID) | Organization scope. Always set — there are no global nicknames |
-| `identity_id` | string (UUID) | The identity this nickname belongs to |
-| `installation_id` | string (UUID), nullable | Set for app installations; null for users and agents |
-| `nickname` | string | The handle. Pattern: `^[a-z0-9_-]+$`, max 32 chars |
+| `identity_id` | string (UUID) | The identity this nickname belongs to (class or instance) |
+| `installation_id` | string (UUID), nullable | Set for app installations; null for users, agents, and agent instances |
+| `nickname` | string | The class handle. Pattern: `^[a-z0-9_-]+$`, max 32 chars |
+| `instance_suffix` | string, nullable | Set only for `agent_instance` identities. Combined with `nickname` to form `@nickname#instance_suffix`. Either a system-generated stem (opaque, e.g., `7a2f`) or a user-chosen label. Pattern: `^[a-z0-9_-]+$`, max 32 chars |
 
-Constraints: `UNIQUE(org_id, nickname)` — one nickname per handle per org. For users and agents: `UNIQUE(org_id, identity_id)` — one nickname per identity per org. For app installations: `UNIQUE(org_id, installation_id)` — one nickname per installation per org (the same app identity may appear multiple times in the same org with different installation IDs).
+Constraints: `UNIQUE(org_id, nickname, instance_suffix)` — one full handle per org (with `instance_suffix` treated as an empty string when NULL). For users, agents (classes), and agent instances: `UNIQUE(org_id, identity_id)` — one handle per identity per org. For app installations: `UNIQUE(org_id, installation_id)`.
 
-`ResolveNickname` returns `identity_id`, `identity_type`, and `installation_id`. Callers use `identity_type` to route profile fetches, and `installation_id` (when set) to identify which app installation configuration applies in a given thread context.
+`ResolveNickname(handle, org_id)` accepts either `@nickname` or `@nickname#instance_suffix`. It returns `identity_id`, `identity_type`, and `installation_id`. When the handle includes `#suffix`, the returned identity is an `agent_instance`; without `#`, it is a `user`, `agent` (class), or `app`. Callers use `identity_type` to route profile fetches, and `installation_id` (when set) to identify which app installation configuration applies in a given thread context.
 
-All identity types use the same table. For users, the [Organizations](organizations.md#default-nickname-on-activation) service seeds a default nickname from the user's cluster-wide [`username`](users.md#username) when their membership becomes active; on conflict the seeding is skipped and the user picks one later. Agents register their nickname at creation time. App installations register a nickname per installation, defaulting to the app's slug. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
+All identity types use the same table. For users, the [Organizations](organizations.md#default-nickname-on-activation) service seeds a default nickname from the user's cluster-wide [`username`](users.md#username) when their membership becomes active; on conflict the seeding is skipped and the user picks one later. Agent classes register their nickname at creation time. Agent instances register at instance-create time — the nickname is the class's nickname; the `instance_suffix` is either supplied by the caller (as a `label`) or system-generated. App installations register a nickname per installation, defaulting to the app's slug. `@mention` resolution is always org-scoped — `@alice` in org A and `@alice` in org B are independent entries that may refer to different identities.
 
 ## Interface
 
@@ -51,7 +54,8 @@ Every service that creates an identity registers it here:
 | Identity Type | Registering Service | When |
 |---------------|-------------------|------|
 | **User** | [Users](users.md) | On first OIDC login (user provisioning) |
-| **Agent** | [Agents](agents-service.md) | On agent resource creation |
+| **Agent** (class) | [Agents](agents-service.md) | On agent resource creation |
+| **Agent Instance** | [Agents](agents-service.md) | On instance creation (`CreateInstance`, lazy via `Threads.CreateThread`/`AddParticipant`, or explicit) |
 | **Runner** | [Runners](runners.md) | On runner registration |
 | **App** | [Apps Service](apps-service.md) | On app registration |
 

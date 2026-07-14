@@ -2,9 +2,9 @@
 
 ## Overview
 
-An agent is a workload that processes messages from a thread. The platform is **implementation-agnostic** — our own agent implementation is the primary one, but the interface must support wrapping 3rd-party agents (e.g., Claude Code, Codex CLI, custom CLIs).
+An agent is a workload that processes [inbox items](../agent-instances.md#inbox) for a specific [agent instance](../agent-instances.md). The platform is **implementation-agnostic** — our own agent implementation is the primary one, but the interface must support wrapping 3rd-party agents (e.g., Claude Code, Codex CLI, custom CLIs).
 
-This document describes the agent contract: what an agent is, how it connects to the platform, and how its lifecycle is managed. For our specific implementation details, see [Agent Implementation](implementation.md).
+This document describes the agent contract: what an agent is, how it connects to the platform, and how its lifecycle is managed. Every workload processes one instance; the instance is durable across workload restarts. For our specific implementation details, see [Agent Implementation](implementation.md).
 
 ## Agent Contract
 
@@ -34,12 +34,12 @@ graph TB
 
 | Responsibility | Description |
 |---------------|-------------|
-| **Read messages** | Pull unacknowledged messages via `GetUnackedMessages` |
-| **Acknowledge messages** | Call `AckMessages` after successful processing |
+| **Read inbox items** | Pull unacknowledged items for the instance via `GetUnackedInboxItems(instance_id)` on the [Agents Service](../agents-service.md) |
+| **Acknowledge items** | Call `AckInboxItems` after successful processing |
 | **Access files via MCP** | File content is accessed on demand by the LLM through the [files-mcp](../files-mcp.md) MCP server, which reads from the Files service |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
-| **Post responses** | Write response messages back to the thread via Threads API |
-| **Subscribe to notifications** | Listen for `message.created` events on the [`thread_participant:me`](../notifications.md#self-subscription-sentinel) room (resolved server-side to the caller's `identity_id`) |
+| **Post responses** | Write response messages back via [`Threads.SendMessage`](../threads.md), specifying an explicit `thread_id` per send |
+| **Subscribe to notifications** | Listen for `message.created` events on the [`instance_inbox:me`](../notifications.md#self-subscription-sentinel) room (resolved server-side to the caller's `identity_id`, which is the instance id) |
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
 
@@ -47,7 +47,7 @@ The agent is primarily a **client** — it connects to the [Gateway](../gateway.
 
 ## Communication Protocol
 
-The agent uses a **pull strategy combined with notifications** to receive messages.
+The agent uses a **pull strategy combined with notifications** to receive inbox items.
 
 ### How It Works
 
@@ -56,35 +56,35 @@ sequenceDiagram
     participant N as Notifications
     participant GW as Gateway
     participant A as Agent
-    participant T as Threads
+    participant AS as Agents Service
 
     Note over A: Startup
-    A->>GW: Subscribe to thread_participant:me room
+    A->>GW: Subscribe to instance_inbox:me room
     GW->>N: Subscribe (server-streaming)
-    A->>GW: GetUnackedMessages(agentId)
-    GW->>T: GetUnackedMessages(agentId)
-    T-->>GW: Messages
-    GW-->>A: Messages
-    A->>A: Process messages
-    A->>GW: AckMessages
-    GW->>T: AckMessages
+    A->>GW: GetUnackedInboxItems(instance_id)
+    GW->>AS: GetUnackedInboxItems(instance_id)
+    AS-->>GW: Items (tagged with thread/sender)
+    GW-->>A: Items
+    A->>A: Process items
+    A->>GW: AckInboxItems
+    GW->>AS: AckInboxItems
 
-    Note over A: Mid-run: new message arrives
-    N-->>GW: message.created
+    Note over A: Mid-run: new item arrives
+    N-->>GW: message.created (on instance_inbox room)
     GW-->>A: message.created
-    A->>GW: GetUnackedMessages(agentId)
-    GW->>T: GetUnackedMessages(agentId)
-    T-->>GW: Messages
-    GW-->>A: Messages
-    A->>A: Process new messages
-    A->>GW: AckMessages
-    GW->>T: AckMessages
+    A->>GW: GetUnackedInboxItems(instance_id)
+    GW->>AS: GetUnackedInboxItems(instance_id)
+    AS-->>GW: Items
+    GW-->>A: Items
+    A->>A: Process new items
+    A->>GW: AckInboxItems
+    GW->>AS: AckInboxItems
 ```
 
-1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its [`thread_participant:me`](../notifications.md#self-subscription-sentinel) notification room and pulls unacknowledged messages via `GetUnackedMessages`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
-2. During processing, new messages may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new messages at the appropriate point in its processing loop.
-3. After processing, the agent calls `AckMessages` to confirm the messages were handled.
-4. When idle (current turn complete, no unacknowledged messages), the agent waits for either a notification or the poll interval to expire, then checks again.
+1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its [`instance_inbox:me`](../notifications.md#self-subscription-sentinel) notification room and pulls unacknowledged inbox items via `GetUnackedInboxItems`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+2. During processing, new items may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new items at the appropriate point in its processing loop.
+3. After processing, the agent calls `AckInboxItems` to confirm the items were handled.
+4. When idle (current turn complete, no unacknowledged items), the agent waits for either a notification or the poll interval to expire, then checks again.
 5. The polling loop is a **fallback**. The poll interval can be long (10s, 30s) since notifications handle the latency-sensitive path.
 
 ### Design Principles
@@ -172,12 +172,12 @@ sequenceDiagram
     O->>R: StopWorkload
 ```
 
-1. The orchestrator's reconciliation loop detects threads with unacknowledged messages for agent participants.
-2. Orchestrator requests Runner to start an agent workload with thread ID and agent config.
+1. The orchestrator's reconciliation loop detects instances with unacknowledged inbox items.
+2. Orchestrator requests Runner to start an agent workload with `INSTANCE_ID`, `AGENT_ID` (class), and class config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent connects to the Gateway (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to notifications, pulls unacknowledged messages, processes, posts responses, acknowledges.
-5. Agent waits for new messages (notification or poll fallback).
-6. The orchestrator monitors agent activity. When idle timeout is exceeded, it stops the workload via Runner.
+4. Agent connects to the Gateway (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to notifications, pulls unacknowledged inbox items, processes, posts responses to threads, acknowledges.
+5. Agent waits for new items (notification or poll fallback).
+6. The orchestrator monitors workload activity. When idle timeout is exceeded, it stops the workload via Runner. The instance persists — a new workload starts on the next inbox item.
 
 ### Idle Timeout
 
@@ -187,7 +187,7 @@ See [Agents Orchestrator — Idle Timeout](../agents-orchestrator.md#idle-timeou
 
 ### Scaling
 
-In the simple case, one container per agent invocation. For specific agents, batching may be desirable — a single agent instance processing multiple threads. See [open question](../../open-questions.md#agent-batching-protocol).
+One container per agent instance while there is work to do. A single instance can already receive items from many threads via its inbox — no separate batching mechanism is needed for that. Batching workloads across *different* instances (multi-tenant containers) remains an [open question](../../open-questions.md#agent-batching-protocol).
 
 ## Configuration
 

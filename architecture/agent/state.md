@@ -8,13 +8,14 @@ Agent state is managed entirely by each agent implementation and persisted local
 
 - **Agent-owned.** Each agent implementation (our [`agn`](../agn-cli.md), wrapped Codex, wrapped Claude, custom agents) defines its own state format and storage layout. The platform does not interpret or validate agent state.
 - **Disk-based.** State is written to a filesystem path backed by a persistent volume. No external service dependency for state persistence.
-- **Volume-scoped lifetime.** State lives as long as the persistent volume exists. The [Volume](../resource-definitions.md#volume) resource's lifecycle (creation, deletion) determines when state is created and lost.
+- **Instance-scoped.** State is keyed by [agent instance](../agent-instances.md), not by thread or by class. Multiple threads that route to the same instance share the same state; different instances of the same class have independent state.
+- **Volume-scoped lifetime.** State lives as long as the persistent volume exists. The volume is bound to the instance; deleting the instance releases it (subject to volume TTL).
 
 ## How It Works
 
-The [Agents Orchestrator](../agents-orchestrator.md) assembles the workload spec with persistent volumes defined as [Volume](../resource-definitions.md#volume) resources. The [Runner](../runner.md) creates PersistentVolumeClaims on first use and reuses them on subsequent starts. When the agent container starts, the persistent volume is mounted at the configured path, and the agent reads/writes state to it as a regular filesystem.
+The [Agents Orchestrator](../agents-orchestrator.md) assembles the workload spec with persistent volumes defined as [Volume](../resource-definitions.md#volume) resources, keyed by `instance_id`. The [Runner](../runner.md) creates PersistentVolumeClaims on first use and reuses them on subsequent starts for the same instance. When the agent container starts, the instance's persistent volume is mounted at the configured path, and the agent reads/writes state to it as a regular filesystem.
 
-When the agent is stopped (idle timeout, crash, or explicit stop), the PVC survives. On the next start, the same PVC is mounted, and the agent resumes from its persisted state.
+When a workload stops (idle timeout, crash, or explicit stop), the PVC survives. On the next start for the same instance, the same PVC is mounted and the agent resumes from its persisted state. Deletion of the instance (see [Agent Instances — Lifecycle](../agent-instances.md#lifecycle)) is what eventually releases the volume.
 
 ## Isolation
 
