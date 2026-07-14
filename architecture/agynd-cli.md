@@ -18,9 +18,9 @@
 `agynd` implements the [agent contract](agent/overview.md) on behalf of a specific [agent instance](agent-instances.md):
 
 - Subscribes to `instance_inbox:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` (this workload's instance id) before authorization, so `agynd` does not need to hard-code its id.
-- Pulls unacknowledged [inbox items](agent-instances.md#inbox) via `GetUnackedInboxItems(instance_id: INSTANCE_ID)` on the [Agents Service](agents-service.md) (via Gateway). Each item is tagged with `source_kind` (`thread` or `direct`), and — when routed from a thread — `thread_id`, `message_id`, and `sender_id`.
+- Pulls unacknowledged [inbox items](agent-instances.md#inbox) via `GetUnackedInboxItems(instance_id: AGENT_INSTANCE_ID)` on the [Agents Service](agents-service.md) (via Gateway). Each item is tagged with `source_kind` (`thread` or `direct`), and — when routed from a thread — `thread_id`, `message_id`, and `sender_id`.
 - Posts agent responses to threads via `Threads.SendMessage(thread_id, ...)`. Every send specifies an explicit `thread_id` — there is no "current thread" default.
-- Acknowledges processed inbox items via `AckInboxItems(instance_id, item_ids)`.
+- Acknowledges processed inbox items via `AckInboxItems(instance_id, item_ids)` — by default after the turn completes (responses posted). SDKs that cannot observe turn boundaries may ack once items are durably written to the agent's state volume. See [Agent Instances — Ack timing](agent-instances.md#inbox).
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable delivery.
 - Sends keepalive signals to the [Runners](runners.md) service (via [Gateway](gateway.md)) while the agent is actively processing. See [Activity Keepalive](#5-activity-keepalive).
 
@@ -45,14 +45,14 @@ The agent CLI has no knowledge of the inbox schema, file IDs, or the `files` arr
 
 ### 3. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches class configuration from the platform via the Gateway (`gateway.ziti`) using its own agent-instance OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads two identifiers from environment variables: `INSTANCE_ID` (this workload's instance) and `AGENT_ID` (the class the instance was spawned from). Class configuration is fetched with `AGENT_ID`; inbox and workload calls use `INSTANCE_ID`. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
+Before spawning the agent CLI, `agynd` fetches class configuration from the platform via the Gateway (`gateway.ziti`) using its own agent-instance OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads two identifiers from environment variables: `AGENT_INSTANCE_ID` (this workload's instance) and `AGENT_ID` (the class the instance was spawned from). Class configuration is fetched with `AGENT_ID`; inbox and workload calls use `AGENT_INSTANCE_ID`. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|
 | **Skills** | Fetches skills via `ListSkills(agent_id)` and writes content to the filesystem in the directory structure expected by the agent CLI |
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
-| **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.thread.id`, `agyn.thread.message.id`, and `agyn.workload.id` and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
+| **Tracing endpoint** | Runs a local [OTLP tracing proxy](tracing.md#agynd-tracing-proxy) on `localhost:4317` that injects `agyn.agent_instance.id`, `agyn.workload.id`, and per-turn `agyn.thread.id` / `agyn.thread.message.id` (from the current turn's inbox items) and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti` |
 | **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(agent_id)` and executes each in creation order using the container's default shell. Each script runs with its working directory set to `WORKSPACE_DIR` when that variable is defined in the subprocess environment, and to `/tmp` otherwise. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. |
 | **PATH** | Prepends `/agyn-bin/cli` and `/agyn-bin` to `PATH` in the subprocess environment. `/agyn-bin/cli` makes the `agyn` platform CLI available by name; `/agyn-bin` makes `agynd` and the configured agent CLI binary (`codex`, `claude`, or `agn`) available by name to the agent process and any child commands it runs. |
 

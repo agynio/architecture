@@ -325,12 +325,12 @@ What the orchestrator passes to the main container:
 
 | Env Var | Source | Description |
 |---------|--------|-------------|
-| `AGENT_ID` | Agent resource | Agent UUID |
+| `AGENT_ID` | Agent resource | Agent class UUID |
 | `AGENT_NAME` | Agent resource | Agent name |
 | `AGENT_ROLE` | Agent resource | Agent role label |
 | `AGENT_MODEL` | Agent resource | Model UUID reference |
 | `AGENT_CONFIG` | Agent resource | Opaque configuration JSON |
-| `THREAD_ID` | Reconciler | Thread UUID this workload serves |
+| `AGENT_INSTANCE_ID` | Reconciler | [Agent instance](agent-instances.md) UUID this workload serves |
 | `WORKLOAD_ID` | Reconciler | Workload UUID for activity keepalives and span attribution |
 | `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.ziti`) |
 | `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs (e.g., `filesystem:8100,github:8101`). See [MCP — Port Allocation](mcp.md#port-allocation) |
@@ -403,7 +403,7 @@ spec:
           value: "<uuid>"
         - name: GATEWAY_ADDRESS
           value: "<gateway-addr>"
-        - name: THREAD_ID
+        - name: AGENT_INSTANCE_ID
           value: "<uuid>"
         - name: WORKLOAD_ID
           value: "<uuid>"

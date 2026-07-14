@@ -109,7 +109,7 @@ When adding an agent participant, the caller chooses between class and instance:
 
 The response of `agyn threads create` and `agyn threads add` includes the resolved participant handle so the caller can address the specific instance in later calls.
 
-The agent that owns the current process is added to threads it creates as its own instance (not its class) — the shell writing `agyn threads create` is inside an agent workload whose `INSTANCE_ID` is known, and that instance is what joins.
+The agent that owns the current process is added to threads it creates as its own instance (not its class) — the shell writing `agyn threads create` is inside an agent workload whose `AGENT_INSTANCE_ID` is known, and that instance is what joins.
 
 ### Local Ref State
 

@@ -123,57 +123,57 @@ sequenceDiagram
     participant CLI as Agent CLI
     participant MCP as MCP Servers
 
-    W->>GW: Subscribe to thread_participant:{agentId} room
+    W->>GW: Subscribe to instance_inbox:me room
     W->>CLI: Start process with config
     W->>MCP: Start MCP servers
     W->>CLI: Connect MCP servers
-    W->>GW: GetUnackedMessages(agentId)
-    GW-->>W: Messages
-    W->>CLI: Feed messages
+    W->>GW: GetUnackedInboxItems(instanceId)
+    GW-->>W: Items (tagged with thread/sender)
+    W->>CLI: Feed items
     CLI->>MCP: Tool calls
     MCP-->>CLI: Tool results
     CLI-->>W: Output
-    W->>GW: Post response to thread
-    W->>GW: AckMessages
+    W->>GW: Threads.SendMessage(thread_id, ...)
+    W->>GW: AckInboxItems
     Note over W: Wait for notification or poll
     GW-->>W: message.created
-    W->>GW: GetUnackedMessages(agentId)
-    GW-->>W: Messages
-    W->>CLI: Feed new messages
+    W->>GW: GetUnackedInboxItems(instanceId)
+    GW-->>W: Items
+    W->>CLI: Feed new items
 ```
 
 The wrapper:
-1. Subscribes to notifications for the agent's participant room.
+1. Subscribes to notifications for the instance's inbox room.
 2. Starts the agent CLI process with configuration.
 3. Connects MCP tool servers to the agent.
-4. Pulls unacknowledged messages (via Gateway → Threads) and feeds them to the CLI.
-5. Collects CLI output and posts responses to the thread (via Gateway → Threads).
-6. Acknowledges processed messages via `AckMessages`.
-7. Waits for notifications or poll fallback for new messages.
+4. Pulls unacknowledged inbox items (via Gateway → Agents Service) and feeds them to the CLI, tagged with their source thread.
+5. Collects CLI output and posts responses to explicit threads (via Gateway → Threads).
+6. Acknowledges processed items via `AckInboxItems`.
+7. Waits for notifications or poll fallback for new items.
 
 ## Lifecycle
 
 ```mermaid
 sequenceDiagram
-    participant T as Threads
+    participant AS as Agents Service
     participant O as Agents Orchestrator
     participant R as Runner
     participant A as Agent Container
 
-    T->>O: Unacknowledged messages (reconciliation loop)
+    AS->>O: Instances with unacked inbox items (reconciliation loop)
     O->>R: StartWorkload
     R->>A: Create container
-    A->>A: Connect to Gateway, subscribe, pull, process, ack
-    A->>A: Post response (via Gateway)
+    A->>A: Connect to Gateway, subscribe, pull inbox, process, ack
+    A->>A: Post responses to threads (via Gateway)
 
-    Note over A,O: Agent idle, waiting for messages
+    Note over A,O: Agent idle, waiting for inbox items
     O->>O: Activity check (reconciliation loop)
     Note over O: Idle timeout exceeded
     O->>R: StopWorkload
 ```
 
 1. The orchestrator's reconciliation loop detects instances with unacknowledged inbox items.
-2. Orchestrator requests Runner to start an agent workload with `INSTANCE_ID`, `AGENT_ID` (class), and class config.
+2. Orchestrator requests Runner to start an agent workload with `AGENT_INSTANCE_ID`, `AGENT_ID` (class), and class config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
 4. Agent connects to the Gateway (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to notifications, pulls unacknowledged inbox items, processes, posts responses to threads, acknowledges.
 5. Agent waits for new items (notification or poll fallback).

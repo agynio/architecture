@@ -77,6 +77,7 @@ The app declares the permissions it requires to function. These are granted to t
 | `thread:create` | Create threads in the organization |
 | `thread:write` | Send messages to any thread in the organization without being a participant |
 | `participant:add` | Add the organization's agents and users as thread participants |
+| `inbox:write` | Write items directly to any [agent instance's inbox](agent-instances.md#inbox) in the organization, without going through a thread |
 
 This vocabulary is extensible — new permissions are added as new app capabilities emerge.
 

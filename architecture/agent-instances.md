@@ -22,8 +22,9 @@ This document defines the entity, its inbox, the routing rules that get messages
 | `id` | string (UUID) | Instance identifier. Also the identity id registered with [Identity](identity.md) with `identity_type = agent_instance` |
 | `agent_id` | string (UUID) | Class this instance was spawned from |
 | `organization_id` | string (UUID) | Denormalized from the class for authorization scope |
-| `label` | string (nullable) | Optional user-visible suffix on the handle (see [Handles](#handles)). Not unique on its own — combined with the instance id it forms the unique handle |
+| `label` | string (nullable) | Optional user-chosen handle suffix (see [Handles](#handles)). Unique within the class — `CreateInstance` with a label already taken by a non-terminated instance of the same class returns a conflict error. Unlabeled instances get a system-generated suffix, which cannot collide |
 | `state` | enum | `active` (workload eligible), `paused` (no workload spawns; inbox still accepts writes), `terminated` (soft-deleted; inbox rejects writes) |
+| `pause_reason` | string (nullable) | Machine-readable reason set on `active → paused` — e.g., `idle_ttl_exceeded`, `start_failures_exhausted`, `volume_lost`, `runner_deprovisioned`, or `manual`. NULL while `active`. Cleared on `ResumeInstance` |
 | `created_at` | timestamp | Creation time |
 | `last_activity_at` | timestamp | Set by `agynd` when the workload last did work. Drives idle GC (see [Lifecycle](#lifecycle)) |
 
@@ -56,6 +57,8 @@ Inbox items:
 **Ordering.** Global FIFO by `accepted_at` across all sources. The instance processes items in acceptance order regardless of which thread they came from. Presentation to the LLM (interleaved vs. grouped) is an agent-implementation concern, not a platform contract.
 
 **Ack semantics.** Items are unacked until the owning workload calls `AckInboxItems`. Unacked items keep the instance in the Orchestrator's reconciliation set (a workload is running or will be started). See [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+
+**Ack timing.** The default ack point is **after the turn completes** — the agent has processed the item and posted any responses. A crash before ack means the items are redelivered to the next workload, which may duplicate side effects already performed; this at-least-once behavior is the platform contract. Wrappers that cannot observe turn boundaries in their agent CLI may instead ack once the item is durably accepted into the agent's local state (written to the state volume) — trading redelivery safety for compatibility. Never ack before the item is either processed or durably persisted.
 
 **Write paths.**
 
@@ -98,6 +101,10 @@ The two paths are mutually exclusive per participant. There is no double-write: 
 
 Cross-thread ordering is not guaranteed globally, only within a single inbox. A `SendMessage` on thread X at wall-clock time T and a `SendMessage` on thread Y at time T' > T are ordered `T` before `T'` inside any inbox that receives items from both.
 
+## Configuration
+
+Instances read **live class configuration** — there is no per-instance config snapshot. A workload picks up the class's current definition (image, model, prompt, sub-resources) at start; the [configuration-driven fast retry](agents-orchestrator.md#start-decision) already assumes this. Consequently, deleting a class is **blocked while it has non-terminated instances** — callers must terminate (or let expire) all instances first. Per-instance configuration overrides are out of scope for the initial model.
+
 ## Lifecycle
 
 ### Creation
@@ -105,25 +112,26 @@ Cross-thread ordering is not guaranteed globally, only within a single inbox. A 
 - **Lazy** — a fresh instance is created by `CreateThread` / `AddParticipant` when a class is provided. This is the primary path.
 - **Explicit** — `agyn agents instantiate @class [--label LABEL]` creates an instance without joining a thread. Useful when an app wants to address an instance directly before any conversation exists.
 
-The class must satisfy the agent [availability](agents-service.md#availability) check for the caller (`can_initiate`). Instance creation is authorized by the same rule as adding the class to a thread.
+The class must satisfy the agent [availability](agents-service.md#availability) check for the caller (`can_initiate`). Instance creation is authorized by the same rule as adding the class to a thread. Creating a labeled instance whose `label` collides with a non-terminated instance of the same class returns a conflict error.
 
 ### Idle GC and pausing
 
 Instances persist beyond individual workload lifecycles. State on disk (see [Agent State](agent/state.md)) survives workload restarts. A workload is only running when there's work to do; the instance stays around.
 
-An instance transitions `active → paused` when:
+An instance transitions `active → paused` (with a `pause_reason`) when:
 
-- Idle for more than the class's `instance_idle_ttl` (default `30d`) without new inbox items.
-- Explicit `PauseInstance(instance_id)` by an authorized caller.
+- Idle for more than the class's [`instance_idle_ttl`](../architecture/resource-definitions.md#agent) (default 30 days) without new inbox items (`idle_ttl_exceeded`).
+- The [Orchestrator](agents-orchestrator.md) exhausts start retries (`start_failures_exhausted`), loses the instance's volume (`volume_lost`), or the hosting runner is deprovisioned (`runner_deprovisioned`).
+- Explicit `PauseInstance(instance_id)` by an authorized caller (`manual`).
 
-`paused` means: no workloads spawn, but the inbox continues to accept writes. Unpausing (`ResumeInstance`) or a new inbox item under a policy that auto-resumes flips it back to `active`.
+`paused` means: no workloads spawn, but the inbox continues to accept writes — no data is lost while the owner investigates. `ResumeInstance` clears `pause_reason` and flips the instance back to `active`; pending inbox items are picked up on the next reconciliation tick.
 
 An instance transitions to `terminated` on explicit `DeleteInstance`. Terminated is soft-delete — the inbox rejects new writes, existing state is retained for audit until a hard retention cutoff.
 
 ### State and workload
 
-- **State volume** is per-instance. The Agents service records a persistent volume attachment keyed by `instance_id`. Workload starts mount this volume; workload stops leave it in place.
-- **Workload identity** is the instance identity. The [Orchestrator](agents-orchestrator.md) starts a workload with `INSTANCE_ID = instance.id` in the environment; `agynd` uses this to fetch its inbox and to identify itself in platform calls.
+- **State volume** is per-instance. Provisioned volume records in [Runners](runners.md) are keyed by `agent_instance_id`. Workload starts mount this volume; workload stops leave it in place.
+- **Workload identity** is the instance identity. The [Orchestrator](agents-orchestrator.md) starts a workload with `AGENT_INSTANCE_ID = instance.id` in the environment; `agynd` uses this to fetch its inbox and to identify itself in platform calls. (In [Runners](runners.md) records the field is `agent_instance_id` — distinct from the runner-local `instance_id`, which is the Pod/PVC name.)
 - One workload at a time per instance. A `starting`/`running`/`stopping` workload precludes another for the same instance.
 
 ## Handles
@@ -139,9 +147,9 @@ Uniqueness: `UNIQUE(agent_id, label)` for labeled instances within a class. Syst
 
 ## Authorization
 
-Instance authorization derives from the class. Adding an instance to a thread requires `can_initiate` on the class (same as adding the class itself). Direct inbox writes by apps require an app-level permission (`inbox:write` on the org or scoped to the class).
+Instance authorization derives from the class. Adding an instance to a thread requires `can_initiate` on the class (same as adding the class itself). Lifecycle operations (`Pause`/`Resume`/`Delete`) require `can_manage`, derived from the class's `can_delete`. Direct inbox writes require `can_write_inbox` — held via direct grant or the app-level [`inbox:write` permission](apps.md#permissions). Inbox reads and acks are self-only (identity equality), like `TouchWorkload`.
 
-The `agent_instance` identity itself holds `member` on its organization (via its class) — enough for `agynd` to make platform API calls in the same way today's agent workload identities do. Full authorization model: [Authorization — Agent Instance type](authz.md#agent-instance) (to be defined; the initial model can reuse the `agent` type's derivations by traversing `instance → class`).
+The `agent_instance` identity itself holds `member` on its organization (via its class) — enough for `agynd` to make platform API calls in the same way today's agent workload identities do. Full model: [Authorization — agent_instance type](authz.md#agent_instance).
 
 ## Relationship to existing concepts
 
@@ -153,5 +161,5 @@ The `agent_instance` identity itself holds `member` on its organization (via its
 | `MessageRecipient` | Only created for `user`/`app` participants; agent-instance participants get inbox items instead |
 | `passive` participant | Removed |
 | Agent state volume | Keyed by instance (was: keyed by `(agent, thread)`) |
-| `THREAD_ID` env var | Removed; replaced by `INSTANCE_ID` |
+| `THREAD_ID` env var | Removed; replaced by `AGENT_INSTANCE_ID` |
 | `thread_participant:{id}` notification room (for agents) | Replaced by `instance_inbox:{id}` for agent instances; users and apps still use `thread_participant` |

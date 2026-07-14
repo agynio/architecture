@@ -9,14 +9,15 @@ Business logic (chat UX, agent processing, app integration) is implemented by se
 ## Runtime Associations
 
 Threads owns messages and participants. It does not own workload or storage
-runtime state; those records are owned by [Runners](runners.md).
+runtime state; those records are owned by [Runners](runners.md) and keyed by
+[agent instance](agent-instances.md).
 
-Associated workloads are queried from Runners with
-`ListWorkloadsByThread(thread_id)`. Thread storage is queried from Runners with
-`ListVolumesByThread(thread_id)`. When storage is shown from a workload context,
-the Console passes the workload's `thread_id` to Runners and shows storage
-associated with that thread. That storage is not an exact per-workload mounted
-storage list unless a workload-scoped mount API provides that evidence.
+Thread-context views derive runtime associations in two steps: resolve the
+thread's agent-instance participants, then query Runners with
+`ListWorkloadsByAgentInstance(agent_instance_id)` /
+`ListVolumesByAgentInstance(agent_instance_id)` per instance. Because an
+instance may participate in several threads, the returned workloads and storage
+are associated with the instance, not exclusively with this thread.
 
 ## Interface
 
@@ -24,7 +25,7 @@ storage list unless a workload-scoped mount API provides that evidence.
 |--------|-------------|
 | **CreateThread** | Create a new thread with initial participants. Requires `organization_id`. For each agent-class participant, additionally enforces the [Agent Availability Check](#agent-availability-check) and applies the [class → instance rewrite](#class-on-add-rewrite) |
 | **ArchiveThread** | Archive a thread (soft-delete) |
-| **DegradeThread** | Mark a thread as degraded. Internal only — called by the [Agents Orchestrator](agents-orchestrator.md) when a thread cannot be recovered (persistent volume lost, hosting runner deprovisioned, or agent start failures exhausted — see [Start Decision](agents-orchestrator.md#start-decision)). Accepts a `reason` string. Idempotent — repeated calls on an already-degraded thread are a no-op |
+| **DegradeThread** | Mark a thread as degraded. Internal only. Reserved for unrecoverable **thread-level** conditions; instance-scoped failures (start failures exhausted, volume lost, runner deprovisioned) no longer degrade threads — the [Agents Orchestrator](agents-orchestrator.md) pauses the [agent instance](agent-instances.md#lifecycle) instead, and the thread stays writable. Accepts a `reason` string. Idempotent — repeated calls on an already-degraded thread are a no-op |
 | **AddParticipant** | Add a participant to an existing thread. Accepts an `identity_id` or a `@nickname` (resolved to `identity_id` internally). If the resolved identity is an agent class, applies the [class → instance rewrite](#class-on-add-rewrite) and enforces the [Agent Availability Check](#agent-availability-check) |
 | **SendMessage** | Send a message to a thread (text and/or file references). For each non-sender participant, delivers the message to that participant's consumer channel — `MessageRecipient` for users and apps, [inbox item](agent-instances.md#inbox) for agent instances — and publishes a `message.created` notification to the corresponding room. See [Message Delivery](#message-delivery) |
 | **GetThreads** | List threads the caller participates in, with pagination |
@@ -108,7 +109,7 @@ Adding an **existing instance** id skips instance creation but still enforces th
 |--------|-------------|
 | `active` | Normal operating state. All operations permitted |
 | `archived` | Soft-deleted by a user or application. No new messages accepted |
-| `degraded` | Degraded and unrecoverable. No new messages accepted. Set by the [Agents Orchestrator](agents-orchestrator.md) via `DegradeThread` with a machine-readable reason such as `volume_lost`, `runner_deprovisioned`, or `agent_start_failures_exhausted` |
+| `degraded` | Degraded and unrecoverable. No new messages accepted. Set via `DegradeThread` with a machine-readable reason. Reserved for unrecoverable thread-level conditions — in the [agent instance](agent-instances.md) model, instance-scoped failures pause the instance instead of degrading the thread, so no current platform flow produces this status; the mechanism and consumer handling (e.g., [Telegram thread rotation](apps/telegram-connector.md)) are retained |
 
 `SendMessage` returns an error for `archived` and `degraded` threads. All read operations (`GetMessages`, `GetUnackedMessages`) remain available on both statuses.
 

@@ -56,9 +56,9 @@ The chat-app calls `MarkAsRead` on these triggers:
 
 ## Activity Status
 
-`GetChats` returns each chat with an `activity_status` field that summarizes whether the chat's agent participants are currently processing the conversation. The field is derived from workload state alone — Chat does not query unacked messages on the agent's behalf (the `GetUnackedMessages` self-only check would block that path).
+`GetChats` returns each chat with an `activity_status` field that summarizes whether the chat's agent participants are currently processing the conversation. The field is derived from workload state alone — Chat does not read the instance's inbox on the agent's behalf (the inbox read APIs are self-only).
 
-For each non-passive agent participant on the chat's thread, Chat inspects the most recent workload (ordered by `created_at DESC`) from `Runners.ListWorkloadsByThread(thread_id, agent_id)`:
+For each [agent-instance](agent-instances.md) participant on the chat's thread, Chat inspects the instance state (from [Agents Service](agents-service.md) `GetInstance`) and the most recent workload (ordered by `created_at DESC`) from `Runners.ListWorkloadsByAgentInstance(agent_instance_id)`:
 
 | Most recent workload | Contribution |
 |----------------------|--------------|
@@ -66,26 +66,29 @@ For each non-passive agent participant on the chat's thread, Chat inspects the m
 | `status=running` and `agent_state=idle` | `finished` (container is up but the agent has been quiet beyond the keepalive grace; the orchestrator will stop it after `idle_timeout`) |
 | `status=starting` | `pending` |
 | `status=stopping` | `pending` (the orchestrator is in the middle of stopping; treated as still active) |
-| `status=failed` and the thread is not `degraded` | `pending` (orchestrator will retry per [Start Decision](agents-orchestrator.md#start-decision)) |
+| `status=failed` and the instance is `active` | `pending` (orchestrator will retry per [Start Decision](agents-orchestrator.md#start-decision)) |
+| `status=failed` and the instance is `paused` | `finished` (retries exhausted — the instance was paused; see [Agent Instances — Lifecycle](agent-instances.md#lifecycle)) |
 | `status=stopped` | `finished` |
-| No workload exists for the `(thread, agent)` pair | `finished` |
+| No workload exists for the instance | `finished` |
 
-The chat's `activity_status` is the strongest contribution across its non-passive agent participants — `running` > `pending` > `finished`.
+A `running`/`processing` workload contributes `running` to every chat whose thread the instance participates in — the workload processes one inbox that spans all of them. This is by design: the instance genuinely is busy from the perspective of each conversation.
+
+The chat's `activity_status` is the strongest contribution across its agent-instance participants — `running` > `pending` > `finished`.
 
 `activity_status` is `null` when:
 
-- The chat has no non-passive agent participant — purely user-to-user conversations have no agent activity to report.
+- The chat has no agent-instance participant — purely user-to-user conversations have no agent activity to report.
 - The thread is `degraded` — see [Degraded Threads](#degraded-threads). The degraded banner replaces the indicator in the UI.
 
-Implementation: Chat issues `Runners.ListWorkloadsByThread` calls in parallel for each `(thread_id, agent_id)` pair on the page and joins the results in memory.
+Implementation: Chat issues `Runners.ListWorkloadsByAgentInstance` calls in parallel for each instance participant on the page (deduplicated when the same instance appears in several chats) and joins the results in memory.
 
 `GetMessages` does not return `activity_status`. The chat-app reads it from the `GetChats` entry that backs the open conversation.
 
 ### Active Workload IDs
 
-Each `GetChats` entry also carries `active_workload_ids: list<string>` — the IDs of every workload on the chat's thread whose status is currently `starting`, `running`, or `stopping`. The chat-app uses these IDs to subscribe to the corresponding `workload:{id}` rooms in [Notifications](notifications.md) so it receives `workload.updated` events for the workloads that drive the indicator.
+Each `GetChats` entry also carries `active_workload_ids: list<string>` — the IDs of every workload of the chat's agent-instance participants whose status is currently `starting`, `running`, or `stopping`. The chat-app uses these IDs to subscribe to the corresponding `workload:{id}` rooms in [Notifications](notifications.md) so it receives `workload.updated` events for the workloads that drive the indicator.
 
-Workload IDs are a side product of the same `Runners.ListWorkloadsByThread` calls that derive `activity_status` — Chat collects them in the same pass with no additional round trips. The list is empty for chats with no non-passive agent participants and for chats whose most recent workload is `stopped`/`failed`/absent. New workloads spun up later (e.g., after the user sends a message) appear in `active_workload_ids` only on the next `GetChats` refresh; until then, the chat-app picks them up indirectly via the `message.created` refresh trigger described in [Real-time updates](#real-time-updates).
+Workload IDs are a side product of the same `Runners.ListWorkloadsByAgentInstance` calls that derive `activity_status` — Chat collects them in the same pass with no additional round trips. The list is empty for chats with no agent-instance participants and for chats whose instances' most recent workloads are `stopped`/`failed`/absent. New workloads spun up later (e.g., after the user sends a message) appear in `active_workload_ids` only on the next `GetChats` refresh; until then, the chat-app picks them up indirectly via the `message.created` refresh trigger described in [Real-time updates](#real-time-updates).
 
 The `workload:{id}` room subscription is gated by `member` on the workload's organization (see [Authorization — Notifications Service](authz.md#notifications-service)) — every thread participant satisfies this. The room only carries workload status events; reading workload details and logs still requires `can_view_workloads` via `Runners.GetWorkload` / `StreamWorkloadLogs`.
 
@@ -111,7 +114,7 @@ On any such event, the chat-app re-fetches the affected chat (or the affected pa
 | Dependency | On failure | Effect on the response |
 |------------|-----------|------------------------|
 | `Threads` (chat list, `GetUnackedMessageCounts`) | Propagate as a `GetChats` error | Hard dependency — without thread data there are no chats to return |
-| `Runners.ListWorkloadsByThread` (per `(thread, agent)` pair) | Treat that pair as `finished`, drop its workload IDs, log the failure with `thread_id`, `agent_id`, and the underlying error | Affected chats may briefly show `finished` instead of the true status; the next `GetChats` refresh recovers |
+| `Runners.ListWorkloadsByAgentInstance` (per instance participant) | Treat that instance as `finished`, drop its workload IDs, log the failure with `agent_instance_id` and the underlying error | Affected chats may briefly show `finished` instead of the true status; the next `GetChats` refresh recovers |
 | `Identity` / `Users` / `Agents` (participant profile resolution) | Return the chat without the unresolved participant's display fields, log the failure with the unresolved `identity_id` | Chat row still renders; the affected participant shows a fallback label until the next refresh |
 
 The partial-failure mode is `GetChats`-only — operations that act on a single chat (`GetMessages`, `SendMessage`, `MarkAsRead`) propagate dependency errors normally, since they have no other rows to degrade independently.

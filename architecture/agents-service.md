@@ -36,27 +36,29 @@ All list endpoints use cursor-based pagination.
 
 Agents describe **what** an agent is (image, model, prompt, tools). Agent Instances are **specific running (or eligible-to-run) copies** — each with its own state volume, its own inbox, and its own identity. Threads, workloads, and inbox items always reference an instance; the class is only referenced transiently, at participant-add time, before being resolved to a fresh instance (see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
 
+Instances read **live class configuration** — there is no per-instance config snapshot. Consequently, `DeleteAgent` is rejected while the class has non-terminated instances; callers terminate the instances first (or let idle GC and retention run their course). See [Agent Instances — Configuration](agent-instances.md#configuration).
+
 The full entity model, inbox schema, routing rules, and lifecycle live in [Agent Instances](agent-instances.md). This service owns the CRUD surface for both resources.
 
 ## Agent Instance API
 
 | Method | Description |
 |--------|-------------|
-| **CreateInstance** | Create an instance of a class. Called by Threads during class-on-add rewrite; also exposed to callers directly (e.g., `agyn agents instantiate`). Enforces the [Agent Availability Check](threads.md#agent-availability-check) against the class |
-| **GetInstance** | Fetch instance record (id, agent_id, state, label, timestamps) |
+| **CreateInstance** | Create an instance of a class. Called by Threads during class-on-add rewrite; also exposed to callers directly (e.g., `agyn agents instantiate`). Enforces the [Agent Availability Check](threads.md#agent-availability-check) against the class. Returns a conflict error when the requested `label` is already taken by a non-terminated instance of the same class |
+| **GetInstance** | Fetch instance record (id, agent_id, state, pause_reason, label, timestamps) |
 | **ListInstances** | List instances in an organization with server-side sort/filter/pagination. Filters include `agent_id`, `state_in`, and `has_unacked` (true when the instance has unacked inbox items). The Orchestrator uses `state=active, has_unacked=true` for its desired-state query |
-| **PauseInstance** | Transition `active → paused`. Called by the Orchestrator on start-failure exhaustion, or by an authorized caller. Inbox continues to accept writes |
-| **ResumeInstance** | Transition `paused → active`. Wakes the Orchestrator's reconciliation if inbox items are pending |
+| **PauseInstance** | Transition `active → paused` with a `pause_reason`. Called by the Orchestrator on unrecoverable instance failures (start failures exhausted, volume lost, runner deprovisioned), by the [idle GC](#idle-gc), or manually by an authorized caller. Inbox continues to accept writes |
+| **ResumeInstance** | Transition `paused → active` and clear `pause_reason`. Pending inbox items are picked up on the Orchestrator's next reconciliation tick |
 | **DeleteInstance** | Transition to `terminated`. Inbox rejects further writes. State volume TTL and cleanup follow the standard [Runners volume reconciliation](agents-orchestrator.md#volume-reconciliation) |
 
 ### Inbox API
 
 | Method | Description |
 |--------|-------------|
-| **WriteInboxItem** | Write an item directly to an instance's inbox with `source_kind=direct`. Used by apps to address an instance without joining a thread. Requires an app-level permission on the org (or scoped to the class) |
+| **WriteInboxItem** | Write an item directly to an instance's inbox with `source_kind=direct`. Used by apps to address an instance without joining a thread. Requires `can_write_inbox` on the instance — granted directly or via the app-level [`inbox:write`](apps.md#permissions) permission |
 | **GetUnackedInboxItems** | List unacked items for an instance. Self-only — the caller must be the instance itself. Used by `agynd` |
 | **AckInboxItems** | Acknowledge processed items. Self-only |
-| **GetUnackedInboxCount** | Count-only complement of `GetUnackedInboxItems`, used by the Orchestrator's desired-state query when it doesn't need item bodies |
+| **GetUnackedInboxCount** | Count-only complement of `GetUnackedInboxItems`. Accepts an optional `thread_id` filter — used by [Chat](chat.md) to derive per-thread pending state, and by the Orchestrator's desired-state query without the filter |
 
 Fan-out from `Threads.SendMessage` uses an **internal-only** RPC (`FanoutInboxItem`) that bypasses the app permission check on `WriteInboxItem` — Threads is trusted to enforce thread participation before calling it. See [Authorization — Agents Service](authz.md#agents-service) (to be updated).
 
@@ -132,10 +134,11 @@ This method derives agent and organization attribution from an authenticated Ope
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agent_id` | string (UUID) | Agent resource UUID |
+| `agent_instance_id` | string (UUID) | Agent instance UUID (equals the input `identity_id`) |
+| `agent_id` | string (UUID) | Agent class UUID, resolved through the instance |
 | `organization_id` | string (UUID) | Organization the agent belongs to |
 
-Returns `NOT_FOUND` if the identity does not correspond to an agent.
+Returns `NOT_FOUND` if the identity does not correspond to an agent instance.
 
 ## Notifications
 

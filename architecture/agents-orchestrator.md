@@ -14,9 +14,8 @@ graph TB
         Reconciler[Reconciliation Loop]
     end
 
-    Threads -->|unacked messages query| Reconciler
+    Agents -->|instances with unacked inbox items,<br/>class definitions + sub-resources| Reconciler
     Notifications -->|message.created, agent.updated events| Reconciler
-    Agents -->|agent definitions + sub-resources| Reconciler
     Secrets -->|secret + image pull secret resolution| Reconciler
     Runners[Runners] -->|workload state| Reconciler
     Reconciler -->|start/stop workloads| Runner
@@ -25,8 +24,7 @@ graph TB
 
 | Dependency | Usage |
 |-----------|-------|
-| **Threads** | Call `DegradeThread` when a thread cannot be recovered (runner deprovisioned, volume lost, or agent start failures exhausted). No longer used for the desired-state query — that is now driven by instance inbox counts on the [Agents Service](agents-service.md) |
-| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
+| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
 | **Notifications** | Subscribe to `message.created` events on `instance_inbox:*` (for reactivity when an instance has new inbox items) and `agent.updated` events (for class configuration changes) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets. Resolve image pull secret credentials for private registry access |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
@@ -43,7 +41,7 @@ Agent instances with unacknowledged [inbox items](agent-instances.md#inbox). The
 
 ### Actual State
 
-Running agent workloads. The orchestrator queries the [Runners](runners.md) service to discover what is currently running. Each workload is keyed by `instance_id`.
+Running agent workloads. The orchestrator queries the [Runners](runners.md) service to discover what is currently running. Each workload record carries the `agent_instance_id` it serves.
 
 ### Loop
 
@@ -74,13 +72,13 @@ The orchestrator does not start a new workload on every tick that sees unacked i
 For each `instance_id` identified in step 2 of the loop:
 
 ```
-active = Runners.ListWorkloadsByInstance(
+active = Runners.ListWorkloadsByAgentInstance(
     instance_id,
     status_in: [starting, running, stopping])
 if active is not empty:
     continue                                     # already starting/running — reconciliation owns it
 
-latest = Runners.ListWorkloadsByInstance(
+latest = Runners.ListWorkloadsByAgentInstance(
     instance_id,
     status_in: [stopped, failed]).first()        # ordered by created_at DESC
 instance = Agents.GetInstance(instance_id)
@@ -94,13 +92,13 @@ if class.updated_at > latest.removed_at:
     StartWorkload(...)                           # class config changed after failure → fast retry
     continue
 
-last_stopped_at = Runners.ListWorkloadsByInstance(
+last_stopped_at = Runners.ListWorkloadsByAgentInstance(
     instance_id,
     status_in: [stopped],
     limit: 1).first()?.created_at ?? epoch
 reset_floor = max(last_stopped_at, class.updated_at)
 
-recent_failures = Runners.ListWorkloadsByInstance(
+recent_failures = Runners.ListWorkloadsByAgentInstance(
     instance_id,
     status_in: [failed],
     limit: MAX_ATTEMPTS + 1)                     # ordered by created_at DESC
@@ -198,7 +196,7 @@ The workload stays in `status=starting` after `StartWorkload` returns. The trans
 
 Before starting a workload, the orchestrator selects a runner:
 
-1. **Check for existing volumes** — call `Runners.ListVolumesByInstance(instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an instance reside on the same runner (recorded as `runner_id` on each volume record).
+1. **Check for existing volumes** — call `Runners.ListVolumesByAgentInstance(agent_instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an instance reside on the same runner (recorded as `runner_id` on each volume record).
 2. **Validate the predetermined runner** — call `Runners.GetRunner(runner_id)` and verify its status is `enrolled`. If the runner is no longer registered or not enrolled, the instance cannot be recovered: call `Agents.PauseInstance(instance_id, reason="runner_deprovisioned")` and abort the start sequence.
 3. **No existing volumes** — apply the standard selection algorithm: filter enrolled runners by organization scope, then by label match against the class's `runner_labels`, then pick one at random. If no runner matches, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
 
@@ -225,7 +223,7 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 |----------|---------------|-------------|
 | `ZITI_ENROLLMENT_JWT` | Ziti sidecar container | OpenZiti enrollment token. The sidecar exchanges this for an x509 certificate at startup and enables TPROXY for the pod |
 | `GATEWAY_ADDRESS` | Agent container | Gateway endpoint (e.g., `gateway.ziti`). `agynd` connects here for all platform API calls |
-| `INSTANCE_ID` | Agent container | [Agent instance](agent-instances.md) ID this workload is processing. `agynd` uses this to fetch inbox items, ack them, and identify itself in platform calls. Also carries the workload's OpenZiti identity (created per-workload but scoped to the instance) |
+| `AGENT_INSTANCE_ID` | Agent container | [Agent instance](agent-instances.md) ID this workload is processing. `agynd` uses this to fetch inbox items, ack them, and identify itself in platform calls. Also carries the workload's OpenZiti identity (created per-workload but scoped to the instance). Distinct from the runner-local `instance_id` (Pod name) on [Runners](runners.md) records |
 | `AGENT_ID` | Agent container | The class this instance was spawned from. Used by `agynd` when fetching class configuration (`GetAgent`, `ListSkills`, etc.) |
 | `WORKLOAD_ID` | Agent container | Workload UUID (`workload_key`) for this execution. Used by `agynd` for activity keepalives and span attribution |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
@@ -390,7 +388,7 @@ After `Runner.StopWorkload` completes, the Orchestrator calls `ZitiManagement.De
 | `INIT_RETRY_THRESHOLD` | 3 | Init container retry count above which the workload is considered unable to initialize |
 | `CRASHLOOP_THRESHOLD` | 3 | Main container `restart_count` at which a `CrashLoopBackOff` is considered unrecoverable. The K8s `CrashLoopBackOff` reason is the primary signal; the count threshold guards against single-flake restarts |
 
-Failing the workload here is the *only* source of the `failed` status — once written, the record is terminal. Retry of the thread is the responsibility of the main loop's [Start Decision](#start-decision), which reads these records to compute backoff and decide when (or whether) to start a new workload.
+Failing the workload here is the *only* source of the `failed` status — once written, the record is terminal. Retry of the instance is the responsibility of the main loop's [Start Decision](#start-decision), which reads these records to compute backoff and decide when (or whether) to start a new workload.
 
 ## Volume Reconciliation
 
@@ -406,13 +404,13 @@ On each tick, for each enrolled runner:
 |------------------------|-------------------|--------|
 | `provisioning` | yes | `UpdateVolume(status=active)` — PVC was created by `StartWorkload` |
 | `provisioning` | no | no-op — `StartWorkload` may still be in progress; `failed` after workload reaches `failed` |
-| `active` | yes | check TTL — if `volume.ttl` is set and no workload for this `(thread_id)` has been running or stopping since at least `ttl` ago (derived from `removed_at` of the most recent workload for this thread): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
-| `active` | no | `UpdateVolume(status=failed)` → `Threads.DegradeThread(thread_id, reason="volume_lost")` — PVC was lost or deleted externally (e.g., runner deprovisioned) |
+| `active` | yes | check TTL — if `volume.ttl` is set and no workload for this `agent_instance_id` has been running or stopping since at least `ttl` ago (derived from `removed_at` of the most recent workload for the instance): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
+| `active` | no | `UpdateVolume(status=failed)` → `Agents.PauseInstance(agent_instance_id, reason="volume_lost")` — PVC was lost or deleted externally (e.g., runner deprovisioned). The instance's inbox keeps accepting writes; the owner can inspect and resume (state starts fresh) or terminate |
 | `deprovisioning` | yes | retry `Runner.RemoveVolume` |
 | `deprovisioning` | no | `UpdateVolume(status=deleted, removed_at=now)` |
 | not in Runners service | yes | orphan — `Runner.RemoveVolume` |
 
-TTL is checked for `active` volumes where the thread has no running workload. TTL is read from the Agents service Volume definition. The clock starts from `removed_at` of the most recent workload on that thread, available from `Runners.ListWorkloadsByThread`. Volumes with `ttl: null` are never expired automatically.
+TTL is checked for `active` volumes where the instance has no running workload. TTL is read from the Agents service Volume definition. The clock starts from `removed_at` of the most recent workload for the instance, available from `Runners.ListWorkloadsByAgentInstance`. Volumes with `ttl: null` are never expired automatically.
 
 ### Relationship to Metering
 
@@ -430,7 +428,7 @@ The Orchestrator obtains its OpenZiti identity at runtime via self-enrollment �
 
 The Orchestrator does not hold a platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. It does not inject `x-identity-id` headers on outgoing calls. Every method it invokes on Threads, Agents, Secrets, Runners, Notifications, and Ziti Management is an internal-only RPC, gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's Kubernetes ServiceAccount.
 
-This applies to all Orchestrator call sites: workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `DegradeThread` on Threads, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.
+This applies to all Orchestrator call sites: workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `ListInstances` / `PauseInstance` on the Agents Service, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.
 
 ## Egress CA Distribution
 

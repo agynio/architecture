@@ -153,6 +153,34 @@ Role mutations (`SetAgentRole`, `RemoveAgentRole`) and availability toggles upda
 
 Granting an agent role to a group writes the tuple `group:<group_id>#member, <role>, agent:<id>`. Any identity holding `member` on `group:<group_id>` then resolves the agent role transitively. See [Groups Service](groups-service.md) for the group type and member resolution.
 
+#### agent_instance
+
+[Agent instances](agent-instances.md) derive their authorization from their class. The type carries no roles of its own — lifecycle control follows the class's `can_delete`, thread-participation gating follows the class's `can_initiate`, and the only instance-local relation is direct inbox write access.
+
+```
+type agent_instance
+  relations
+    define class: [agent]
+    define org: [organization]
+    define can_initiate: can_initiate from class
+    define can_manage: can_delete from class
+    define can_write_inbox: [identity, group#member] or inbox_write from org
+```
+
+| Relation | Gates |
+|----------|-------|
+| `can_initiate` | Adding the instance to a thread (checked by [Threads](threads.md#agent-availability-check), resolved through the class) |
+| `can_manage` | `PauseInstance`, `ResumeInstance`, `DeleteInstance` |
+| `can_write_inbox` | `WriteInboxItem` — direct inbox writes. Held by identities granted directly (or via group), and by app identities whose installation declared the [`inbox:write` permission](apps.md#permissions) (org-level `inbox_write` tuple) |
+
+Inbox reads and acks (`GetUnackedInboxItems`, `AckInboxItems`) are **self-only** — identity equality (`caller.identity_id == instance_id`), no OpenFGA check, same pattern as `TouchWorkload`.
+
+When an instance is created, the Agents service writes:
+- `agent:<class_id>, class, agent_instance:<id>`
+- `organization:<org_id>, org, agent_instance:<id>`
+
+`DeleteInstance` (terminal) removes every tuple on `agent_instance:<id>`.
+
 #### group
 
 Groups are org-scoped collections of identities. The type defines membership, group-level admin, and computed view/edit permissions. See [Groups Service](groups-service.md) for the full lifecycle.
@@ -194,6 +222,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 | **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
 | **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
 | **participant_add** | app permission | Written for app installations that declare the `participant:add` permission |
+| **inbox_write** | app permission | Written for app installations that declare the `inbox:write` permission. Flows into `can_write_inbox` on every [`agent_instance`](#agent_instance) in the org |
 
 #### Computed relations
 
@@ -228,11 +257,13 @@ Apps declare the permissions they need in their definition. When an app is insta
 | `thread:create` | `identity:<app_identity_id>, thread_create, organization:<org_id>` |
 | `thread:write` | `identity:<app_identity_id>, thread_write, organization:<org_id>` |
 | `participant:add` | `identity:<app_identity_id>, participant_add, organization:<org_id>` |
+| `inbox:write` | `identity:<app_identity_id>, inbox_write, organization:<org_id>` |
 
-These tuples flow into thread-level computed relations:
+These tuples flow into computed relations:
 - An app with `thread_write` on an org satisfies `can_write` on any thread in that org (via `thread_write from org` in the thread type).
 - An app with `participant_add` on an org satisfies `can_add_participant` on any thread in that org.
 - An app with `thread_create` on an org satisfies `can_create_thread` on the org.
+- An app with `inbox_write` on an org satisfies `can_write_inbox` on any [`agent_instance`](#agent_instance) in that org.
 
 When the app is uninstalled, the Apps Service deletes all tuples written at install time.
 
@@ -250,6 +281,8 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Model created | `organization:<org_id>, org, model:<model_id>` | LLM Service |
 | Model deleted | Delete `organization:<org_id>, org, model:<model_id>` | LLM Service |
 | Agent created | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | Agents |
+| Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
+| Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | `SetAgentRole(identity, role)` | `identity:<id>, <role>, agent:<agent_id>`; if the identity previously held a different role on the agent: delete `identity:<id>, <old_role>, agent:<agent_id>` | Agents |
@@ -322,6 +355,13 @@ All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, Vo
 | `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>`; `SetAgentRole` additionally requires the target identity to satisfy `member` on the agent's organization |
 | `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
 | Update, Delete on Volume | `owner` on `organization:<volume.org_id>` |
+| `CreateInstance` | `can_initiate` on `agent:<class_id>` (same gate as adding the class to a thread). Also called internally by Threads during the [class-on-add rewrite](threads.md#class-on-add-rewrite) |
+| `GetInstance`, `ListInstances` (via Gateway) | `member` on `organization:<org_id>` |
+| `ListInstances` (internal) | Internal only (Orchestrator via Istio) — desired-state query (`state=active, has_unacked=true`) across organizations |
+| `PauseInstance`, `ResumeInstance`, `DeleteInstance` | `can_manage` on `agent_instance:<id>`; also called internally by the Orchestrator (via Istio) for failure-driven pauses |
+| `WriteInboxItem` | `can_write_inbox` on `agent_instance:<id>` |
+| `FanoutInboxItem` | Internal only (Threads via Istio) — thread participation already enforced by Threads |
+| `GetUnackedInboxItems`, `AckInboxItems`, `GetUnackedInboxCount` | Self only — `caller.identity_id == agent_instance_id` (no OpenFGA check) |
 | Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
 
@@ -344,24 +384,24 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [workload reconciliation](agents-orchestrator.md#workload-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` (via Gateway) | `member` on `organization:<workload.org_id>` |
-| `ListWorkloadsByThread` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
-| `TouchWorkload` | Agent's own identity (`workload.agent_identity_id == caller.identity_id`) |
+| `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
+| `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
+| `TouchWorkload` | Agent instance's own identity (`workload.agent_instance_id == caller.identity_id`) |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [volume reconciliation](agents-orchestrator.md#volume-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
 | `GetVolume` | `can_view_volumes` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` (via Gateway) | `member` on `organization:<volume.org_id>` |
-| `ListVolumesByThread` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) |
+| `ListVolumesByAgentInstance` (via Gateway) | `member` on `organization:<volume.org_id>` |
+| `ListVolumesByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) |
 
 ### Threads Service
 
 | Operation | Check |
 |-----------|-------|
-| `CreateThread` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` |
+| `CreateThread` | `can_create_thread` on `organization:<org_id>` AND for each agent participant (class or instance): `can_initiate` on `agent:<class_id>` (class resolved from the instance when an instance is passed) |
 | `ArchiveThread` | `participant` on `thread:<id>` or `owner` on `organization:<thread.org_id>` |
-| `DegradeThread` | Internal only (Orchestrator via Istio) — called when a thread is unrecoverable (runner deprovisioned, volume lost, agent start failures exhausted) |
-| `AddParticipant` | `can_add_participant` on `thread:<id>` AND if the participant is an agent: `can_initiate` on `agent:<participant_id>` |
+| `DegradeThread` | Internal only (Orchestrator via Istio) — reserved for unrecoverable thread-level conditions. Instance-scoped failures (start failures, volume loss, runner deprovisioned) pause the instance instead — see [Agent Instances — Lifecycle](agent-instances.md#lifecycle) |
+| `AddParticipant` | `can_add_participant` on `thread:<id>` AND if the participant is an agent class or instance: `can_initiate` on `agent:<class_id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |
 | `GetThreads` | No OpenFGA check — returns threads where `caller.identity_id` is a participant (DB filter) |
 | `ListOrganizationThreads` | `can_view_threads` on `organization:<org_id>` |
@@ -501,6 +541,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | Room pattern | Access check |
 |--------------|-------------|
 | `thread_participant:{id}` | `id == caller.identity_id` (identity equality, no OpenFGA). `thread_participant:me` is rewritten to `thread_participant:{caller.identity_id}` before this check — see [Notifications — Self-Subscription Sentinel](notifications.md#self-subscription-sentinel). |
+| `instance_inbox:{id}` | `id == caller.identity_id` AND `caller.identity_type == agent_instance` (identity equality, no OpenFGA). `instance_inbox:me` is rewritten before the check. Only the instance itself may subscribe to its inbox room |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |

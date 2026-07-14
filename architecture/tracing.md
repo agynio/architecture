@@ -234,7 +234,7 @@ The `organization_id` filter is a required parameter on `ListSpans`. `GetTrace` 
 
 ### Attribute Injection and Verification
 
-Producers (agent CLIs) do not set platform-specific resource attributes. The Tracing service derives and injects identity-based attributes from the authenticated connection, and verifies the one self-asserted attribute (`agyn.thread.id`).
+Producers (agent CLIs) do not set platform-specific resource attributes. The Tracing service derives and injects identity-based attributes from the authenticated connection, and verifies the self-asserted attributes (`agyn.agent_instance.id`, `agyn.thread.id`).
 
 #### Injected by the Tracing service (from connection identity)
 
@@ -242,8 +242,8 @@ On each `Export` request, the Tracing service resolves the caller's identity cha
 
 | Resource Attribute | Source | Description |
 |--------------------|--------|-------------|
-| `agyn.identity.id` | OpenZiti mTLS → `ZitiManagement.ResolveIdentity` | Platform identity UUID |
-| `agyn.agent.id` | `Agents.ResolveAgentIdentity(identity_id)` | Agent resource UUID |
+| `agyn.identity.id` | OpenZiti mTLS → `ZitiManagement.ResolveIdentity` | Platform identity UUID (the agent instance's identity) |
+| `agyn.agent.id` | `Agents.ResolveAgentIdentity(identity_id)` | Agent class UUID (resolved through the instance) |
 | `agyn.organization.id` | `Agents.ResolveAgentIdentity(identity_id)` | Organization UUID |
 
 These attributes are never trusted from the producer. The Tracing service always overwrites them with values derived from the verified network identity. This prevents a compromised agent pod from misattributing spans to a different agent or organization.
@@ -252,13 +252,15 @@ These attributes are never trusted from the producer. The Tracing service always
 
 The `agynd` tracing proxy (see [agynd Tracing Proxy](#agynd-tracing-proxy)) injects the following producer-asserted resource attributes. The Tracing service verifies each one:
 
+**`agyn.agent_instance.id`** — must equal the caller's verified identity (`identity_id == agent_instance_id` by construction). Mismatch rejects the `Export` request.
+
 **`agyn.thread.id`** — verified against the [Authorization](authz.md) service:
 
 ```
 Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
 ```
 
-If the check fails, the Tracing service rejects the entire `Export` request. If `agyn.thread.id` is absent, spans are stored without thread attribution.
+If the check fails, the Tracing service rejects the entire `Export` request. If `agyn.thread.id` is absent (e.g., a turn triggered by a `direct` inbox item), spans are stored without thread attribution.
 
 **`agyn.thread.message.id`** — verified against the [Threads](threads.md) service: the message must belong to the thread identified by `agyn.thread.id`. If the message does not belong to that thread, the entire `Export` request is rejected. If `agyn.thread.message.id` is absent, spans are stored without message attribution.
 
@@ -335,7 +337,7 @@ The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id`
 
 ### Why
 
-Agent CLIs (Codex, Claude Code, `agn`) are the OTel span producers, but they have no knowledge of platform-specific resource attributes (`agyn.thread.id`). `agynd` is the only process in the agent container that has the full platform context (agent ID, thread ID). Rather than requiring each agent CLI to inject platform attributes — which is impossible for third-party binaries — `agynd` intercepts span exports and enriches them.
+Agent CLIs (Codex, Claude Code, `agn`) are the OTel span producers, but they have no knowledge of platform-specific resource attributes (`agyn.agent_instance.id`, `agyn.thread.id`). `agynd` is the only process in the agent container that has the full platform context (instance ID, current turn's source thread). Rather than requiring each agent CLI to inject platform attributes — which is impossible for third-party binaries — `agynd` intercepts span exports and enriches them.
 
 ### Design
 
@@ -349,18 +351,21 @@ graph LR
 
 1. `agynd` starts a gRPC server on `localhost:4317` implementing `TraceService/Export` (standard OTLP Collector interface).
 2. Agent CLI's OTel SDK is configured to export to `http://localhost:4317` (the default OTLP gRPC endpoint).
-3. On each `Export` request, `agynd` injects `agyn.thread.id` as a resource attribute on every `ResourceSpans` in the request. The value comes from the `THREAD_ID` environment variable.
+3. On each `Export` request, `agynd` injects `agyn.agent_instance.id` as a resource attribute on every `ResourceSpans` in the request. The value comes from the `AGENT_INSTANCE_ID` environment variable.
 4. `agynd` forwards the enriched request to the Tracing service at `tracing.ziti` using a standard OTLP gRPC exporter. The Ziti sidecar transparently intercepts this connection.
 
 ### What agynd injects
 
 | Resource Attribute | Source | Description |
 |--------------------|--------|-------------|
-| `agyn.thread.id` | `THREAD_ID` environment variable | Thread UUID this workload serves |
-| `agyn.thread.message.id` | current message being processed | UUID of the thread message that triggered the current agent turn. Updated by `agynd` each time it feeds a new message to the agent CLI |
+| `agyn.agent_instance.id` | `AGENT_INSTANCE_ID` environment variable | [Agent instance](agent-instances.md) UUID this workload serves |
+| `agyn.thread.id` | current turn's inbox items | Thread UUID of the item(s) that triggered the current agent turn. Best-effort: updated by `agynd` each time it feeds items to the agent CLI; omitted for `direct` (app-written) items, and set to the most recent item's thread when a turn spans items from multiple threads |
+| `agyn.thread.message.id` | current turn's inbox items | UUID of the thread message that triggered the current agent turn, same best-effort semantics as `agyn.thread.id` |
 | `agyn.workload.id` | `WORKLOAD_ID` environment variable | Workload UUID for this execution |
 
-`agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only thread attribution, which is independently verified by the Tracing service.
+Unlike the workload-scoped attributes (`agyn.agent_instance.id`, `agyn.workload.id`), thread attribution is per-turn state — a workload serves one instance whose inbox spans threads, so there is no static thread id for the pod.
+
+`agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only instance/thread attribution, which is independently verified by the Tracing service.
 
 ### Agent CLI Configuration
 
@@ -376,8 +381,8 @@ Standard OTel SDK environment variables are supported by all three agent CLIs. N
 
 ### Proxy Behavior
 
-- The proxy is **pass-through** — it does not interpret span content beyond injecting the `agyn.thread.id` resource attribute.
-- If `THREAD_ID` is not set (should not happen in normal operation), the proxy forwards spans without injecting `agyn.thread.id`. The Tracing service stores them without thread attribution.
+- The proxy is **pass-through** — it does not interpret span content beyond injecting the attribution attributes above.
+- If `AGENT_INSTANCE_ID` is not set (should not happen in normal operation), the proxy forwards spans without injecting `agyn.agent_instance.id`. The Tracing service stores them without instance attribution.
 - If the Tracing service is unreachable, the proxy returns the standard OTLP error response. Agent CLIs handle export failures according to their OTel SDK retry configuration. Tracing is an optional dependency — export failures do not affect agent operation.
 
 ## Configuration
