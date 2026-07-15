@@ -66,6 +66,7 @@ Only methods intended for external use appear in gateway proto services. Interna
 | Gateway Proto Service | Internal Service | Methods |
 |-----------------------|-----------------|---------|
 | `AgentsGateway` | [Agents](agents-service.md) | All CRUD methods for agents and sub-resources |
+| `TerminalGateway` | [Terminal Proxy](terminal-proxy.md) | CreateTerminalSession |
 | `ThreadsGateway` | [Threads](threads.md) | All methods |
 | `ChatGateway` | [Chat](chat.md) | All methods |
 | `NotificationsGateway` | [Notifications](notifications.md) | Subscribe (server-streaming) |
@@ -76,6 +77,19 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, EnrollRunner, ListWorkloads, ListWorkloadsByAgentInstance, GetWorkload, TouchWorkload, StreamWorkloadLogs, GetVolume, ListVolumes, ListVolumesByAgentInstance |
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
+
+### Terminal Sessions
+
+`CreateTerminalSession` is the Gateway-exposed ticket issuance endpoint for browser and CLI terminal access. The client supplies a target `workload_id`, `container_name`, and optional command override. The request does not carry an identity; Gateway derives the caller identity from authenticated context and passes it only to the internal [Terminal Proxy](terminal-proxy.md) `IssueTicket` RPC.
+
+Gateway authorizes the target before issuing a ticket:
+
+| Target workload | Authorization |
+|-----------------|---------------|
+| Sandbox workload | `can_connect` on `sandbox:<sandbox_id>`. This is owner-only; org owners can stop/delete non-owned sandboxes but cannot attach unless they also own the sandbox |
+| Agent workload container | `can_edit_config` on the agent class |
+
+On success the response contains a short-lived signed ticket, the Terminal Proxy WebSocket URL, and the ticket expiry. The command is bound into the ticket at issuance; the WebSocket handshake carries terminal size only and cannot change the command.
 
 ### Handler Implementation
 
