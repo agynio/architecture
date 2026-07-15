@@ -580,6 +580,8 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `instance_inbox:{id}` | `id == caller.identity_id` AND `caller.identity_type == agent_instance` (identity equality, no OpenFGA). `instance_inbox:me` is rewritten before the check. Only the instance itself may subscribe to its inbox room |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality, no OpenFGA). `:me` is not accepted for this room pattern |
+| `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 
 ### Metering Service
