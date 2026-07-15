@@ -1,5 +1,7 @@
 # Local Development
 
+This document covers **developing the platform itself** — running a mutable local cluster that service code can be hot-reloaded into. To simply **run** the platform locally (use it, demo it, develop agents or apps against it), use the prebuilt VM image instead — see [Local Bundle](local-bundle.md) and [`agyn local`](../agyn-cli.md#local-platform-commands-agyn-local).
+
 ## Bootstrap
 
 The single source of truth for running the full Agyn cluster locally is:

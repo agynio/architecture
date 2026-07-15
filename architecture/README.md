@@ -9,6 +9,7 @@ Desired architecture state of the platform.
 - Operations:
   - [CI/CD](operations/ci-cd.md)
   - [Local Development](operations/local-development.md)
+  - [Local Bundle](operations/local-bundle.md)
   - [Terraform Provider](operations/terraform-provider.md)
   - [New Service Development](operations/new-service.md)
   - [E2E Testing](operations/e2e-testing.md)
@@ -91,6 +92,7 @@ Desired architecture state of the platform.
 
 - [CI/CD](operations/ci-cd.md)
 - [Local Development](operations/local-development.md)
+- [Local Bundle](operations/local-bundle.md)
 - [Terraform Provider](operations/terraform-provider.md)
 - [New Service Development](operations/new-service.md)
 - [E2E Testing](operations/e2e-testing.md)

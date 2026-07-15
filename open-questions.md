@@ -244,6 +244,17 @@ Unresolved product and architectural decisions requiring discussion.
 
 ---
 
+## Local Bundle: Per-Install CA
+
+**Context:** The [Local Bundle](architecture/operations/local-bundle.md#tls-and-certificate-authority) image carries a cert-manager-issued CA that signs the `*.agyn.dev` wildcard certificate. [`agyn local ca`](architecture/agyn-cli.md#local-platform-commands-agyn-local) extracts it from the image and installs it into the system trust store. The baked CA rotates with each image build, so every upgrade invalidates the previously trusted CA and requires re-installation. An alternative direction is a per-install CA: the CLI generates a CA locally once and injects it into the VM — same `agyn local ca` commands, reversed direction, stable across image upgrades.
+
+**Questions:**
+- Should the per-install CA replace CA extraction, or should both directions be supported (extraction as fallback when injection is unavailable)?
+- How is the locally generated CA injected — re-signing the wildcard secret at first boot, or a cert-manager issuer swap inside the VM?
+- Where does the per-install CA key live on the host (`~/.agyn/local/certs/`), and what protects it?
+
+---
+
 ## Groups: SCIM Endpoints
 
 **Context:** [Groups](architecture/groups-service.md) are designed for SCIM-driven sync from external IdPs (Okta, Azure AD). `Group.source` and `GroupMembership.source` fields support augmented membership (IdP-managed users + platform-added non-user members), but the SCIM endpoints themselves are not part of v1.

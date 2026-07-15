@@ -15,6 +15,8 @@
 
 `agyn` is a thin client over the Gateway API. It authenticates, serializes commands into API calls, and presents results. It contains no business logic — all operations are performed server-side.
 
+The one exception is the [`agyn local`](#local-platform-commands-agyn-local) command group, which manages a local platform VM on the user's machine: it talks to the artifact CDN and Lima, not to a Gateway.
+
 ## Usage Examples
 
 ```bash
@@ -46,6 +48,10 @@ agyn agents instantiate @research_bot --label planning-run-1
 agyn expose add 3000
 agyn expose remove 3000
 agyn expose list
+
+# Run the full platform locally from a prebuilt VM image
+agyn local start
+agyn local status
 
 # Any Gateway API operation
 agyn <resource> <verb> [flags]
@@ -296,6 +302,44 @@ Agents use the `expose` command group to make ports inside their container acces
 
 These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The agent's workload context is resolved from the authenticated identity.
 
+---
+
+## Local Platform Commands (`agyn local`)
+
+The `local` command group runs the full Agyn platform on the user's machine from a prebuilt VM image — see [Local Bundle](operations/local-bundle.md) for the image architecture. Unlike every other command group, `agyn local` does not call the Gateway API: it downloads published images from the CDN and manages a [Lima](https://lima-vm.io/) VM locally.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `agyn local start` | Download the image if needed → create/boot the VM → optionally install the CA. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--download-only`, `-y` |
+| `agyn local stop` \| `restart` | Stop / restart the VM |
+| `agyn local status` | State, version, port, endpoint health, CA trust. `--output table\|json\|yaml` |
+| `agyn local delete` | Remove the VM. `--purge` also removes downloaded images and certs |
+| `agyn local upgrade` | Recreate the VM from a newer image. Destructive (the VM's state is replaced) — requires confirmation |
+| `agyn local doctor` | Dependency and environment checks with fix hints |
+| `agyn local config` | `list` \| `get <key>` \| `set <key> <value>` |
+| `agyn local ca` | `show` \| `export` \| `install` \| `uninstall` |
+
+### Design
+
+| Concern | Behavior |
+|---------|----------|
+| **Single instance** | One Lima VM named `agyn` per machine; no multi-instance |
+| **State containment** | Everything lives under `~/.agyn/local/` — `images/<version>/<arch>/` (verified downloads), `certs/`, `lima/` (dedicated `LIMA_HOME`) — so `delete --purge` is a clean sweep. Settings live in `~/.agyn/config.yaml` under a `local:` key (`port`, `version`, `cpus`, `memory`) |
+| **Version resolution** | `version: latest` resolves via `bundle-vm/latest.json` on the CDN; pinned versions bypass it. Downloads are sha256-verified against the published checksums, resumable, and atomic |
+| **Networking** | The host port (default `2496`) is a Lima forward onto the VM's ingress NodePort; port collision detection suggests alternatives. `*.agyn.dev` resolves to `127.0.0.1`, so endpoints are `https://console.agyn.dev:<port>` etc. — see [Local Bundle — Networking](operations/local-bundle.md#networking) |
+| **Certificates** | `agyn local ca` extracts the CA baked into the image and installs it into the system trust store (macOS keychain / Linux ca-certificates; requires sudo) |
+| **Dependencies** | `limactl`, `xz`, `qemu` are checked by `doctor` and by `start` preflight. Not auto-installed — fix hints are printed |
+
+### Interactive and Non-Interactive Modes
+
+On a TTY without `-y`, `agyn local start` runs a first-run wizard: dependency check → port selection → download progress → boot → "trust CA?" prompt.
+
+With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > environment > config file > defaults, and commands fail with actionable messages when a human is required (e.g., sudo for trust-store installation). `status` and `doctor` emit JSON/YAML for scripting.
+
+---
+
 ## Authentication
 
 `agyn` supports two authentication methods, with the same priority order used by all CLI tools in the platform (see [CLI Authentication](authn.md#cli-authentication)):
@@ -315,4 +359,4 @@ graph LR
     Gateway --> Services[Platform Services]
 ```
 
-`agyn` is a pure API client. It does not interact with platform services directly — all operations go through the [Gateway](gateway.md).
+`agyn` is a pure API client. It does not interact with platform services directly — all operations go through the [Gateway](gateway.md). The [`agyn local`](#local-platform-commands-agyn-local) command group is the exception: it manages a local VM and fetches images from the CDN, touching no Gateway at all.
