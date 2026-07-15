@@ -49,6 +49,11 @@ agyn expose add 3000
 agyn expose remove 3000
 agyn expose list
 
+# Sandboxes (engineer-launched workloads with shell access)
+agyn sandbox start --env python-tools
+agyn sandbox connect brave-otter
+agyn sandbox list
+
 # Run the full platform locally from a prebuilt VM image
 agyn local start
 agyn local status
@@ -301,6 +306,22 @@ Agents use the `expose` command group to make ports inside their container acces
 | `agyn expose list` | List active exposures for the current workload |
 
 These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The agent's workload context is resolved from the authenticated identity.
+
+---
+
+## Sandbox Commands
+
+Engineers use the `sandbox` command group to start on-demand workloads and attach interactive shells to them. See [Sandboxes](../product/sandboxes/sandboxes.md) for the product behavior and [Resource Definitions — Sandbox](resource-definitions.md#sandbox) for the resource.
+
+| Command | Description |
+|---------|-------------|
+| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted |
+| `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox; restarts the workload if the sandbox is `stopped`. With no argument: connects when the caller owns exactly one sandbox, otherwise lists candidates |
+| `agyn sandbox list [--all]` | List the caller's sandboxes. `--all` lists every sandbox in the organization (org owners) |
+| `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
+| `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
+
+The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). A dropped connection ends the session, not the sandbox — `agyn sandbox connect` reattaches. `start` and `connect` require a TTY; there is no non-interactive exec mode in v1.
 
 ---
 

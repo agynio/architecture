@@ -54,7 +54,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `id` | string (UUID) | Unique runner identifier |
 | `name` | string | Display name |
 | `organization_id` | string (UUID), nullable | Organization scope. Null for cluster-scoped runners |
-| `labels` | map<string, string> | Key-value labels for routing and metadata (e.g., `region: "eu-west-1"`, `tier: "gpu"`). Used for [runner selection](#runner-selection). Set at registration time, mutable via `UpdateRunner` |
+| `labels` | map<string, string> | Key-value metadata (e.g., `region: "eu-west-1"`, `tier: "gpu"`). Informational — placement is determined by [flavors](#flavors), not labels. Set at registration time, mutable via `UpdateRunner` |
 | `capabilities` | list<string> | Capability names this runner implements (e.g., `["docker", "gpu"]`). The orchestrator uses this to match workloads that require specific capabilities. Set at registration time, mutable via `UpdateRunner` |
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
@@ -67,16 +67,23 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 Cluster-scoped runners (`organization_id: null`) are available to all organizations. Org-scoped runners are available only to the owning organization. See [Runner Selection](#runner-selection) for how the orchestrator picks a runner.
 
+## Flavors
+
+A [Flavor](resource-definitions.md#flavor) is a named compute size (CPU/memory requests and limits) offered by a specific runner. Flavors are stored in the Runners service alongside the runner they belong to and managed via `CreateFlavor`, `UpdateFlavor`, and `ListFlavors` RPCs. Deletion is only allowed while no [Environment](resource-definitions.md#environment) references the flavor; a referenced flavor is deprecated instead (`deprecated: true` via `UpdateFlavor`).
+
+Authorization follows runner ownership: flavors on a cluster-scoped runner require `admin` on `cluster:global`; flavors on an org-scoped runner require `owner` on the organization — the same split as [runner registration](authz.md). Flavor visibility follows runner visibility (see [Organization Scoping](#organization-scoping)).
+
+See [Flavors and Environments](../product/environments/environments.md) for the product behavior.
+
 ## Runner Selection
 
-The [Agents Orchestrator](agents-orchestrator.md) selects a runner for each agent workload using organization scoping, label matching, and capability matching:
+Placement is determined by the workload's [Environment](resource-definitions.md#environment): the environment references a [Flavor](#flavors), and the flavor belongs to exactly one runner — environment → flavor → runner. The [Agents Orchestrator](agents-orchestrator.md) does not choose among runners; it validates the determined runner:
 
-1. **Scope filtering** — collect eligible runners: org-scoped runners matching the agent's `organization_id`, plus all cluster-scoped runners. Only runners with status `enrolled` are eligible.
-2. **Label matching** — if the agent defines `runner_labels` (see [Agent — runner_labels](resource-definitions.md#agent)), filter eligible runners to those whose `labels` contain all key-value pairs from the agent's `runner_labels`. Exact string equality on both key and value. A runner may have additional labels beyond what the agent requires.
-3. **Capability matching** — if the agent defines `capabilities`, filter eligible runners to those whose `capabilities` list contains every capability the agent requires. A runner may advertise additional capabilities beyond what the agent requires.
-4. **Random selection** — from the filtered set, pick one runner at random.
+1. **Resolve** — read the environment from the Agents service and its flavor from the Runners service; the flavor's `runner_id` is the target runner.
+2. **Validate enrollment** — the runner's status must be `enrolled`. Otherwise the workload fails to schedule and the standard retry policy applies.
+3. **Validate capabilities** — if the agent defines `capabilities`, the runner's `capabilities` list must contain every one of them. A runner may advertise additional capabilities. (Sandboxes define no capabilities.)
 
-If the agent defines no `runner_labels`, step 2 is skipped. If the agent defines no `capabilities`, step 3 is skipped. If no runners remain after filtering, the workload fails to schedule with an error indicating which constraint could not be satisfied.
+Environment create/update already validated that the flavor's runner is visible to the organization (cluster-scoped, or org-scoped to the same org), so a "wrong runner" pairing cannot reach scheduling. There is no fallback runner — a different runner has no contract to honor the flavor. Runner `labels` remain as metadata; they no longer participate in placement.
 
 ## Workload Resource
 
@@ -361,10 +368,12 @@ The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByAg
 
 The [Terminal Proxy](terminal-proxy.md) needs to reach the specific runner hosting a workload. The flow:
 
-1. UI calls `GetWorkload` (via Gateway) to get workload details including `runner_id`.
-2. UI opens a WebSocket to the Terminal Proxy with `workloadId` and `containerId`.
+1. The client (Console or `agyn` CLI) calls `CreateTerminalSession` (via Gateway), which authorizes the caller and returns a short-lived single-use ticket.
+2. The client opens a WebSocket to the Terminal Proxy with the ticket.
 3. Terminal Proxy calls `GetWorkload` on the Runners service to resolve `runner_id`.
-4. Terminal Proxy dials the specific runner via OpenZiti: `zitiContext.Dial("runner-{runnerId}")`.
+4. Terminal Proxy dials the specific runner via OpenZiti (`zitiContext.Dial("runner-{runnerId}")`) and opens [`Runner.Exec`](runner.md#execution).
+
+While terminal sessions are attached to a sandbox workload, the Terminal Proxy calls `TouchWorkload` on this service every 10 seconds — the same activity path `agynd` uses — so the [idle timeout](#idle-timeout) machinery applies to sandboxes unchanged. See [Terminal Proxy — Sandbox Activity Reporting](terminal-proxy.md#sandbox-activity-reporting).
 
 Per-runner OpenZiti addressing is established at registration time — each runner has its own OpenZiti service. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 

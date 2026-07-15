@@ -9,6 +9,7 @@ Desired product state for the Agyn platform.
 - Console: [Console](console/console.md)
 - Port Exposure: [Port Exposure](port-exposure/port-exposure.md)
 - Egress: [Egress Gateway](egress-gateway/egress-gateway.md)
+- Runtime: [Flavors and Environments](environments/environments.md) -> [Sandboxes](sandboxes/sandboxes.md)
 - Tracing: [Run Timeline](tracing/run-timeline.md)
 
 ## By domain
@@ -35,6 +36,11 @@ Desired product state for the Agyn platform.
 ### Egress
 
 - [Egress Gateway](egress-gateway/egress-gateway.md)
+
+### Runtime
+
+- [Flavors and Environments](environments/environments.md)
+- [Sandboxes](sandboxes/sandboxes.md)
 
 ### Tracing
 

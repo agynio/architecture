@@ -202,10 +202,10 @@ All RPCs are defined in the shared [Runner gRPC API](runner.md#grpc-api). This s
 
 | RPC | Kubernetes Implementation |
 |-----|--------------------------|
-| `Exec` | Kubernetes API exec (`/exec` subresource) with bidirectional streaming. Supports TTY, stdin, stdout/stderr separation, timeouts |
+| `Exec` | Kubernetes API exec (`/exec` subresource) with bidirectional streaming. Supports TTY, stdin, stdout/stderr separation, terminal resize (the exec resize channel), timeouts |
 | `CancelExecution` | Terminate the exec stream |
 
-The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY/WebSocket exec protocol. Timeout enforcement (wall timeout, idle timeout) and exit code extraction are handled by the k8s-runner process.
+The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY/WebSocket exec protocol; resize messages on the gRPC stream are forwarded to the exec resize channel. Timeout enforcement (wall timeout, idle timeout — both optional) and exit code extraction are handled by the k8s-runner process.
 
 ### Streaming
 

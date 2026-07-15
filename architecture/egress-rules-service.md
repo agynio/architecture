@@ -11,12 +11,12 @@ The service is structurally analogous to [Expose Service](expose-service.md) —
 | Responsibility | Description |
 |---|---|
 | **Egress Rule CRUD** | Create, read, update, delete `EgressRule` resources. Validate matcher and effect on create/update |
-| **Egress Rule Attachment CRUD** | Create, read, delete attachments binding a rule to an agent. List attachments by rule, by agent, by organization |
+| **Egress Rule Attachment CRUD** | Create, read, delete attachments binding a rule to an agent or an [environment](resource-definitions.md#environment). List attachments by rule, by agent, by environment, by organization |
 | **Per-rule OpenZiti service lifecycle** | On rule create, call Ziti Management to create the OpenZiti service `egress-rule-<rule_id>` with `intercept.v1` and `host.v1` configs. On rule delete, delete the service. On rule update where `matcher.domain_pattern` or `matcher.ports` changed, update the service's intercept config |
-| **Per-attachment Dial policy lifecycle** | On attachment create, call Ziti Management to create a Dial policy granting `agent-<agent_id>` access to `@<openziti_service_id>` (the concrete OpenZiti service ID stored on the rule). On detach, delete the policy |
+| **Per-attachment Dial policy lifecycle** | On attachment create, call Ziti Management to create a Dial policy granting the target's identity role access to `@<openziti_service_id>` (the concrete OpenZiti service ID stored on the rule) — `agent-<agent_id>` for agent targets, `environment-<environment_id>` for environment targets (the [Agents Orchestrator](agents-orchestrator.md) stamps this role attribute on every workload identity it creates for a workload running the environment, agent workloads and sandboxes alike). On detach, delete the policy |
 | **Reconciliation** | Periodic sweep to repair drift between rule/attachment records and actual OpenZiti state |
 | **Change notifications** | Publish `egress_rule.updated` and `egress_rule_attachment.updated` events to the organization's [Notifications](notifications.md) room for cache invalidation by the gateway |
-| **Internal rule lookup** | Provide `ListEgressRulesByAgent(agent_id)` for the Egress Gateway data path |
+| **Internal rule lookup** | Provide `ListEgressRulesByAgent(agent_id)` and `ListEgressRulesByEnvironment(environment_id)` for the Egress Gateway data path. The gateway's effective rule set for a workload is the union of both |
 
 ## Classification
 
@@ -43,15 +43,16 @@ Mixed plane — control plane for CRUD (Gateway-exposed) and data plane for `Lis
 | **UpdateEgressRule** | Update mutable fields. If `matcher.domain_pattern` or `matcher.ports` changes, updates the OpenZiti service's `intercept.v1` config |
 | **DeleteEgressRule** | Delete a rule. Rejects if any attachment exists — caller must detach first. Deletes the OpenZiti service via Ziti Management |
 | **ListEgressRulesByAgent** | **Internal-only.** Returns all rules attached to a given `agent_id`. Called by the Egress Gateway on cache miss |
+| **ListEgressRulesByEnvironment** | **Internal-only.** Returns all rules attached to a given `environment_id`. Called by the Egress Gateway on cache miss |
 | **CountRulesReferencingSecret** | **Internal-only.** Returns the count (and IDs) of active rules whose `effect.inject` references a given `secret_id`. Called by the [Secrets](secrets.md) service to enforce referential integrity before deleting a secret |
 
 ### Egress Rule Attachment CRUD
 
 | Method | Description |
 |---|---|
-| **CreateEgressRuleAttachment** | Attach a rule to an agent. Validates: the agent belongs to the rule's organization (via an [Authorization](authz.md) check that `organization:<rule.org_id>` is the `org` of `agent:<agent_id>`), attachment is unique on `(rule_id, agent_id)`. Creates the per-attachment Dial policy via Ziti Management |
-| **DeleteEgressRuleAttachment** | Detach a rule from an agent. Deletes the Dial policy |
-| **ListEgressRuleAttachments** | List attachments, filterable by `rule_id` or `agent_id` |
+| **CreateEgressRuleAttachment** | Attach a rule to an agent or an environment (exactly one target). Validates: the target belongs to the rule's organization (via an [Authorization](authz.md) check), attachment is unique on `(rule_id, target)`. Creates the per-attachment Dial policy via Ziti Management |
+| **DeleteEgressRuleAttachment** | Detach a rule from its target. Deletes the Dial policy |
+| **ListEgressRuleAttachments** | List attachments, filterable by `rule_id`, `agent_id`, or `environment_id` |
 
 ## EgressRule Resource
 
@@ -73,11 +74,12 @@ See [Resource Definitions — Egress Rule](resource-definitions.md#egress-rule) 
 |---|---|---|
 | `id` | string (UUID) | Unique identifier |
 | `rule_id` | string (UUID) | Reference to the EgressRule |
-| `agent_id` | string (UUID) | Reference to the Agent ([Agents service](agents-service.md)) |
+| `agent_id` | string (UUID) | Target Agent ([Agents service](agents-service.md)). Mutually exclusive with `environment_id` |
+| `environment_id` | string (UUID) | Target [Environment](resource-definitions.md#environment) ([Agents service](agents-service.md)). Mutually exclusive with `agent_id` |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy ID for this attachment |
 | `created_at` | timestamp | |
 
-Unique on `(rule_id, agent_id)`. Attachments are immutable — create and delete only.
+Exactly one of `agent_id` or `environment_id` is set. Unique on `(rule_id, target)`. Attachments are immutable — create and delete only.
 
 ## OpenZiti Resources
 
@@ -117,7 +119,7 @@ Each pass:
 1. **Missing OpenZiti services for active rules.** For each `EgressRule` row, verify the corresponding OpenZiti service exists. If absent, re-create it. If present but its `intercept.v1` config drifts from the rule's `matcher`, update the config.
 2. **Missing Dial policies for active attachments.** For each `EgressRuleAttachment` row, verify the corresponding Dial policy exists. If absent, re-create it.
 3. **Orphaned OpenZiti services.** List OpenZiti services with role attribute `egress-services`. Any service `egress-rule-<id>` whose `<id>` does not correspond to a live `EgressRule` row → delete.
-4. **Orphaned Dial policies.** List Dial policies whose `serviceRoles` reference stored OpenZiti service IDs for egress services. Any policy whose `(agent_id, rule_id)` does not correspond to a live attachment → delete.
+4. **Orphaned Dial policies.** List Dial policies whose `serviceRoles` reference stored OpenZiti service IDs for egress services. Any policy whose `(target, rule_id)` does not correspond to a live attachment → delete.
 
 This ensures eventual cleanup of all OpenZiti resources regardless of transient failures or missed events.
 
@@ -130,7 +132,7 @@ Events published to the organization's [Notifications](notifications.md) room (`
 | `egress_rule.updated` | An `EgressRule` is created, updated, or deleted |
 | `egress_rule_attachment.updated` | An `EgressRuleAttachment` is created or deleted |
 
-The Egress Gateway subscribes per organization. On any event, it invalidates the corresponding `agent_id` rule cache(s) and refetches on next request.
+The Egress Gateway subscribes per organization. On any event, it invalidates the corresponding `agent_id` / `environment_id` rule cache(s) and refetches on next request.
 
 ## Authorization
 
@@ -138,13 +140,15 @@ The Egress Gateway subscribes per organization. On any event, it invalidates the
 |---|---|
 | `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>` |
 | `GetEgressRule`, `ListEgressRules` | `member` on `organization:<org_id>` |
-| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` | `can_edit_config` on `agent:<agent_id>` (and the rule must be in the agent's organization) |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (agent target) | `can_edit_config` on `agent:<agent_id>` (and the rule must be in the agent's organization) |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (environment target) | `owner` on `organization:<org_id>` — the same permission that manages the [Environment](resource-definitions.md#environment) (and the rule must be in the environment's organization) |
 | `ListEgressRuleAttachments` (by `agent_id`) | `can_read_config` on `agent:<agent_id>` |
+| `ListEgressRuleAttachments` (by `environment_id`) | `member` on `organization:<org_id>` |
 | `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
-| `ListEgressRulesByAgent` (internal) | Internal only — gated by Istio `AuthorizationPolicy` |
+| `ListEgressRulesByAgent`, `ListEgressRulesByEnvironment` (internal) | Internal only — gated by Istio `AuthorizationPolicy` |
 | `CountRulesReferencingSecret` (internal) | Internal only — gated by Istio `AuthorizationPolicy` |
 
-See [Authorization — EgressRules Service](authz.md#egressrules-service) for the full reference. No new OpenFGA types are introduced; rules use the existing organization-level checks and attachments use the existing per-agent `can_edit_config`.
+See [Authorization — EgressRules Service](authz.md#egressrules-service) for the full reference. No new OpenFGA types are introduced; rules use the existing organization-level checks, agent attachments use the existing per-agent `can_edit_config`, and environment attachments use the organization `owner` relation.
 
 ## Gateway Exposure
 
@@ -152,7 +156,7 @@ See [Authorization — EgressRules Service](authz.md#egressrules-service) for th
 |---|---|
 | `EgressRulesGateway` | `CreateEgressRule`, `GetEgressRule`, `ListEgressRules`, `UpdateEgressRule`, `DeleteEgressRule`, `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment`, `ListEgressRuleAttachments` |
 
-`ListEgressRulesByAgent` is internal-only and not exposed through the Gateway.
+`ListEgressRulesByAgent` and `ListEgressRulesByEnvironment` are internal-only and not exposed through the Gateway.
 
 ## Configuration
 

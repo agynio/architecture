@@ -441,6 +441,8 @@ The Orchestrator and Terminal Proxy reach a specific runner by dialing its per-r
 
 Agents connect to the **Gateway**, the **[LLM Proxy](llm-proxy.md)**, and the **[Tracing](tracing.md)** service, regardless of runner location. The static service policies `agents-dial-gateway`, `agents-dial-llm-proxy`, and `agents-dial-tracing` grant all agents Dial access to the `gateway`, `llm-proxy`, and `tracing` services respectively. No other OpenZiti services are dialable by agents.
 
+[Sandbox](../product/sandboxes/sandboxes.md) workload identities carry the same role attribute these static policies match, so sandboxes get identical platform service reach (Gateway, LLM Proxy, Tracing) — model-calling tooling works inside a sandbox, with LLM usage attributed to the sandbox and its owner.
+
 ### Ziti Sidecar
 
 Agent pods use a **Ziti sidecar container** that handles OpenZiti connectivity for the entire pod. The Orchestrator injects `ZITI_ENROLLMENT_JWT` into the sidecar's environment. At startup, the sidecar exchanges the JWT for an x509 certificate, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace.

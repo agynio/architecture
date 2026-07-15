@@ -6,7 +6,7 @@ The Agents service manages agent resources — the configuration entities that d
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
-Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments, Image Pull Secret Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments, Image Pull Secret Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 Agent nicknames are part of the agent resource. The Agents service stores the nickname and registers it with the [Identity](identity.md) service on create and update. Nickname uniqueness within the organization is enforced by the Identity service.
 
@@ -18,23 +18,25 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent class definitions: identity, model, image, init image, compute resources, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
+| **Agents** | Agent class definitions: identity, model, [environment](resource-definitions.md#environment) reference, init image, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
+| **Environments** | Runtime definitions: [flavor](resource-definitions.md#flavor) reference + container image. Referenced by agents and sandboxes; attachment target for ENVs, image pull secrets, and egress rules. Create/update validates that the flavor's runner is visible to the organization; delete is rejected while any agent or sandbox references the environment. See [Flavors and Environments](../product/environments/environments.md) | ✓ |
+| **Sandboxes** | On-demand workloads started by users: name, environment reference, owner, status, idle timeout, TTL. Reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md) | Create, Get, List, Stop, Delete |
 | **Agent Instances** | Instantiations of a class with their own state and [inbox](agent-instances.md#inbox). See [Agent Instances](agent-instances.md) | Create, Get, List, Pause, Resume, Delete |
 | **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
 | **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
-| **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and containers (agents, MCPs, hooks). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
+| **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and targets (agents, MCPs, hooks, environments). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
 | **MCPs** | MCP server definitions: image, command, compute resources. Belong to an agent | ✓ |
 | **Skills** | Reusable prompt fragments: name, body. Belong to an agent | ✓ |
 | **Hooks** | Event-driven functions: event, entrypoint, image, compute resources. Belong to an agent | ✓ |
-| **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, or hook | ✓ |
+| **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, hook, or environment | ✓ |
 | **InitScripts** | Shell scripts for container initialization. Belong to an agent, MCP, or hook | ✓ |
 
 All list endpoints use cursor-based pagination.
 
 ## Agents vs. Agent Instances
 
-Agents describe **what** an agent is (image, model, prompt, tools). Agent Instances are **specific running (or eligible-to-run) copies** — each with its own state volume, its own inbox, and its own identity. Threads, workloads, and inbox items always reference an instance; the class is only referenced transiently, at participant-add time, before being resolved to a fresh instance (see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
+Agents describe **what** an agent is (environment, model, prompt, tools). Agent Instances are **specific running (or eligible-to-run) copies** — each with its own state volume, its own inbox, and its own identity. Threads, workloads, and inbox items always reference an instance; the class is only referenced transiently, at participant-add time, before being resolved to a fresh instance (see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
 
 Instances read **live class configuration** — there is no per-instance config snapshot. Consequently, `DeleteAgent` is rejected while the class has non-terminated instances; callers terminate the instances first (or let idle GC and retention run their course). See [Agent Instances — Configuration](agent-instances.md#configuration).
 
@@ -68,7 +70,7 @@ Instances transition `active → paused` when idle for the class's `instance_idl
 
 ### Egress Rules (managed elsewhere)
 
-[Egress Rules](resource-definitions.md#egress-rule) — which control outbound HTTP/HTTPS from agent workloads — are **not** owned by the Agents service. They live in the dedicated [EgressRules service](egress-rules-service.md), attached to agents via that service's `EgressRuleAttachment` resource. The Agents service is unaware of rules.
+[Egress Rules](resource-definitions.md#egress-rule) — which control outbound HTTP/HTTPS from workloads — are **not** owned by the Agents service. They live in the dedicated [EgressRules service](egress-rules-service.md), attached to agents or environments via that service's `EgressRuleAttachment` resource. The Agents service is unaware of rules.
 
 ## Availability
 
@@ -208,7 +210,7 @@ The following resources are fetched before the agent CLI is spawned:
 
 | Resource | Method | Purpose |
 |----------|--------|---------|
-| Agent | `GetAgent` | Base configuration: model, image, behavioral config |
+| Agent | `GetAgent` | Base configuration: model, environment, behavioral config |
 | Skills | `ListSkills(agent_id)` | Prompt fragments placed on the filesystem for the agent CLI |
 | MCPs | `ListMCPs(agent_id)` | MCP server definitions — used to configure agent CLI MCP endpoints |
 | InitScripts | `ListInitScripts(agent_id)` | Shell scripts executed before the agent CLI is spawned |

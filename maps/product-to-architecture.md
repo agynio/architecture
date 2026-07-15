@@ -67,6 +67,25 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Token Counting](../architecture/token-counting.md)
 - [Runners](../architecture/runners.md)
 
+## Runtime (Flavors, Environments, Sandboxes)
+
+### Product docs
+
+- [Flavors and Environments](../product/environments/environments.md)
+- [Sandboxes](../product/sandboxes/sandboxes.md)
+
+### Architecture docs
+
+- [Resource Definitions — Flavor, Environment, Sandbox](../architecture/resource-definitions.md#flavor)
+- [Terminal Proxy](../architecture/terminal-proxy.md)
+- [Runners](../architecture/runners.md)
+- [Agents Orchestrator](../architecture/agents-orchestrator.md)
+- [Agents Service](../architecture/agents-service.md)
+- [EgressRules Service](../architecture/egress-rules-service.md)
+- [Secrets](../architecture/secrets.md)
+- [agyn-cli](../architecture/agyn-cli.md)
+- [Metering](../architecture/metering.md)
+
 ## Egress
 
 ### Product docs

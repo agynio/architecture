@@ -38,7 +38,8 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 
 Exec supports:
 - Interactive (TTY) and non-interactive modes.
-- Wall timeout, idle timeout, kill-on-timeout.
+- Terminal resize in TTY mode — resize messages on the stream propagate to the PTY (SIGWINCH to the foreground process). Used by the [Terminal Proxy](terminal-proxy.md).
+- Wall timeout, idle timeout, kill-on-timeout — all optional; terminal sessions run with no timeouts.
 - Stdin streaming, stdout/stderr separation.
 - Exit code and reason (completed, timeout, idle_timeout, cancelled, error).
 

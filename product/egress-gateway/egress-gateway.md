@@ -23,7 +23,7 @@ The agent runs unmodified tools (`curl`, `git`, language-specific HTTP clients).
 | Term | Definition |
 |---|---|
 | **Egress Rule** | A rule that opts a destination (matched by domain pattern, optionally narrowed by method and path) into platform-mediated egress. A rule can permit or deny matching requests and can inject HTTP headers (literal values or [Secret](../../architecture/providers.md#secret) references). |
-| **Rule Attachment** | A relationship binding a rule to a specific agent. One rule can be attached to many agents; one agent can have many rules. |
+| **Rule Attachment** | A relationship binding a rule to a specific agent or to an [environment](../environments/environments.md). One rule can be attached to many targets; one target can have many rules. Environment attachments apply to every workload running the environment — agent workloads and [sandboxes](../sandboxes/sandboxes.md) alike. |
 | **Platform CA** | A platform-managed certificate authority whose certificate is installed in every agent container's trust store. Allows the gateway to terminate TLS for inspected requests without breaking certificate validation. |
 
 ## What gets intercepted
@@ -115,7 +115,7 @@ The original `Authorization` header (or any other header the agent's tool happen
 
 ## Attaching rules to agents
 
-Rules are organization-scoped resources, independent of any agent. Attaching a rule to an agent enables it for that agent's workloads. A rule with no attachments has no effect; an agent with no attached rules makes no use of the egress gateway.
+Rules are organization-scoped resources, independent of any agent. Attaching a rule to an agent enables it for that agent's workloads. A rule may instead be attached to an [environment](../environments/environments.md), enabling it for every workload running that environment — including [sandboxes](../sandboxes/sandboxes.md), which have no agent to attach rules to. The effective rules for a workload are the union of its agent's attachments (if any) and its environment's attachments. A rule with no attachments has no effect; a workload whose agent and environment have no attached rules makes no use of the egress gateway.
 
 | Operation | Effect |
 |---|---|
@@ -170,7 +170,7 @@ These spans are visible in the Console's tracing view, filterable by `agyn.agent
 
 ## Lifecycle
 
-Rules are created, edited, and deleted by organization owners through the Console (see [Console — Egress Rules](../console/console.md#egress-rules)), the `agyn` CLI, or the Terraform provider. Attaching and detaching rules to agents requires the same permission as editing the agent's configuration (`can_edit_config` on the agent).
+Rules are created, edited, and deleted by organization owners through the Console (see [Console — Egress Rules](../console/console.md#egress-rules)), the `agyn` CLI, or the Terraform provider. Attaching and detaching rules to agents requires the same permission as editing the agent's configuration (`can_edit_config` on the agent); attaching to environments requires the same permission that manages environments (organization owner).
 
 | Event | Effect |
 |---|---|
@@ -178,7 +178,7 @@ Rules are created, edited, and deleted by organization owners through the Consol
 | Rule attached to agent | Applies on the next workload start; existing workloads pick it up within the propagation window. |
 | Rule edited | Same propagation as attachment. |
 | Rule detached | Stops applying within the propagation window. |
-| Rule deleted | Fails if the rule is attached to one or more agents — detach first. |
+| Rule deleted | Fails if the rule is attached to one or more agents or environments — detach first. |
 | Secret referenced by a rule rotates | The new value is used on the next request after rotation. |
 
 ## Constraints

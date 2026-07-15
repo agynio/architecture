@@ -198,13 +198,14 @@ Before starting a workload, the orchestrator selects a runner:
 
 1. **Check for existing volumes** — call `Runners.ListVolumesByAgentInstance(agent_instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an instance reside on the same runner (recorded as `runner_id` on each volume record).
 2. **Validate the predetermined runner** — call `Runners.GetRunner(runner_id)` and verify its status is `enrolled`. If the runner is no longer registered or not enrolled, the instance cannot be recovered: call `Agents.PauseInstance(instance_id, reason="runner_deprovisioned")` and abort the start sequence.
-3. **No existing volumes** — apply the standard selection algorithm: filter enrolled runners by organization scope, then by label match against the class's `runner_labels`, then pick one at random. If no runner matches, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
+3. **No existing volumes** — the runner is determined by the class's [Environment](resource-definitions.md#environment): environment → [Flavor](resource-definitions.md#flavor) → runner. Validate that the runner is `enrolled` and advertises every capability the class requires (see [Runner Selection](runners.md#runner-selection)). If validation fails, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
+4. **Volume/flavor conflict** — if existing volumes pin the instance to a runner different from the environment's flavor runner (the environment or its flavor changed after volumes were provisioned), the instance cannot be recovered on the new runner: call `Agents.PauseInstance(instance_id, reason="runner_conflict")` and abort the start sequence.
 
 ### Workload Spec Assembly
 
 The orchestrator assembles the full workload specification from multiple sources:
 
-1. **Agent definition** (from Agents): image, compute resources, configuration.
+1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the main container image; its [Flavor](resource-definitions.md#flavor) (from Runners) supplies the compute resources. Environment-targeted ENVs, image pull secret attachments, and egress rule attachments are collected alongside the agent's own.
 2. **Capabilities** (from Agents): named platform capabilities (e.g., `docker`). The orchestrator includes the capability list in the workload spec. The runner resolves each capability to its configured implementation — injecting the appropriate sidecars and environment variables. See [Resource Definitions — Capabilities](resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
 3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
 4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
@@ -332,6 +333,8 @@ If the Orchestrator crashes, gaps in usage data equal the downtime duration. Mis
 |------|-------|--------|-----------------|
 | `CORE_SECONDS` | allocated_cpu × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent | deterministic(workload_id+interval_start) |
 | `GB_SECONDS` | allocated_ram_gb × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, kind=ram | deterministic(workload_id+interval_start+"ram") |
+
+`allocated_cpu` and `allocated_ram_gb` come from the workload's [Flavor](resource-definitions.md#flavor) allocation (via the environment), plus the inline resources of MCP and hook sidecars. Moving to flavor-denominated metering (`FLAVOR_SECONDS` with flavor/runner labels) is a planned next phase — see [Flavors and Environments — Metering](../product/environments/environments.md#metering).
 
 **Storage** — one record per persistent volume each interval:
 

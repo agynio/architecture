@@ -2,7 +2,7 @@
 
 Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL. Agents and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor), which live in the [Runners](runners.md#flavors) service alongside the runner they belong to. Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 All resources share a common envelope:
 
@@ -22,6 +22,13 @@ Resource-specific fields are defined alongside the envelope — not nested insid
 ```mermaid
 erDiagram
     Agent ||--o| Model : "references (by UUID)"
+    Agent }o--|| Environment : "environment_id"
+    Sandbox }o--|| Environment : "environment_id"
+    Environment }o--|| Flavor : "flavor_id"
+    Flavor }o--|| Runner : "runner_id"
+
+    Environment ||--o{ ENV : "environment_id"
+    Environment ||--o{ ImagePullSecretAttachment : "environment_id"
 
     Agent ||--o{ MCP : "agent_id"
     Agent ||--o{ Skill : "agent_id"
@@ -52,7 +59,7 @@ erDiagram
 
 ## Agent
 
-An agent definition that determines how an agent workload behaves when processing thread messages. The Agent is the central resource — it represents a single agent pod. Infrastructure concerns (image, compute resources) and behavioral concerns (LLM configuration) live on the agent directly.
+An agent definition that determines how an agent workload behaves when processing thread messages. The Agent is the central resource — it represents a single agent pod. Behavioral concerns (LLM configuration) live on the agent directly; infrastructure concerns (image, compute resources, placement) come from the referenced [Environment](#environment).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -61,16 +68,60 @@ An agent definition that determines how an agent workload behaves when processin
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
-| `image` | string | | Container image for the agent pod (e.g., `ghcr.io/agynio/agent:latest`) |
+| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the container image and, via the environment's [Flavor](#flavor), the compute resources and the runner. See [Runner Selection](runners.md#runner-selection) |
 | `init_image` | string | | Platform init image reference (e.g., `ghcr.io/agynio/agent-init-codex:v1.0.0`). Contains agynd + agent CLI. Runs as init container |
-| `resources` | object | | Compute resources for the agent container (see [Compute Resources](#compute-resources)) |
-| `runner_labels` | map<string, string> | `{}` | Labels that a runner must match for this agent's workloads to be scheduled on it. The [Agents Orchestrator](agents-orchestrator.md) filters eligible runners to those whose labels contain all key-value pairs specified here (exact match). Empty means no runner label constraints. See [Runner Selection](runners.md#runner-selection) |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
 | `instance_idle_ttl` | duration string | `"720h"` (30 days) | How long an [agent instance](agent-instances.md) can go without new inbox items before the Agents service transitions it `active → paused`. Distinct from `idle_timeout`, which stops workloads (seconds-to-minutes scale); this pauses the instance itself (days scale). Format: Go-style duration; minimum `1h`. Read live — changing the value applies to all existing instances of the class on the next [idle GC](agents-service.md#idle-gc) tick |
 | `capabilities` | list<string> | `[]` | Named capabilities to enable for this agent. The runner injects the required sidecars and environment variables transparently — the agent does not configure them directly. Capability names are open strings; the runner is the registry. See [Capabilities](#capabilities) |
 | `availability` | enum | | `internal` or `private`. Controls who can initiate threads with this agent. `internal` — any org member may add the agent as a thread participant. `private` — only identities holding an [agent role](agents-service.md#roles) (`owner`, `maintainer`, or `participant`) may add the agent. Required on `CreateAgent` — the API has no default. See [Agents Service — Availability](agents-service.md#availability) |
 
 The `configuration` field contains agent implementation-specific behavioral parameters (system prompt, summarization settings, message buffering, etc.). Different agent implementations define different configuration schemas. The Agents service stores the field as an opaque JSON string without validation. See [Agent](agent/) for the platform's own agent implementation and its configuration schema.
+
+---
+
+## Flavor
+
+A named compute size offered by a specific runner. Managed by the [Runners](runners.md#flavors) service; flavors on a cluster-scoped runner are managed by cluster admins, flavors on an org-scoped runner by that organization's owners. Referenced by [Environments](#environment). See [Flavors and Environments](../product/environments/environments.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner_id` | string (UUID) | | The runner offering this flavor. A flavor belongs to exactly one runner |
+| `name` | string | | Flavor name (e.g., `small`, `standard`, `large`). Unique per runner. Max 64 chars, pattern: `^[a-z0-9-]+$` |
+| `resources` | object | | Compute resources this flavor allocates (see [Compute Resources](#compute-resources)) |
+| `default` | boolean | `false` | At most one flavor per runner. Used when an environment is created without an explicit flavor |
+| `deprecated` | boolean | `false` | When `true`, new environment references are rejected; existing environments keep working |
+
+Flavor visibility follows runner visibility: flavors on cluster-scoped runners are usable by environments in any organization; flavors on org-scoped runners only by that organization's environments. A flavor referenced by any environment cannot be deleted — deprecate it instead.
+
+---
+
+## Environment
+
+An organization-scoped runtime definition: one [Flavor](#flavor) plus one container image. Agents and [Sandboxes](#sandbox) run in environments. Managed by the [Agents](agents-service.md) service. See [Flavors and Environments](../product/environments/environments.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Environment name. Unique within the organization. Max 64 chars, pattern: `^[a-z0-9-]+$` |
+| `flavor_id` | string (UUID) | | Reference to a [Flavor](#flavor). The flavor's runner must be visible to the organization (cluster-scoped, or org-scoped to the same org) — validated on create/update. Determines placement: workloads run only on the flavor's runner |
+| `image` | string | | Container image for the main container (e.g., `ghcr.io/agynio/agent:latest`) |
+
+Environments are an attachment target: [ENV](#env) variables, [ImagePullSecretAttachments](#image-pull-secret-attachment), and [EgressRuleAttachments](#egress-rule-attachment) may target an environment, applying to every workload (agent or sandbox) running it. An environment referenced by any agent or sandbox cannot be deleted.
+
+---
+
+## Sandbox
+
+An on-demand workload started by a user rather than by inbox traffic: one workload plus a workspace volume, running an [Environment](#environment). Org-scoped, owned by the creating user. Managed by the [Agents](agents-service.md) service; reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Sandbox name. Unique within the organization. Auto-generated (`adjective-noun`) when omitted. Max 63 chars, pattern: `^[a-z0-9-]+$` |
+| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) the sandbox runs. Immutable after creation |
+| `owner_id` | string (UUID) | | Identity of the creating user. Immutable |
+| `status` | enum | | `starting` \| `running` \| `stopped` \| `failed` \| `terminated`. See [Sandboxes — Lifecycle](../product/sandboxes/sandboxes.md#lifecycle) |
+| `idle_timeout` | duration string | `"30m"` | How long after the last shell session detaches before the workload is stopped. The sandbox record and workspace volume survive the stop |
+| `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its workspace volume deleted, regardless of state. Default is organization-configurable |
+| `last_session_at` | timestamp \| null | `null` | When the last shell session detached. Null while a session is attached or before the first session |
 
 ---
 
@@ -106,20 +157,21 @@ Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Volume attachments are
 
 ## Image Pull Secret Attachment
 
-A relationship between an [Image Pull Secret](providers.md#image-pull-secret) and a target container — an [Agent](#agent), [MCP](#mcp), or [Hook](#hook). Image pull secrets are org-scoped resources managed by the [Secrets](secrets.md) service. The attachment lives in the [Agents](agents-service.md) service.
+A relationship between an [Image Pull Secret](providers.md#image-pull-secret) and a target — an [Agent](#agent), [MCP](#mcp), [Hook](#hook), or [Environment](#environment). Image pull secrets are org-scoped resources managed by the [Secrets](secrets.md) service. The attachment lives in the [Agents](agents-service.md) service.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique identifier |
 | `image_pull_secret_id` | string (UUID) | Reference to an Image Pull Secret resource in the Secrets service |
-| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
-| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
-| `hook_id` | string (UUID) | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with the other targets |
+| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with the other targets |
+| `hook_id` | string (UUID) | Target hook. Mutually exclusive with the other targets |
+| `environment_id` | string (UUID) | Target environment — credentials for pulling the environment's image. Mutually exclusive with the other targets |
 | `created_at` | timestamp | Creation time |
 
-Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Image pull secret attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same image_pull_secret_id + target) are rejected.
+Exactly one of `agent_id`, `mcp_id`, `hook_id`, or `environment_id` is set. Image pull secret attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same image_pull_secret_id + target) are rejected.
 
-At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the agent and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error.
+At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the environment, the agent, and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error.
 
 ---
 
@@ -179,18 +231,19 @@ Environment variables, initialization scripts, volumes, and image pull secrets f
 
 ## ENV
 
-An environment variable injected into a container. Each ENV belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook) — identified by the corresponding foreign key.
+An environment variable injected into a container. Each ENV belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), a [Hook](#hook), or an [Environment](#environment) — identified by the corresponding foreign key.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
-| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
-| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with the other targets |
+| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with the other targets |
+| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with the other targets |
+| `environment_id` | string (UUID) | | Target environment. Injected into the main container of every workload (agent or sandbox) running the environment. Mutually exclusive with the other targets |
 | `name` | string | | Environment variable name (e.g., `"API_KEY"`) |
 | `value` | string | | Plain-text value. Mutually exclusive with `secret_id` |
 | `secret_id` | string (UUID) | | Reference to a [Secret](providers.md#secret) resource. Mutually exclusive with `value` |
 
-Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container.
+Exactly one of `agent_id`, `mcp_id`, `hook_id`, or `environment_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container. When an agent-level and an environment-level ENV share the same `name`, the agent-level value wins.
 
 ---
 
@@ -237,7 +290,7 @@ An internal model definition mapped to a remote model on an LLM provider. Manage
 
 ## Egress Rule
 
-A rule that mediates outbound HTTP/HTTPS traffic from agent workloads. Org-scoped (direct `organization_id`). Managed by the [EgressRules service](egress-rules-service.md). Attached to [Agents](#agent) via [EgressRuleAttachment](#egress-rule-attachment).
+A rule that mediates outbound HTTP/HTTPS traffic from workloads. Org-scoped (direct `organization_id`). Managed by the [EgressRules service](egress-rules-service.md). Attached to [Agents](#agent) or [Environments](#environment) via [EgressRuleAttachment](#egress-rule-attachment).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -289,17 +342,18 @@ For `basic`, the credential must already be the base64 encoding of `user:pass` �
 
 ## Egress Rule Attachment
 
-A relationship binding an [Egress Rule](#egress-rule) to an [Agent](#agent). One rule may be attached to many agents; one agent may have many rules attached. Managed by the [EgressRules service](egress-rules-service.md).
+A relationship binding an [Egress Rule](#egress-rule) to an [Agent](#agent) or an [Environment](#environment). One rule may be attached to many targets; one target may have many rules attached. Environment attachments apply to every workload (agent or sandbox) running the environment; the effective rules for a workload are the union of its agent's attachments (if any) and its environment's attachments. Managed by the [EgressRules service](egress-rules-service.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique identifier |
 | `rule_id` | string (UUID) | Reference to an Egress Rule |
-| `agent_id` | string (UUID) | Reference to an Agent |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `environment_id` |
+| `environment_id` | string (UUID) | Target environment. Mutually exclusive with `agent_id` |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy ID created for this attachment. Internal — not returned through the Gateway |
 | `created_at` | timestamp | Creation time |
 
-Attachments are immutable — create and delete only. Unique on `(rule_id, agent_id)`. Both rule and agent must belong to the same organization — the [EgressRules service](egress-rules-service.md#authorization) enforces this on create.
+Attachments are immutable — create and delete only. Exactly one of `agent_id` or `environment_id` is set. Unique on `(rule_id, target)`. Both rule and target must belong to the same organization — the [EgressRules service](egress-rules-service.md#authorization) enforces this on create.
 
 ---
 
@@ -412,7 +466,7 @@ Memberships are immutable — create and delete only. Unique on `(group_id, memb
 
 ## Compute Resources
 
-Kubernetes-style container resource requests and limits. Used by [Agent](#agent), [MCP](#mcp), and [Hook](#hook).
+Kubernetes-style container resource requests and limits. Used by [Flavor](#flavor), [MCP](#mcp), and [Hook](#hook). Agents no longer carry compute resources directly — they come from the agent's [Environment](#environment) via its flavor.
 
 | Field | Type | Description |
 |-------|------|-------------|
