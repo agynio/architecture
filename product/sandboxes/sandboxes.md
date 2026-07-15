@@ -34,8 +34,8 @@ Sandboxes are managed through a new `agyn sandbox` command group:
 | Command | Description |
 |---|---|
 | `agyn sandbox start [--env NAME] [--name NAME]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted |
-| `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Restarts the workload first if the sandbox is `stopped`. With no argument: connects when the caller owns exactly one sandbox, otherwise lists candidates |
-| `agyn sandbox list [--all]` | List the caller's sandboxes: name, environment, status, age, last session. `--all` lists every sandbox in the organization (owners) |
+| `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
+| `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
 
@@ -48,12 +48,13 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 | `starting` | Workload start requested, not yet running |
 | `running` | Workload up; shell sessions can attach |
 | `stopped` | Workload stopped (idle timeout or explicit `stop`); record and workspace volume retained |
-| `failed` | Workload failed to start; standard retry policy exhausted |
-| `terminated` | Deleted explicitly or by TTL; workspace volume removed |
+| `failed` | Workload failed to start. Sticky until the user acts: `connect` performs a fresh start attempt (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). TTL still applies |
+| `terminated` | Deleted explicitly or by TTL; workspace volume removed. A soft state: the record is retained for audit and usage history but hidden from default lists |
 
 - **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped but the sandbox and its workspace volume survive — `connect` restarts the workload on the same volume. While a session is attached the sandbox is never considered idle.
-- **TTL** (default `72h` from creation, organization-configurable): when it elapses, the sandbox is terminated and its volume deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
-- One workload at a time per sandbox, mirroring agent instances.
+- **TTL** (default `72h` from creation): when it elapses, the sandbox is terminated and its volume deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
+- **Defaults are organization-configurable** (org owners set default TTL and idle timeout in organization settings, within platform bounds). Both values are resolved and stored on the sandbox at creation — changing the org default later does not affect existing sandboxes.
+- One workload at a time per sandbox. Sandboxes are first-class workload owners in the runtime model (`owner_kind=sandbox` on workload and volume records) — no agent instance exists behind a sandbox.
 
 ## What's Inside
 
@@ -63,9 +64,9 @@ A sandbox workload is assembled the same way an agent workload is, minus the age
 - **The platform init image runs first**, so the `agyn` CLI is available inside the sandbox. The main container runs a long-lived sandbox holder process instead of the agent inbox loop. Session activity for idle tracking is reported by the [Terminal Proxy](../../architecture/terminal-proxy.md#sandbox-activity-reporting), not from inside the container.
 - **Environment variables and secrets** attached to the environment are injected at workload assembly, exactly as for agents. Secret values are resolved by the orchestrator; they are never fetchable through the API from inside the sandbox.
 - **Egress rules** attached to the environment apply: matched destinations route through the [Egress Gateway](../egress-gateway/egress-gateway.md) with the same allow/deny/inject behavior an agent observes.
-- **Workspace volume**: a persistent volume mounted at `/workspace`, created with the sandbox and deleted with it. It survives idle stops and reconnects. Size is a platform default (`10Gi`, deployment-configurable) — storage is not part of the flavor.
+- **Workspace volume**: a persistent volume mounted at `/workspace`, created with the sandbox and deleted with it. It survives idle stops and reconnects. Size is a platform default (`10Gi`, deployment-configurable) — storage is not part of the flavor. It is a runtime-only volume owned by the sandbox, not a user-managed [Volume](../../architecture/resource-definitions.md#volume) resource.
 - **Port exposure** works as in agent workloads: `agyn expose add 3000` inside the sandbox returns an `http://exposed-<id>.ziti:3000` URL reachable from the engineer's enrolled devices.
-- **Identity and platform access**: the sandbox workload has its own platform identity (it is not the engineer's identity) with the same platform service reach as an agent workload — Gateway, **LLM Proxy**, and Tracing over the standard OpenZiti dial policies. Model-calling agent tooling therefore works inside a sandbox; LLM usage is metered to the organization and attributed to the sandbox and its owner. Gateway API calls authenticate as the sandbox and are limited to workload-level operations (e.g., port exposure, file upload/download).
+- **Identity and platform access**: the sandbox workload has its own platform identity (it is not the engineer's identity, and it is **not an organization member**) with the same platform service reach as an agent workload — Gateway, **LLM Proxy**, and Tracing over the standard OpenZiti dial policies. Reachability is not authorization: platform services authorize sandbox identities by resolving through the sandbox record to its organization and owner, granting only a narrow operation set (port exposure, file upload/download, LLM calls metered to the org and attributed to the sandbox and its owner). Model-calling agent tooling therefore works inside a sandbox without the sandbox holding any broad org permissions.
 
 ## Shell Access
 
@@ -96,7 +97,7 @@ Because environment-attached secrets and egress credentials are reachable from i
 
 ## Observability and Metering
 
-- Sandboxes appear in the Console alongside agent workloads, marked as sandboxes, with owner, environment, status, and log/terminal access.
+- Sandboxes appear in the Console alongside agent workloads, marked as sandboxes, with owner, environment, status, and log/terminal access. Status changes are pushed live via `sandbox.updated` notifications — to the owner's room for their own list, and to an org-level room for the organization owners' list-all view.
 - Egress from sandboxes emits the same spans as agent egress, attributed to the sandbox.
 - Sandbox workloads emit the same `CORE_SECONDS`/`GB_SECONDS` metering records as agent workloads (allocations from the flavor), attributed to the organization and labeled with the sandbox and its owner.
 

@@ -17,7 +17,7 @@ Primary consumers:
 | **Language** | Go |
 | **Repository** | `agynio/terminal-proxy` |
 | **API** | WebSocket (external, via ingress) + gRPC (internal ticket issuance) |
-| **State** | None — sessions are in-memory; tickets are short-lived in-memory records |
+| **State** | None — sessions are in-memory; tickets are self-contained signed tokens validated by any replica |
 | **External dependencies** | [Runners](runners.md) (workload → runner resolution, activity reporting), [OpenZiti](openziti.md) (dial runners), [Authorization](authz.md) (checks at ticket issuance, via Gateway), [Agents](agents-service.md) (sandbox session bookkeeping) |
 
 ## Session Establishment
@@ -45,9 +45,11 @@ sequenceDiagram
 ```
 
 1. **`CreateTerminalSession`** (Gateway RPC): the caller requests a session for `(workload_id, container_name)`. The Gateway performs the authorization check, then asks the Terminal Proxy to issue a **ticket** — single-use, bound to the caller's identity and the target, expiring in 30 seconds. The response carries the ticket and the proxy's WebSocket URL. Long-lived auth tokens never appear in WebSocket URLs (same reasoning as the [Media Proxy](media-proxy.md)'s avoidance of tokens in `GET` URLs).
-2. **WebSocket connect**: the client opens the WebSocket with the ticket, sends a JSON handshake (initial terminal size, optional command override), and the proxy resolves the hosting runner via `Runners.GetWorkload`, dials it over OpenZiti (`runner-{runnerId}` — see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)), and opens `Runner.Exec` with TTY enabled.
+2. **WebSocket connect**: the client opens the WebSocket with the ticket, sends a JSON handshake carrying **only the initial terminal size**, and the proxy resolves the hosting runner via `Runners.GetWorkload`, dials it over OpenZiti (`runner-{runnerId}` — see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)), and opens `Runner.Exec` with TTY enabled.
 
-The default command is a login shell resolved inside the container: `/bin/sh -c 'exec ${SHELL:-sh} -l'`. The handshake may override it (used by the Console for non-shell inspection commands); the override is recorded on the ticket at issuance so the WebSocket cannot escalate beyond what was authorized.
+The command is fixed at ticket issuance, never at attach time. The default is a login shell resolved inside the container: `/bin/sh -c 'exec ${SHELL:-sh} -l'`; `CreateTerminalSession` accepts an optional command override (used by the Console for non-shell inspection commands), which is authorized and bound into the ticket by the Gateway. The WebSocket handshake carries no command — a client cannot escalate beyond what the ticket was issued for.
+
+Tickets are **self-contained signed tokens** (key shared across proxy replicas), so any replica can validate a ticket issued via any other. Single-use is enforced per replica (best-effort under horizontal scaling); the 30-second expiry and the binding to `(identity, workload, container, command)` bound the replay window.
 
 ## Wire Protocol
 
@@ -86,10 +88,11 @@ The Console uses xterm.js over the same wire protocol.
 
 ## Sandbox Activity Reporting
 
-The Terminal Proxy is the component that knows whether a session is attached, so it owns sandbox idle signaling:
+The Terminal Proxy is the component that knows whether a session is attached, so it owns sandbox idle signaling. The accounting is deliberately **per-session, not per-proxy** — no replica coordination, shared session counts, or sticky routing is needed:
 
-- While ≥1 session is attached to a sandbox workload, the proxy calls `Runners.TouchWorkload` every 10 seconds — the same activity path [`agynd`](agynd-cli.md) uses for agent workloads. The [Agents Orchestrator](agents-orchestrator.md)'s existing idle-timeout machinery then applies unchanged: a sandbox is stopped when `now − last_activity_at` exceeds its `idle_timeout`, which can only happen after the last session detaches.
-- On the last detach, the proxy records `last_session_at` on the [Sandbox](resource-definitions.md#sandbox) via an internal Agents service RPC (display/bookkeeping only — idle enforcement uses workload activity).
+- Each attached session to a sandbox workload independently drives `Runners.TouchWorkload` every 10 seconds (the same activity path [`agynd`](agynd-cli.md) uses for agent workloads; concurrent touches are idempotent). The [Agents Orchestrator](agents-orchestrator.md)'s existing idle-timeout machinery then applies unchanged: a sandbox is stopped when `now − last_activity_at` exceeds its `idle_timeout`, which can only happen once **no session on any replica** is touching anymore.
+- On every session detach, the proxy sets `last_session_at` on the [Sandbox](resource-definitions.md#sandbox) via an internal Agents service RPC (display/bookkeeping only — idle enforcement uses workload activity, so there is no need to detect the "final" detach).
+- A crashed proxy replica needs no cleanup protocol: its sessions' touches simply stop, and the idle clock starts running from the last touch.
 
 Agent workloads get no activity touches from terminal sessions — inspecting an agent container does not keep it alive, and the orchestrator may stop it mid-session (the session ends with `reason: cancelled`).
 

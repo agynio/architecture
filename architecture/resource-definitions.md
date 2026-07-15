@@ -118,10 +118,14 @@ An on-demand workload started by a user rather than by inbox traffic: one worklo
 | `name` | string | | Sandbox name. Unique within the organization. Auto-generated (`adjective-noun`) when omitted. Max 63 chars, pattern: `^[a-z0-9-]+$` |
 | `environment_id` | string (UUID) | | Reference to the [Environment](#environment) the sandbox runs. Immutable after creation |
 | `owner_id` | string (UUID) | | Identity of the creating user. Immutable |
-| `status` | enum | | `starting` \| `running` \| `stopped` \| `failed` \| `terminated`. See [Sandboxes — Lifecycle](../product/sandboxes/sandboxes.md#lifecycle) |
-| `idle_timeout` | duration string | `"30m"` | How long after the last shell session detaches before the workload is stopped. The sandbox record and workspace volume survive the stop |
-| `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its workspace volume deleted, regardless of state. Default is organization-configurable |
-| `last_session_at` | timestamp \| null | `null` | When the last shell session detached. Null while a session is attached or before the first session |
+| `status` | enum | | `starting` \| `running` \| `stopped` \| `failed` \| `terminated`. `terminated` is a soft state: the record is retained for audit and usage history, hidden from default lists. See [Sandboxes — Lifecycle](../product/sandboxes/sandboxes.md#lifecycle) |
+| `idle_timeout` | duration string | `"30m"` | How long after the last shell session detaches before the workload is stopped. The sandbox record and workspace volume survive the stop. Resolved from the organization's sandbox settings at creation and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
+| `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its workspace volume deleted, regardless of state. Resolved from the organization's sandbox settings at creation (platform bounds: max `336h`) and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
+| `last_session_at` | timestamp \| null | `null` | Updated every time a shell session detaches. Display/bookkeeping only — idle enforcement uses workload activity (`last_activity_at` on the [workload record](runners.md#workload-resource)), not this field |
+
+Sandboxes are first-class runtime owners: their workload and workspace-volume records in the [Runners](runners.md) service carry `owner_kind=sandbox` — no agent instance is created for a sandbox. The workspace volume is runtime-only (provisioned by the Orchestrator, `volume_id` NULL); it is not an Agents-service [Volume](#volume) resource and has no [VolumeAttachment](#volume-attachment).
+
+`ConnectSandbox` flows go through `EnsureSandboxRunning`: a no-op when the sandbox is `running`, a restart when `stopped`, and a fresh user-driven start attempt when `failed` (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). Terminal tickets are issued only after `EnsureSandboxRunning` succeeds.
 
 ---
 
