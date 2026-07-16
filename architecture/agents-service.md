@@ -151,10 +151,13 @@ The Agents service publishes events to the [Notifications](notifications.md) ser
 | `agent.updated` | `agent:{class_id}` | The agent class is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, Hook, ENV, InitScript, Volume, Volume Attachment, Image Pull Secret Attachment) is created, updated, or deleted |
 | `message.created` | `instance_inbox:{instance_id}` | A new [inbox item](agent-instances.md#inbox) is written for an instance (via `FanoutInboxItem` from Threads or `WriteInboxItem` from an app) |
 | `instance.updated` | `agent:{class_id}` | Instance state transitions (`active`, `paused`, `terminated`) or metadata changes on any instance of the class |
+| `sandbox.updated` | `sandbox_owner:{owner_id}` and `sandbox_org:{organization_id}` | Sandbox lifecycle or bookkeeping changes: create, status transition, stop, delete/terminate, `last_session_at` update, or workload association update |
 
 **Transitive `updated_at` propagation.** A successful write to a sub-resource bumps the owning agent's `updated_at` in the same transaction. Consumers that compare timestamps — for example, the [Agents Orchestrator's Start Decision](agents-orchestrator.md#start-decision), which uses `Agent.updated_at > failed_workload.removed_at` to decide whether a configuration change warrants a retry — therefore only need to read the agent record. No traversal of sub-resources is required.
 
-Room subscription authorization is documented in [Notifications — Authorization](notifications.md#authorization): `member` on the agent's organization.
+Room subscription authorization is documented in [Notifications — Authorization](notifications.md#authorization). Agent rooms require `member` on the agent's organization. Sandbox owner rooms require the caller identity to match `{owner_id}`; sandbox org rooms require `can_list_sandboxes` on `organization:{organization_id}` so organization owners can maintain list-all views.
+
+`sandbox.updated` payloads include the sandbox ID, organization ID, owner ID, name, environment ID, status, idle timeout, TTL, `last_session_at`, and current workload ID when one exists. Terminated sandboxes are still emitted to both rooms so default lists can remove the row while `--terminated` views retain audit visibility.
 
 ## Authorization
 
@@ -171,6 +174,13 @@ Agent access is split into two layers: organization-level gates the creation and
 | `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
 | Update, Delete on Volume | `owner` on `organization:<volume.org_id>` |
 | Get, List on Volume (via Gateway) | `member` on `organization:<volume.org_id>` |
+| `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>`; owner is derived from authenticated context |
+| `GetSandbox` | Sandbox owner or `can_list_sandboxes` on `organization:<sandbox.org_id>` |
+| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters to `owner_id == caller.identity_id` |
+| `ListSandboxes` (`all=true`) | `can_list_sandboxes` on `organization:<org_id>` |
+| `StopSandbox`, `DeleteSandbox` | `can_stop` / `can_delete` on `sandbox:<id>` |
+| `EnsureSandboxRunning` | `can_connect` on `sandbox:<id>` |
+| `UpdateSandboxLastSession` | Internal only (Terminal Proxy via Istio) |
 
 `SetAgentRole` rejects identities that are not members of the agent's organization. The check is performed against the `member` relation on the agent's org before the role tuple is written.
 
@@ -184,7 +194,7 @@ See [Authorization — Agents Service](authz.md#agents-service) for the full ref
 
 ## Tuple Lifecycle
 
-The Agents service is the writer of OpenFGA tuples on the `agent` type. All writes and deletes are issued through the [Authorization](authz.md) service; the Agents service does not store any of these tuples locally.
+The Agents service is the writer of OpenFGA tuples on the `agent` and `sandbox` types. All writes and deletes are issued through the [Authorization](authz.md) service; the Agents service does not store any of these tuples locally.
 
 | Event | Tuples written | Tuples deleted |
 |-------|----------------|----------------|
@@ -195,6 +205,8 @@ The Agents service is the writer of OpenFGA tuples on the `agent` type. All writ
 | `SetAgentRole(identity, role)` (identity already holds a different role) | `identity:<id>, <new_role>, agent:<agent_id>` | `identity:<id>, <old_role>, agent:<agent_id>` |
 | `RemoveAgentRole(identity)` | — | `identity:<id>, <role>, agent:<agent_id>` |
 | `DeleteAgent` | — | All tuples on `agent:<id>` (`org`, `internal_access`, every `owner`/`maintainer`/`participant`) |
+| `CreateSandbox` | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | — |
+| `DeleteSandbox` / terminal TTL expiration | — | All tuples on `sandbox:<id>` (`org`, `owner`) |
 
 Tuple writes and deletes are issued in the same `Write` call as the underlying DB mutation when atomicity is required (see [Authorization — Relationship Writes](authz.md#relationship-writes)).
 

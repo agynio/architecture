@@ -70,13 +70,15 @@ type organization
     define can_view_volumes: owner or admin from cluster
     define can_add_member: admin from cluster
     define can_create_thread: member or thread_create
+    define can_create_sandbox: member
+    define can_list_sandboxes: owner
     define thread_create: [identity]
     define thread_write: [identity]
     define participant_add: [identity]
     define inbox_write: [identity]
 ```
 
-`owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes`. `owner` does **not** imply `can_create_thread` directly — instead `can_create_thread` is computed from `member`, and owners are also members, so owners can always create threads.
+`owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`. `owner` does **not** imply `can_create_thread` or `can_create_sandbox` directly — instead those permissions are computed from `member`, and owners are also members, so owners can always create threads and sandboxes.
 
 `thread_create`, `thread_write`, `participant_add`, and `inbox_write` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions). `inbox_write` is consumed by the [`agent_instance`](#agent_instance) type via `inbox_write from org`.
 
@@ -182,6 +184,27 @@ When an instance is created, the Agents service writes:
 
 `DeleteInstance` (terminal) removes every tuple on `agent_instance:<id>`.
 
+#### sandbox
+
+[Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them. Organization owners can list, stop, and delete every sandbox in the organization, but terminal attach is owner-only: an org owner cannot connect to another user's sandbox unless they are also that sandbox's `owner`.
+
+```
+type sandbox
+  relations
+    define org: [organization]
+    define owner: [identity]
+    define can_connect: owner
+    define can_stop: owner or owner from org
+    define can_delete: owner or owner from org
+    define can_list_all: owner from org
+```
+
+When a sandbox is created, the Agents service writes:
+- `organization:<org_id>, org, sandbox:<sandbox_id>`
+- `identity:<creator_id>, owner, sandbox:<sandbox_id>`
+
+When a sandbox is deleted/terminated, the Agents service removes every tuple on `sandbox:<sandbox_id>`. The sandbox record may remain soft-retained in Agents for audit and usage history; OpenFGA tuples are removed once it is no longer manageable/connectable as an active resource.
+
 #### group
 
 Groups are org-scoped collections of identities. The type defines membership, group-level admin, and computed view/edit permissions. See [Groups Service](groups-service.md) for the full lifecycle.
@@ -220,6 +243,8 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 | **can_view_workloads** | computed | List and read active workloads (and their containers and logs) in the organization. Held by owners and cluster admins |
 | **can_view_volumes** | computed | List and read provisioned volumes in the organization. Held by owners and cluster admins |
 | **can_create_thread** | computed | Create threads in the organization. Computed from `member` or `thread_create` |
+| **can_create_sandbox** | computed | Create sandboxes in the organization. Computed from `member` |
+| **can_list_sandboxes** | computed | List all sandboxes in the organization. Held by owners |
 | **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
 | **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
 | **participant_add** | app permission | Written for app installations that declare the `participant:add` permission |
@@ -227,7 +252,8 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 
 #### Computed relations
 
-- `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes`.
+- `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
+- `can_create_sandbox` follows `member`; every active organization member can create a sandbox.
 - `can_add_member`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
@@ -284,6 +310,8 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent created | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
 | Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
+| Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | Agents |
+| Sandbox deleted/terminated | Delete all tuples on `sandbox:<id>` | Agents |
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | `SetAgentRole(identity, role)` | `identity:<id>, <role>, agent:<agent_id>`; if the identity previously held a different role on the agent: delete `identity:<id>, <old_role>, agent:<agent_id>` | Agents |
@@ -365,6 +393,13 @@ All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, Vo
 | `GetUnackedInboxItems`, `AckInboxItems`, `GetUnackedInboxCount` | Self only — `caller.identity_id == agent_instance_id` (no OpenFGA check) |
 | Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
+| `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>`; owner is derived from authenticated context |
+| `GetSandbox` | `owner` on `sandbox:<id>` or `can_list_sandboxes` on `organization:<sandbox.org_id>` |
+| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters `owner_id == caller.identity_id` |
+| `ListSandboxes` (`all=true`) | `can_list_sandboxes` on `organization:<org_id>` |
+| `StopSandbox`, `DeleteSandbox` | `can_stop` / `can_delete` on `sandbox:<id>` |
+| `EnsureSandboxRunning` | `can_connect` on `sandbox:<id>` |
+| `UpdateSandboxLastSession` | Internal only (Terminal Proxy via Istio) |
 
 Agent workload identities (`identity_type == "agent_instance"`) satisfy `member` on their organization — resolved through the instance's `org` relation on the [`agent_instance` type](#agent_instance) — and may call read APIs needed for self-configuration, including `ListENVs` against their class (via the instance's `class` relation). `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time. The per-agent role model gates access by other identities and does not alter instance self-read.
 
@@ -387,7 +422,7 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
-| `TouchWorkload` | Agent instance's own identity (`workload.agent_instance_id == caller.identity_id`) |
+| `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`). For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio after terminal ticket validation |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [volume reconciliation](agents-orchestrator.md#volume-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
@@ -545,6 +580,8 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `instance_inbox:{id}` | `id == caller.identity_id` AND `caller.identity_type == agent_instance` (identity equality, no OpenFGA). `instance_inbox:me` is rewritten before the check. Only the instance itself may subscribe to its inbox room |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality, no OpenFGA). `:me` is not accepted for this room pattern |
+| `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 
 ### Metering Service

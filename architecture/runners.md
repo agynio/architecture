@@ -6,9 +6,9 @@ The Runners service manages runner registrations and workload runtime state. It 
 
 1. **Runners** — registered runner instances (cluster-scoped and org-scoped), their enrollment state, and metadata.
 2. **Workloads** — the runtime state of workloads running on registered runners. Which workloads are running, on which runner, with which containers.
-3. **Provisioned volumes** — storage instances provisioned on runners for specific [agent instances](agent-instances.md).
+3. **Provisioned volumes** — storage instances provisioned on runners for specific runtime owners.
 
-**Naming note:** `instance_id` on workload and volume records is the **runner-assigned runtime identifier** (Pod name, PVC name) — a legacy name that predates agent instances. The platform-level [agent instance](agent-instances.md) is referenced by the distinct `agent_instance_id` field. The two are unrelated.
+**Naming note:** `instance_id` on workload and volume records is the **runner-assigned runtime identifier** (Pod name, PVC name). It is unrelated to the platform owner. Platform ownership is recorded separately as `owner_kind` + `owner_id`.
 
 The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload state through this service. The [Gateway](gateway.md) exposes query methods for the UI. The [Terminal Proxy](terminal-proxy.md) resolves which runner hosts a workload to route exec connections.
 
@@ -28,13 +28,13 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 | Method | Description |
 |--------|-------------|
-| **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID and sets `status=starting`. Called before `Runner.StartWorkload` to avoid a reconciliation race |
+| **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID, sets `status=starting`, and supplies the generalized owner (`owner_kind=agent_instance` or `sandbox`, `owner_id=<id>`). Called before `Runner.StartWorkload` to avoid a reconciliation race |
 | **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload metadata and containers for views such as Console Workload Detail |
-| **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include denormalized `agent_name` and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
+| **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include owner-aware display fields and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
 | **ListWorkloadsByAgentInstance** | List workload records whose `agent_instance_id` matches the requested [agent instance](agent-instances.md). Supports optional filtering by `status_in`. Results are ordered by `created_at DESC` — used by the [Agents Orchestrator](agents-orchestrator.md#start-decision) to inspect the most recent terminal workload for an instance, by [Chat](chat.md#activity-status) to derive activity status, and by Console Thread Detail to show workloads for a thread's instance participants |
-| **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing. When `agent_state` is `idle`, atomically transitions it to `processing` and emits a `workload.updated` event. Otherwise lightweight — updates only the timestamp with no event |
+| **TouchWorkload** | Update `last_activity_at` timestamp on a workload. Called by [`agynd`](agynd-cli.md) (via [Gateway](gateway.md)) as a keepalive while the agent is actively processing, and by the [Terminal Proxy](terminal-proxy.md#sandbox-activity-reporting) for each attached sandbox terminal session. When an agent workload's `agent_state` is `idle`, atomically transitions it to `processing` and emits a `workload.updated` event. Otherwise lightweight — updates only the timestamp with no event |
 
 ### Volume State
 
@@ -94,14 +94,14 @@ Environment create/update already validated that the flavor's runner is visible 
 | `runner_id` | string (UUID) | Runner hosting this workload |
 | `owner_kind` | enum | `agent_instance` \| `sandbox`. What kind of entity this workload runs for. Sandboxes are first-class workload owners — no synthetic agent instances are created for them |
 | `owner_id` | string (UUID) | The owning [agent instance](agent-instances.md) (whose inbox the workload processes) or [Sandbox](resource-definitions.md#sandbox). For `agent_instance` owners this is the field previously named `agent_instance_id` |
-| `agent_id` | string (UUID), nullable | Agent class the owning instance was spawned from (denormalized for filtering and display). NULL for sandbox-owned workloads |
+| `agent_id` / `agent_class_id` | string (UUID), nullable | Agent class the owning instance was spawned from (denormalized for filtering and display). NULL for sandbox-owned workloads. Contract names may preserve legacy `agent_id` fields for compatibility; new callers use the presence-aware class field |
 | `organization_id` | string (UUID) | Organization scope (denormalized from the owner) |
 | `status` | enum | Container lifecycle state: `starting`, `running`, `stopping`, `stopped`, `failed`. `running` means all init containers completed and main containers are up — it does **not** imply the agent process is currently producing output. See [`agent_state`](#workload-resource) for that signal |
-| `agent_state` | enum | `idle`, `processing`. Whether the agent process inside a `running` workload is currently producing output. Initialized to `processing` on `CreateWorkload`. Transitioned `idle → processing` by [`TouchWorkload`](#workload-state); transitioned `processing → idle` by the [Agent Activity Sweep](#agent-activity-sweep). Distinct from `status`, which tracks container lifecycle. Surfaced to Chat via [`activity_status`](chat.md#activity-status) |
+| `agent_state` | enum, nullable/not meaningful for sandboxes | For `agent_instance` workloads: `idle` or `processing`, whether the agent process inside a `running` workload is currently producing output. Initialized to `processing` on `CreateWorkload`, transitioned `idle → processing` by [`TouchWorkload`](#workload-state), and transitioned `processing → idle` by the [Agent Activity Sweep](#agent-activity-sweep). For `sandbox` workloads this field is not an agent signal and must not be used for lifecycle decisions; sandbox idleness is derived from `last_activity_at` touches driven by terminal sessions |
 | `containers` | list | Containers in the workload (see below) |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last status update |
-| `last_activity_at` | timestamp | Last activity reported by [`agynd`](agynd-cli.md) via `TouchWorkload`. Set to `created_at` on workload creation, and reset to `now()` when `status` transitions from `starting` to `running` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh keepalive window after the agent boots. Updated by `agynd` keepalive calls while the agent is actively processing. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement and by the Runners service for the [Agent Activity Sweep](#agent-activity-sweep) |
+| `last_activity_at` | timestamp | Last activity reported via `TouchWorkload`. Set to `created_at` on workload creation, and reset to `now()` when `status` transitions from `starting` to `running` so activity reporters receive a fresh keepalive window after the workload boots. Updated by [`agynd`](agynd-cli.md) keepalive calls for agent workloads and Terminal Proxy session touches for sandbox workloads. Used by the [Agents Orchestrator](agents-orchestrator.md) for [idle timeout](#idle-timeout) enforcement and by the Runners service for the [Agent Activity Sweep](#agent-activity-sweep) |
 | `last_metering_sampled_at` | timestamp (nullable) | Timestamp through which compute usage has been recorded to the [Metering Service](metering.md). NULL until the first metering sample is emitted. Updated via `UpdateWorkload` after each successful emission |
 | `removed_at` | timestamp (nullable) | When the workload was actually stopped on the runner. NULL while active or stopping. Set after `StopWorkload` succeeds. Record is retained as audit history |
 | `failure_reason` | enum, nullable | Machine-readable cause when `status=failed`. One of `start_failed`, `image_pull_failed`, `config_invalid`, `crashloop`, `runtime_lost`. NULL for non-failed workloads. Set by the [Agents Orchestrator](agents-orchestrator.md#workload-reconciliation) at the moment of the `failed` transition |
@@ -115,11 +115,11 @@ Tracks persistent volumes actually provisioned on runners. For agent-owned volum
 |-------|------|-------------|
 | `id` | string (UUID) | Primary key, generated by the Orchestrator. Set as a label on the PVC so the reconciliation loop can match runner volumes back to Runners service records |
 | `instance_id` | string (nullable) | Runner-assigned **runtime** identifier (PVC name). NULL until the reconciliation loop confirms the PVC exists on the runner. Unrelated to the platform owner (`owner_id`) |
-| `volume_id` | string (UUID), nullable | ID of the [Volume](resource-definitions.md#volume) in the Agents service. Together with `owner_id`, uniquely identifies the provisioned instance. NULL for sandbox workspace volumes (runtime-only, no Volume definition) |
+| `volume_id` / `volume_definition_id` | string (UUID), nullable | ID of the [Volume](resource-definitions.md#volume) in the Agents service. Together with `owner_id`, uniquely identifies the provisioned instance. NULL for sandbox workspace volumes (runtime-only, no Volume definition). Contract names may preserve legacy `volume_id` fields for compatibility; new callers use the presence-aware definition field |
 | `owner_kind` | enum | `agent_instance` \| `sandbox` |
 | `owner_id` | string (UUID) | The owning agent instance or [Sandbox](resource-definitions.md#sandbox) |
 | `runner_id` | string (UUID) | Runner on which the volume is provisioned |
-| `agent_id` | string (UUID), nullable | Agent class that owns the volume definition (denormalized). NULL for sandbox-owned volumes |
+| `agent_id` / `agent_class_id` | string (UUID), nullable | Agent class that owns the volume definition (denormalized). NULL for sandbox-owned volumes. Contract names may preserve legacy `agent_id` fields for compatibility; new callers use the presence-aware class field |
 | `organization_id` | string (UUID) | Organization scope |
 | `size_gb` | decimal | Size in gigabytes, from the Agents service Volume definition |
 | `status` | enum | `provisioning`, `active`, `deprovisioning`, `deleted`, `failed` — see [Volume Reconciliation](agents-orchestrator.md#volume-reconciliation) |
@@ -162,7 +162,9 @@ Per-container fields are refreshed by the [Agents Orchestrator](agents-orchestra
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `organization_id` | string (UUID) | Yes | Authorization scope. Caller must hold `can_view_workloads` on this organization |
-| `filter.agent_id_in` | list<string (UUID)> | No | Return only workloads for these agents (OR across ids) |
+| `filter.agent_id_in` / `filter.agent_class_id_in` | list<string (UUID)> | No | Return only agent-instance-owned workloads for these agent classes (OR across ids). Sandbox workloads do not match this filter |
+| `filter.owner_kind_in` | list<enum> | No | Return only workloads owned by these owner kinds (`agent_instance`, `sandbox`) |
+| `filter.owner_id_in` | list<string (UUID)> | No | Return only workloads for these agent instance or sandbox owners (OR across ids) |
 | `filter.runner_id_in` | list<string (UUID)> | No | Return only workloads on these runners (OR across ids) |
 | `filter.status_in` | list<Workload.Status> | No | Return only workloads in these statuses |
 | `filter.started_after` | timestamp | No | Return only workloads with `created_at >= started_after` |
@@ -181,10 +183,11 @@ The server applies a stable secondary sort by `id` (ascending) on every response
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agent_name` | string | Current name of the agent at `agent_id`. Resolved at query time |
+| `agent_name` / `agent_class_name` | string, nullable | Current name of the agent class for agent-instance-owned workloads. NULL for sandbox-owned workloads |
+| `owner_name` | string, nullable | Display name for the runtime owner when available, such as the sandbox name for `owner_kind=sandbox` |
 | `runner_name` | string | Current name of the runner at `runner_id`. Resolved at query time |
 
-The Runners service owns neither agents nor runners' names — it resolves them via batch lookups against the [Agents service](agents-service.md) and its own `runners` table when assembling the response. `agent_id` / `runner_id` remain in the response for stable linking.
+The Runners service owns neither agents nor sandbox records — it resolves names via batch lookups against the [Agents service](agents-service.md) and its own `runners` table when assembling the response. `owner_kind`, `owner_id`, class IDs, and `runner_id` remain in the response for stable linking.
 
 ### ListVolumes request shape
 
@@ -196,6 +199,8 @@ Same sort/filter/pagination envelope as `ListWorkloads`. Filters:
 | `filter.status_in` | list<Volume.Status> | No | Return only volumes in these statuses |
 | `filter.runner_id_in` | list<string (UUID)> | No | Return only volumes provisioned on these runners |
 | `filter.attached_to_kind_in` | list<enum> | No | `agent`, `mcp`, `hook`, or `unattached` |
+| `filter.owner_kind_in` | list<enum> | No | Return only volumes owned by these owner kinds (`agent_instance`, `sandbox`) |
+| `filter.owner_id_in` | list<string (UUID)> | No | Return only volumes for these agent instance or sandbox owners (OR across ids) |
 | `filter.pending_sample` | bool | No | Metering sampler only. Not exposed through the Gateway |
 
 Sort fields: `name`, `size`, `status`, `created`. Default: `name` asc.
@@ -204,10 +209,11 @@ Response items include the [Volume Resource](#volume-resource) fields plus:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `volume_name` | string | Current name of the [Agents service Volume](resource-definitions.md#volume) at `volume_id` |
+| `volume_name` / `volume_definition_name` | string, nullable | Current name of the [Agents service Volume](resource-definitions.md#volume) at `volume_id`. NULL for sandbox workspace volumes because they are runtime-only and have no Agents service Volume definition |
+| `owner_name` | string, nullable | Display name for the runtime owner when available, such as the sandbox name for `owner_kind=sandbox` |
 | `attachments` | list<Attachment> | All containers currently mounting this provisioned volume — multiple if a single PVC is mounted by agent + MCP + hook in the same pod. Each `Attachment` has `kind` (`agent` / `mcp` / `hook`), `id`, and `name`. Empty when unattached |
 
-The Runners service resolves `volume_name` and each attachment's `name` via batch lookups against the [Agents service](agents-service.md) when assembling the response. `volume_id` and each `attachments[].id` remain in the response for stable linking.
+The Runners service resolves `volume_name`, `owner_name`, and each attachment's `name` via batch lookups against the [Agents service](agents-service.md) when assembling the response. Definition IDs, `owner_kind`, `owner_id`, and each `attachments[].id` remain in the response for stable linking.
 
 ## Registration Flow
 
@@ -276,27 +282,27 @@ The service token is long-lived and reusable. If the runner restarts, it re-enro
 
 ## Workload State Management
 
-The [Agents Orchestrator](agents-orchestrator.md) and [`agynd`](agynd-cli.md) write workload state. The orchestrator manages lifecycle; `agynd` reports activity.
+The [Agents Orchestrator](agents-orchestrator.md), [`agynd`](agynd-cli.md), and Terminal Proxy write workload state. The orchestrator manages lifecycle; `agynd` and Terminal Proxy report activity.
 
 **Orchestrator** calls the Runners service to record workload lifecycle events:
 
-1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, agent instance ID, agent (class) ID, and initial container list. `last_activity_at` is set to `created_at`; `agent_state` is initialized to `processing` (the orchestrator only starts workloads in response to unacked messages, so the agent is expected to begin producing output immediately). Volume records are populated separately by the volume sync loop — not as part of the start flow.
+1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, `owner_kind`, `owner_id`, nullable agent class fields for agent-instance workloads, and initial container list. `last_activity_at` is set to `created_at`; `agent_state` is initialized to `processing` for agent-instance workloads (the orchestrator only starts those workloads in response to unacked messages, so the agent is expected to begin producing output immediately). Sandbox workloads do not use `agent_state` for lifecycle decisions. Volume records are populated separately by the volume sync loop — not as part of the start flow.
 2. **Update**: orchestrator detects status changes during reconciliation (via Runner `InspectWorkload`) and calls `UpdateWorkload` to update status and container states. When the call promotes `status` from `starting` to `running`, the Runners service also resets `last_activity_at = now()` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh window to make its first `TouchWorkload`.
 3. **Stop**: orchestrator calls `UpdateWorkload(status=stopping)`, stops the workload via Runner `StopWorkload`, then calls `UpdateWorkload(status=stopped, removed_at=now)`. The record is retained for audit. The metering sampling loop handles the tail sample on its next tick.
 
-**`agynd`** calls `TouchWorkload` (via [Gateway](gateway.md)) to update `last_activity_at` while the agent is actively processing. See [Idle Timeout](#idle-timeout).
+**Activity reporters** call `TouchWorkload` to update `last_activity_at`: [`agynd`](agynd-cli.md) calls it via [Gateway](gateway.md) while an agent workload is actively processing, and Terminal Proxy calls it internally while a sandbox terminal session is attached. See [Idle Timeout](#idle-timeout).
 
-The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator and `agynd` tell it.
+The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator, `agynd`, and Terminal Proxy tell it.
 
 ## Idle Timeout
 
 The Runners service supports idle timeout enforcement by tracking `last_activity_at` on each workload. The mechanism involves three components:
 
-1. **[`agynd`](agynd-cli.md)** — while the agent CLI is actively processing (executing LLM calls, running tools), `agynd` calls `TouchWorkload` via [Gateway](gateway.md) every 10 seconds. When the agent is idle (waiting for new messages), `agynd` stops calling `TouchWorkload`. This gives the orchestrator a clear signal of agent activity.
+1. **Activity reporters** — while the agent CLI is actively processing (executing LLM calls, running tools), [`agynd`](agynd-cli.md) calls `TouchWorkload` via [Gateway](gateway.md) every 10 seconds. When the agent is idle (waiting for new messages), `agynd` stops calling `TouchWorkload`. While a sandbox terminal session is attached, Terminal Proxy calls `TouchWorkload` internally every 10 seconds. These signals give the orchestrator a clear view of agent or sandbox activity.
 2. **Runners service** — stores `last_activity_at` on the workload record. `TouchWorkload` is a lightweight RPC that updates only this timestamp.
-3. **[Agents Orchestrator](agents-orchestrator.md)** — during each reconciliation pass, queries the Runners service for running workloads. For each workload, compares `now - last_activity_at` against the agent's `idle_timeout` (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`). If the timeout is exceeded, the orchestrator stops the workload.
+3. **[Agents Orchestrator](agents-orchestrator.md)** — during each reconciliation pass, queries the Runners service for running workloads. For each workload, compares `now - last_activity_at` against the applicable idle timeout: the agent's `idle_timeout` for agent-instance workloads (from the [Agent resource definition](resource-definitions.md#agent), default `"5m"`) or the sandbox's snapshotted `idle_timeout`. If the timeout is exceeded, the orchestrator stops the workload.
 
-This design ensures that long-running agent tasks (which may take hours) are never prematurely terminated — as long as the agent is working, `agynd` keeps touching. The idle clock only starts when the agent finishes processing and enters a wait state.
+This design ensures that long-running agent tasks (which may take hours) and attached sandbox terminal sessions are never prematurely terminated — as long as activity continues, the reporter keeps touching. The idle clock starts when the agent finishes processing or the sandbox terminal session detaches.
 
 ## Agent Activity Sweep
 
@@ -312,7 +318,7 @@ On each tick:
 | `KEEPALIVE_GRACE` | `25s` | Time since the last `TouchWorkload` after which a `processing` workload is considered idle. Set above the [`agynd` keepalive interval](agynd-cli.md#5-activity-keepalive) (`10s`) with tolerance for one missed beat |
 | Sweep interval | `5s` | How often the sweep runs. The maximum delay between the agent stopping and the chat indicator transitioning to `finished` is `KEEPALIVE_GRACE + sweep interval` — `~30s` by default |
 
-The sweep is independent of [Idle Timeout](#idle-timeout) enforcement. The sweep flips a workload's activity bit after seconds (chat-indicator scope); the orchestrator stops the workload entirely after the agent's `idle_timeout` (default `5m`, lifecycle scope). Both consume the same `last_activity_at` signal but act on different timescales.
+The sweep is independent of [Idle Timeout](#idle-timeout) enforcement. The sweep flips a workload's activity bit after seconds (chat-indicator scope); the orchestrator stops the workload entirely after the applicable idle timeout (agent default `5m`, sandbox value snapshotted at creation; lifecycle scope). Both consume the same `last_activity_at` signal but act on different timescales.
 
 The sweep does not interact with runners — it is a DB scan plus notification emit — so the [Workload State Management](#workload-state-management) classification of Runners as a passive store still holds.
 
@@ -336,7 +342,7 @@ Runner management authorization depends on the runner's scope. Workload and volu
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
-| `TouchWorkload` | Agent instance's own identity — `workload.agent_instance_id == caller.identity_id` |
+| `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`). For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio, after ticket validation, to report attached-session activity |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required |
@@ -356,7 +362,7 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
 
-Workload query methods (`ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is called by [`agynd`](agynd-cli.md) to report agent activity for [idle timeout](#idle-timeout) enforcement.
+Workload query methods (`ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is exposed for [`agynd`](agynd-cli.md) to report agent activity; sandbox activity reports are internal calls from Terminal Proxy after terminal ticket validation. Both paths feed [idle timeout](#idle-timeout) enforcement.
 
 `StreamWorkloadLogs` is a server-streaming method for reading container logs. The Runners service authorizes the caller as a member of the workload's organization, looks up the hosting runner from the workload record, dials the runner via OpenZiti (`zitiContext.Dial("runner-{runnerId}")`), and forwards [`Runner.StreamWorkloadLogs`](runner.md#streaming) output back to the caller. The Gateway exposes the method as a pass-through — it does not interpret the stream.
 
@@ -364,7 +370,7 @@ Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByAgentInstance`) 
 
 Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt`, `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
 
-The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByAgentInstance`, `ListVolumesByAgentInstance`, and `GetRunner` via Istio, with filter shapes (`runner_id_in`, `pending_sample`, cross-org `agent_instance_id`) that are not accepted on the Gateway path. The Gateway-exposed variants of those RPCs require `organization_id` and apply OpenFGA checks; the internal variants are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
+The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByAgentInstance`, `ListVolumesByAgentInstance`, and `GetRunner` via Istio, with filter shapes (`runner_id_in`, `pending_sample`, owner filters, and cross-organization instance queries) that are not accepted on the Gateway path. The Gateway-exposed variants of those RPCs require `organization_id` and apply OpenFGA checks; the internal variants are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 
 ## Terminal Proxy Integration
 

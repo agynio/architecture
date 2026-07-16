@@ -84,6 +84,8 @@ Rooms are scoped by resource type and ID:
 | `instance_inbox:{id}` | `instance_inbox:9c1e6679-...` | Threads and apps → new [inbox items](agent-instances.md#inbox) for an [agent instance](agent-instances.md) |
 | `workload:{id}` | `workload:7c9e6679-...` | Runner → workload status changes, log events |
 | `agent:{id}` | `agent:f47ac10b-...` | Agents → agent (class) resource updates |
+| `sandbox_owner:{owner_id}` | `sandbox_owner:550e8400-...` | Agents → `sandbox.updated` events for a sandbox owner's own list/detail views |
+| `sandbox_org:{organization_id}` | `sandbox_org:9f8e7d6c-...` | Agents → `sandbox.updated` events for organization-owner list-all views |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
 | `organization:{id}` | `organization:9f8e7d6c-...` | EgressRules → `egress_rule.updated` / `egress_rule_attachment.updated` events |
 
@@ -100,7 +102,7 @@ For identity-scoped rooms, the literal string `me` is reserved as the id segment
 
 The Notifications service rewrites `:me` to the caller's `identity_id` on receipt, before authorization. Authorization rules are unchanged — the rewritten room passes the existing `id == caller.identity_id` check by construction.
 
-`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies to identity-scoped rooms (`thread_participant:`, `instance_inbox:`); for `workload:`, `agent:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
+`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies only to self-addressed identity rooms (`thread_participant:`, `instance_inbox:`). `sandbox_owner:{owner_id}` is also identity-keyed, but callers subscribe with the concrete owner id because it is a UI room pattern for sandbox lists, not a self-subscription sentinel target. For `workload:`, `agent:`, `sandbox_org:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
 
 Identity ids are UUIDs, so the literal `me` cannot collide with any real id.
 
@@ -132,6 +134,8 @@ External `Subscribe` (Socket.IO) requires an authenticated caller. Room access i
 | `instance_inbox:{id}` | `id == caller.identity_id` and `caller.identity_type == agent_instance` (only the instance itself subscribes). `:me` is rewritten before the check. |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality — only the sandbox owner subscribes to their own live sandbox list/detail room). `:me` is not accepted for this room pattern. |
+| `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` (organization owners only; backs list-all sandbox views). |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |
 | `organization:{id}` | `member` on `organization:<id>` (used by the [Egress Gateway](egress-gateway.md) to receive `egress_rule.updated` / `egress_rule_attachment.updated` events published by the [EgressRules service](egress-rules-service.md); the gateway subscribes per org for which it has cached rules) |
 

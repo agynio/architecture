@@ -2,9 +2,9 @@
 
 ## Overview
 
-The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, LLM providers, models, secret providers, secrets, and chats. Resources that belong to an organization have an `organization_id` field.
+The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, sandboxes, environments, volumes, LLM providers, models, secret providers, secrets, and chats. Resources that belong to an organization have an `organization_id` field.
 
-Not all resources belong to organizations. Threads, files, agent state, and workloads are **independent resources** — access to them is governed by [ReBAC permissions](authz.md) rather than organizational membership. This separation reflects the domain: conversations (threads) and runtime artifacts (state, workloads) connect participants across organizational boundaries, while configuration resources (agents, providers, secrets) are organizational infrastructure.
+Not all resources belong to organizations. Threads, files, agent state, and workloads are **independent resources** — access to them is governed by [ReBAC permissions](authz.md) rather than organizational membership. This separation reflects the domain: conversations (threads) and runtime artifacts (state, workloads) connect participants across organizational boundaries, while configuration resources (agents, sandboxes, providers, secrets) are organizational infrastructure.
 
 ## Organization Model
 
@@ -12,7 +12,20 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 |-------|------|-------------|
 | `id` | string (UUID) | Unique organization identifier |
 | `name` | string | Display name |
+| `sandbox_default_idle_timeout` | duration string | Default idle timeout snapshotted onto newly created sandboxes. Platform-bounded; default `30m` |
+| `sandbox_default_ttl` | duration string | Default hard lifetime snapshotted onto newly created sandboxes. Platform-bounded; default `72h`, maximum `336h` |
 | `created_at` | timestamp | Creation time |
+
+## Sandbox Settings
+
+Organizations own the default sandbox lifecycle settings used by the [Agents service](agents-service.md) when creating [Sandboxes](resource-definitions.md#sandbox):
+
+| Setting | Default | Bounds | Description |
+|---------|---------|--------|-------------|
+| `sandbox_default_idle_timeout` | `30m` | Platform minimum/maximum | How long a sandbox may remain detached before its workload is stopped. The sandbox record and workspace volume survive idle stop |
+| `sandbox_default_ttl` | `72h` | Platform maximum `336h` | Hard sandbox lifetime from creation. On expiry the sandbox is terminated and its workspace volume is deleted |
+
+Only organization owners may update these settings. Values are validated by Organizations before persistence. The Agents service snapshots both values onto each sandbox at creation; changing organization defaults never mutates existing sandboxes.
 
 ## Organizations Service
 
@@ -94,6 +107,7 @@ Who can do what is governed by the [authorization model](authz.md):
 | **Update member role** | `can_manage_members` on the organization | Organization owners (via `owner` implies `can_manage_members`) | Updates the role. If `active`, deletes old OpenFGA tuple and writes new one |
 | **List members** | `can_manage_members` on the organization | Organization owners | Returns memberships for the organization |
 | **List my memberships** | Caller is the identity | Any identity | Returns the caller's own memberships across all organizations |
+| **Update sandbox settings** | `owner` on the organization | Organization owners | Validates and stores new default sandbox TTL/idle-timeout values for future sandbox creation |
 
 The Organizations service does not perform explicit identity type checks (e.g., "is the caller a cluster admin?"). All access decisions flow through [Authorization](authz.md) `Check` calls. See [Authorization — Organization Permissions](authz.md#organization-permissions) for how `can_add_member`, `can_invite`, and `can_manage_members` are defined.
 
@@ -108,6 +122,7 @@ The Organizations service does not perform explicit identity type checks (e.g., 
 | **UpdateMembershipRole** | Update the role of a membership. Caller must have `can_manage_members`. If `active`, updates the OpenFGA tuple |
 | **ListMembers** | List memberships for an organization. Supports filtering by `status` (`pending`, `active`, or all). Caller must have `can_manage_members` |
 | **ListMyMemberships** | List the calling identity's own memberships across all organizations. Supports filtering by `status`. Used by Chat for the organization switcher and by Console for pending invite display |
+| **UpdateOrganization** | Update organization details and sandbox defaults. Caller must be owner |
 
 ### CreateMembership Flow
 
@@ -168,7 +183,7 @@ Org-scoped resources belong to an organization. They have an `organization_id` f
 
 | Service | Resources | Notes |
 |---------|-----------|-------|
-| [Agents](agents-service.md) | Agents, Volumes | Direct `organization_id` on the resource |
+| [Agents](agents-service.md) | Agents, Sandboxes, Volumes | Direct `organization_id` on the resource |
 | [Agents](agents-service.md) | MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent, MCP, or hook). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
 | [LLM](llm.md) | LLM Providers, Models | `organization_id` on the resource |
 | [Secrets](secrets.md) | Secret Providers, Secrets | `organization_id` on the resource |
