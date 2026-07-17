@@ -71,7 +71,7 @@ type organization
     define can_add_member: admin from cluster
     define can_create_thread: member or thread_create
     define can_create_sandbox: member
-    define can_list_sandboxes: owner
+    define can_list_sandboxes: owner or admin from cluster
     define thread_create: [identity]
     define thread_write: [identity]
     define participant_add: [identity]
@@ -196,14 +196,13 @@ type sandbox
     define can_connect: owner
     define can_stop: owner or owner from org
     define can_delete: owner or owner from org
-    define can_list_all: owner from org
 ```
 
 When a sandbox is created, the Agents service writes:
 - `organization:<org_id>, org, sandbox:<sandbox_id>`
 - `identity:<creator_id>, owner, sandbox:<sandbox_id>`
 
-When a sandbox is deleted/terminated, the Agents service removes every tuple on `sandbox:<sandbox_id>`. The sandbox record may remain soft-retained in Agents for audit and usage history; OpenFGA tuples are removed once it is no longer manageable/connectable as an active resource.
+Tuples are **retained through the `terminated` soft state** and removed only when the record is hard-purged (future retention policy). Terminated sandboxes stay readable for audit — the owner keeps `GetSandbox` on their own terminated sandboxes via the `owner` tuple. What terminated sandboxes can no longer *do* is gated by lifecycle status in the Agents service (`EnsureSandboxRunning`/`StopSandbox` reject `status=terminated`), not by tuple deletion: authorization answers who may act, status answers what is currently possible.
 
 #### group
 
@@ -244,7 +243,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 | **can_view_volumes** | computed | List and read provisioned volumes in the organization. Held by owners and cluster admins |
 | **can_create_thread** | computed | Create threads in the organization. Computed from `member` or `thread_create` |
 | **can_create_sandbox** | computed | Create sandboxes in the organization. Computed from `member` |
-| **can_list_sandboxes** | computed | List all sandboxes in the organization. Held by owners |
+| **can_list_sandboxes** | computed | List all sandboxes in the organization. Held by owners and cluster admins |
 | **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
 | **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
 | **participant_add** | app permission | Written for app installations that declare the `participant:add` permission |
@@ -254,7 +253,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 
 - `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
 - `can_create_sandbox` follows `member`; every active organization member can create a sandbox.
-- `can_add_member`, `can_view_threads`, `can_view_workloads`, and `can_view_volumes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples.
+- `can_add_member`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` remains owner-only.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
@@ -311,7 +310,7 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
 | Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
 | Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | Agents |
-| Sandbox deleted/terminated | Delete all tuples on `sandbox:<id>` | Agents |
+| Sandbox hard-purged (retention policy; not on soft-`terminated`) | Delete all tuples on `sandbox:<id>` | Agents |
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | `SetAgentRole(identity, role)` | `identity:<id>, <role>, agent:<agent_id>`; if the identity previously held a different role on the agent: delete `identity:<id>, <old_role>, agent:<agent_id>` | Agents |

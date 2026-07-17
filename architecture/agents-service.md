@@ -206,7 +206,7 @@ The Agents service is the writer of OpenFGA tuples on the `agent` and `sandbox` 
 | `RemoveAgentRole(identity)` | — | `identity:<id>, <role>, agent:<agent_id>` |
 | `DeleteAgent` | — | All tuples on `agent:<id>` (`org`, `internal_access`, every `owner`/`maintainer`/`participant`) |
 | `CreateSandbox` | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | — |
-| `DeleteSandbox` / terminal TTL expiration | — | All tuples on `sandbox:<id>` (`org`, `owner`) |
+| Sandbox hard purge (retention policy) | — | All tuples on `sandbox:<id>` (`org`, `owner`). `DeleteSandbox` and TTL expiry only transition status to `terminated` — tuples survive the soft state so owners keep audit read access. See [Authorization — sandbox](authz.md#sandbox) |
 
 Tuple writes and deletes are issued in the same `Write` call as the underlying DB mutation when atomicity is required (see [Authorization — Relationship Writes](authz.md#relationship-writes)).
 

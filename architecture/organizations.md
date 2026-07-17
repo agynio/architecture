@@ -183,7 +183,7 @@ Org-scoped resources belong to an organization. They have an `organization_id` f
 
 | Service | Resources | Notes |
 |---------|-----------|-------|
-| [Agents](agents-service.md) | Agents, Sandboxes, Volumes | Direct `organization_id` on the resource |
+| [Agents](agents-service.md) | Agents, Environments, Sandboxes, Volumes | Direct `organization_id` on the resource |
 | [Agents](agents-service.md) | MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent, MCP, or hook). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
 | [LLM](llm.md) | LLM Providers, Models | `organization_id` on the resource |
 | [Secrets](secrets.md) | Secret Providers, Secrets | `organization_id` on the resource |

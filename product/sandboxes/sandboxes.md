@@ -88,7 +88,7 @@ A dropped connection ends the session but not the sandbox — like a dropped SSH
 |---|---|
 | Create a sandbox | Any organization member |
 | Connect (attach a shell) | The sandbox owner only |
-| List | Owner sees own; organization owners see all |
+| List | Owner sees own; organization owners (and cluster admins, as with workloads) see all |
 | Stop / delete | The owner and organization owners |
 
 Organization owners can force-terminate any sandbox but cannot attach to one they don't own.
