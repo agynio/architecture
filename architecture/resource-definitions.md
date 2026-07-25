@@ -2,7 +2,7 @@
 
 Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor), which live in the [Runners](runners.md#flavors) service alongside the runner they belong to. Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor) and [Storage Classes](#storage-class), which are reported by runners and stored in the [Runners](runners.md#runner-catalog) service as part of the runner's catalog. Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 All resources share a common envelope:
 
@@ -24,8 +24,9 @@ erDiagram
     Agent ||--o| Model : "references (by UUID)"
     Agent }o--|| Environment : "environment_id"
     Sandbox }o--|| Environment : "environment_id"
-    Environment }o--|| Flavor : "flavor_id"
-    Flavor }o--|| Runner : "runner_id"
+    Environment }o--|| Runner : "runner_id"
+    Flavor }o--|| Runner : "reported catalog entry"
+    StorageClass }o--|| Runner : "reported catalog entry"
 
     Environment ||--o{ ENV : "environment_id"
     Environment ||--o{ ImagePullSecretAttachment : "environment_id"
@@ -68,7 +69,7 @@ An agent definition that determines how an agent workload behaves when processin
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
-| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the container image and, via the environment's [Flavor](#flavor), the compute resources and the runner. See [Runner Selection](runners.md#runner-selection) |
+| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the container image, the runner, and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources. See [Runner Selection](runners.md#runner-selection) |
 | `init_image` | string | | Platform init image reference (e.g., `ghcr.io/agynio/agent-init-codex:v1.0.0`). Contains agynd + agent CLI. Runs as init container |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
 | `instance_idle_ttl` | duration string | `"720h"` (30 days) | How long an [agent instance](agent-instances.md) can go without new inbox items before the Agents service transitions it `active → paused`. Distinct from `idle_timeout`, which stops workloads (seconds-to-minutes scale); this pauses the instance itself (days scale). Format: Go-style duration; minimum `1h`. Read live — changing the value applies to all existing instances of the class on the next [idle GC](agents-service.md#idle-gc) tick |
@@ -81,28 +82,44 @@ The `configuration` field contains agent implementation-specific behavioral para
 
 ## Flavor
 
-A named compute size offered by a specific runner. Managed by the [Runners](runners.md#flavors) service; flavors on a cluster-scoped runner are managed by cluster admins, flavors on an org-scoped runner by that organization's owners. Referenced by [Environments](#environment). See [Flavors and Environments](../product/environments/environments.md).
+A named compute size offered by a specific runner — an entry in the runner's [reported catalog](runners.md#runner-catalog), declared in the runner's own deployment configuration, not managed through platform APIs. Referenced **by name** from [Environments](#environment); the reference is late-bound at workload start. See [Flavors and Environments](../product/environments/environments.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `runner_id` | string (UUID) | | The runner offering this flavor. A flavor belongs to exactly one runner |
 | `name` | string | | Flavor name (e.g., `small`, `standard`, `large`). Unique per runner. Max 64 chars, pattern: `^[a-z0-9-]+$` |
 | `resources` | object | | Compute resources this flavor allocates (see [Compute Resources](#compute-resources)) |
-| `default` | boolean | `false` | At most one flavor per runner. Used when an environment is created without an explicit flavor |
-| `deprecated` | boolean | `false` | When `true`, new environment references are rejected; existing environments keep working |
+| `default` | boolean | `false` | At most one flavor per runner. Used when an environment names no flavor |
+| `deprecated` | boolean | `false` | Soft signal: Console and CLI pickers warn against new references. Deprecated flavors still resolve and schedule |
 
-Flavor visibility follows runner visibility: flavors on cluster-scoped runners are usable by environments in any organization; flavors on org-scoped runners only by that organization's environments. A flavor referenced by any environment cannot be deleted — deprecate it instead.
+Flavor visibility follows runner visibility: flavors on cluster-scoped runners are usable by environments in any organization; flavors on org-scoped runners only by that organization's environments. There is no referential integrity between environments and flavors — an entry that disappears from the runner's report leaves referencing environments unschedulable (flagged, not broken) until it reappears.
+
+---
+
+## Storage Class
+
+A named storage tier offered by a specific runner — an entry in the runner's [reported catalog](runners.md#runner-catalog), like a [Flavor](#flavor). What backs a class is runner-internal (the [k8s-runner](k8s-runner.md#runner-catalog) maps each class to a Kubernetes StorageClass in its configuration). Referenced **by name** from [Volumes](#volume); the reference is late-bound — resolved against the catalog of the runner the workload lands on when the volume is provisioned.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runner_id` | string (UUID) | | The runner offering this storage class |
+| `name` | string | | Storage class name (e.g., `standard`, `fast-ssd`). Unique per runner. Max 64 chars, pattern: `^[a-z0-9-]+$` |
+| `default` | boolean | `false` | At most one storage class per runner. Used when a volume names no class, and for [sandbox workspace volumes](#sandbox) |
+| `deprecated` | boolean | `false` | Soft signal: Console and CLI pickers warn against new references. Deprecated classes still resolve and provision |
+
+Visibility and lifecycle follow the same rules as flavors. Already-provisioned volumes are unaffected by catalog changes — the class is applied at provisioning time and recorded on the [provisioned volume record](runners.md#volume-resource).
 
 ---
 
 ## Environment
 
-An organization-scoped runtime definition: one [Flavor](#flavor) plus one container image. Agents and [Sandboxes](#sandbox) run in environments. Managed by the [Agents](agents-service.md) service. See [Flavors and Environments](../product/environments/environments.md).
+An organization-scoped runtime definition: a runner, a flavor name on that runner, and one container image. Agents and [Sandboxes](#sandbox) run in environments. Managed by the [Agents](agents-service.md) service. See [Flavors and Environments](../product/environments/environments.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | | Environment name. Unique within the organization. Max 64 chars, pattern: `^[a-z0-9-]+$` |
-| `flavor_id` | string (UUID) | | Reference to a [Flavor](#flavor). The flavor's runner must be visible to the organization (cluster-scoped, or org-scoped to the same org) — validated on create/update. Determines placement: workloads run only on the flavor's runner |
+| `runner_id` | string (UUID) | | Reference to the [Runner](runners.md#runner-resource) workloads run on. The runner must be visible to the organization (cluster-scoped, or org-scoped to the same org) — validated on create/update. Fully determines placement |
+| `flavor` | string | `null` | Name of a [Flavor](#flavor) in the runner's catalog. Late-bound: not validated on create/update (Console and CLI warn when the name is not currently reported); resolved at workload start, and unresolvable names leave the environment unschedulable. `null` resolves to the runner's `default` flavor at each workload start |
 | `image` | string | | Container image for the main container (e.g., `ghcr.io/agynio/agent:latest`) |
 
 Environments are an attachment target: [ENV](#env) variables, [ImagePullSecretAttachments](#image-pull-secret-attachment), and [EgressRuleAttachments](#egress-rule-attachment) may target an environment, applying to every workload (agent or sandbox) running it. An environment referenced by any agent or sandbox cannot be deleted.
@@ -123,7 +140,7 @@ An on-demand workload started by a user rather than by inbox traffic: one worklo
 | `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its workspace volume deleted, regardless of state. Resolved from the organization's sandbox settings at creation (platform bounds: max `336h`) and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
 | `last_session_at` | timestamp \| null | `null` | Updated every time a shell session detaches. Display/bookkeeping only — idle enforcement uses workload activity (`last_activity_at` on the [workload record](runners.md#workload-resource)), not this field |
 
-Sandboxes are first-class runtime owners: their workload and workspace-volume records in the [Runners](runners.md) service carry `owner_kind=sandbox` — no agent instance is created for a sandbox. The workspace volume is runtime-only (provisioned by the Orchestrator, `volume_id` NULL); it is not an Agents-service [Volume](#volume) resource and has no [VolumeAttachment](#volume-attachment).
+Sandboxes are first-class runtime owners: their workload and workspace-volume records in the [Runners](runners.md) service carry `owner_kind=sandbox` — no agent instance is created for a sandbox. The workspace volume is runtime-only (provisioned by the Orchestrator, `volume_id` NULL); it is not an Agents-service [Volume](#volume) resource and has no [VolumeAttachment](#volume-attachment). It is provisioned with the runner's `default` [Storage Class](#storage-class).
 
 `ConnectSandbox` flows go through `EnsureSandboxRunning`: a no-op when the sandbox is `running`, a restart when `stopped`, and a fresh user-driven start attempt when `failed` (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). Terminal tickets are issued only after `EnsureSandboxRunning` succeeds.
 
@@ -138,6 +155,7 @@ A volume definition. Volumes exist independently of agents. A volume is mounted 
 | `persistent` | boolean | | `true` = named persistent volume (PVC). `false` = ephemeral (emptyDir) |
 | `mount_path` | string | | Absolute container path for the volume mount (e.g., `"/workspace"`) |
 | `size` | string | | Volume capacity (e.g., `"10Gi"`). Required when `persistent` is `true` |
+| `storage_class` | string | `null` | Name of a [Storage Class](#storage-class) in the catalog of the runner the workload lands on. Late-bound: not validated on create/update; resolved at provisioning time, and an unresolvable name fails scheduling. `null` resolves to the runner's `default` class. Only applies when `persistent` is `true`; applied when the volume instance is first provisioned — existing instances keep their class |
 | `ttl` | duration string | `null` | How long after the last workload on a thread stops before the volume instance for that thread is deleted (e.g., `"7d"`, `"24h"`). `null` means the volume is never deleted automatically. Only applies when `persistent` is `true` |
 
 ---
@@ -211,7 +229,7 @@ A named, reusable prompt fragment. When belonging to an agent, the agent runtime
 
 Named capabilities declared on an [Agent](#agent) via the `capabilities` field. The runner injects the required sidecars and environment variables transparently — the agent resource only declares intent, not implementation details.
 
-Capability names are **open strings** — the platform does not maintain a closed registry. Any runner can implement any capability name it chooses. The [Agents Orchestrator](agents-orchestrator.md) routes workloads to runners that advertise the required capabilities (see [Runner Selection](runners.md#runner-selection)); if no eligible runner advertises a required capability, scheduling fails with a descriptive error.
+Capability names are **open strings** — the platform does not maintain a closed registry. Any runner can implement any capability name it chooses; each runner advertises the names it implements as part of its [catalog report](runners.md#catalog-reporting). At workload start the [Agents Orchestrator](agents-orchestrator.md) checks that the environment's runner advertises every capability the agent requires (see [Runner Selection](runners.md#runner-selection)); if not, scheduling fails with a descriptive error.
 
 Different runners may implement the same capability name differently depending on what the node supports. See [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations) for an example of how one runner implements the `docker` capability across multiple isolation levels.
 

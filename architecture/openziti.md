@@ -63,7 +63,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
 | `RequestServiceIdentity` | Orchestrator, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
-| `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity |
+| `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity. Returns `NOT_FOUND` if the identity has no record (e.g. already garbage-collected) — the caller treats this as identity loss, see [Identity Loss](#identity-loss) |
 | `CreateServicePolicy` | Expose Service | Create a single OpenZiti service policy (Bind or Dial). Returns the policy ID |
 | `DeleteServicePolicy` | Expose Service | Delete an OpenZiti service policy by ID |
 | `DeleteService` | Expose Service | Delete an OpenZiti service by ID |
@@ -103,7 +103,7 @@ Ziti Management runs a background loop that garbage-collects expired service ide
 
 This is a separate concern from the Orchestrator's agent identity reconciliation. The Orchestrator reconciles agent identities against running workloads. Ziti Management GC handles service identities (Orchestrator, Gateway) based purely on lease expiry — it does not query Runner or any other service.
 
-Expired identities are inert — the pod that held the enrolled certificate has already stopped (otherwise it would have extended the lease). GC is important for hygiene and OpenZiti Controller resource limits.
+Lease expiry usually means the pod that held the enrolled certificate has stopped. It can also happen while the pod is still running — a suspended node, a control-plane outage, or anything else that prevents renewals long enough. GC does not attempt to distinguish these cases. Instead, a running pod whose identity has been collected detects the loss on its next lease extension and terminates — see [Identity Loss](#identity-loss). GC is important for hygiene and OpenZiti Controller resource limits.
 
 ## Identity Management
 
@@ -190,6 +190,7 @@ Infrastructure services that participate in the OpenZiti overlay (Orchestrator, 
 - **In-process enrollment** — the service calls Ziti Management over Istio (in-cluster gRPC). Ziti Management creates the identity on the Controller, enrolls it, and returns the enrolled identity (certificate + key) to the caller.
 - **Ephemeral disk storage** — the enrolled identity is written to ephemeral disk (emptyDir or tmpfs) so the OpenZiti SDK can load it as a file. The identity does not survive pod restart.
 - **Lease-based lifecycle** — the service extends its lease on a timer. Ziti Management garbage-collects identities whose lease expires. This makes the system eventually consistent — no coordination required between pods and Ziti Management beyond the heartbeat.
+- **Fail-fast on identity loss** — a pod whose identity no longer exists terminates with an error rather than continuing to run without overlay connectivity. Recovery is the normal pod restart path: a fresh pod enrolls a fresh identity. See [Identity Loss](#identity-loss).
 
 ### Flow
 
@@ -212,12 +213,29 @@ sequenceDiagram
 
     loop Every lease interval
         P->>ZM: ExtendIdentityLease(identityId)
-        ZM->>ZM: Update lease timestamp in PostgreSQL
+        alt Identity exists
+            ZM->>ZM: Update lease timestamp in PostgreSQL
+        else Identity unknown (GC'd)
+            ZM->>P: NOT_FOUND
+            Note over P: Log error, terminate — pod restart re-enrolls
+        end
     end
 
     Note over P: Pod stops (crash, scale-down, restart)
     Note over ZM: Lease expires → GC deletes identity
 ```
+
+### Identity Loss
+
+A pod can outlive its identity: if lease renewals stop reaching Ziti Management for longer than the TTL (suspended node, control-plane outage, network partition), GC deletes the identity while the pod is still running. The pod's certificate then authenticates an identity that no longer exists — its binds are dead and cannot be re-established.
+
+The pod must not continue running in this state. Silent degradation is the failure mode to avoid: a service that keeps passing health checks while its overlay bind is gone is indistinguishable from a healthy one until a consumer fails to dial it.
+
+- `ExtendIdentityLease` returns `NOT_FOUND` when the identity has no record. This response is definitive: the pod logs the identity loss at error level and terminates. The pod restart path re-enrolls a fresh identity — identities are ephemeral by design, so this recovery is total.
+- Transient extension failures (Ziti Management unreachable, deadline exceeded) are retried with backoff and logged at error level. Only a definitive `NOT_FOUND` is fatal.
+- Identity loss observed through the OpenZiti SDK (authentication rejected for a previously valid session) is treated the same way as a `NOT_FOUND` lease response.
+
+Every identity-loss termination is an observable event: an error log line with the identity ID, and a container restart visible in pod status. A systemic cause (repeated GC of live identities) surfaces as a restart pattern rather than a silently degraded overlay.
 
 ### Service-Specific Behavior
 

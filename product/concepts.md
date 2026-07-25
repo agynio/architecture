@@ -11,8 +11,8 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Container** | A running workload (Kubernetes pod) attached to a conversation's agent. Containers provide terminal access for inspection. |
 | **Context** | The set of items (messages, tool results, memory, summaries) assembled into a prompt for an LLM call. Context is paginated and inspectable per LLM event. |
 | **Conversation** | A persistent exchange between participants (users, agents, or both). Conversations have a lifecycle (open → resolved). |
-| **Environment** | An organization-level runtime definition: a flavor plus a container image. Agents and sandboxes run in environments. Egress rules, environment variables, and image pull secrets can be attached to an environment, applying to everything running in it. |
-| **Flavor** | A named compute size (CPU/memory) offered by a specific runner, defined by the runner's operator — cluster admins for shared runners, organization owners for their own runners. Environments reference flavors. |
+| **Environment** | An organization-level runtime definition: a runner, a flavor on that runner, and a container image. Agents and sandboxes run in environments. Egress rules, environment variables, and image pull secrets can be attached to an environment, applying to everything running in it. |
+| **Flavor** | A named compute size (CPU/memory) in a runner's catalog. Environments reference flavors by name; the reference is resolved at workload start. |
 | **Gateway** | The external API surface of the platform. All client applications communicate with the platform through the Gateway via ConnectRPC. |
 | **Identity** | A unique entity in the platform — a user, an agent, or a service. Every identity has a type and a platform-wide ID. |
 | **MCP Server** | A Model Context Protocol server that exposes tools to agents over a secure network. Agents connect to MCP servers to execute actions in external systems. |
@@ -21,6 +21,8 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Reminder** | A scheduled follow-up attached to a conversation, created by an agent. Reminders notify the user at a specified time and can be cancelled. |
 | **Run** | A single execution cycle within a conversation, triggered when the agent processes unacknowledged messages. A conversation accumulates multiple runs over its lifetime. |
 | **Run Event** | A discrete step within a run: a message received, an LLM call made, a tool executed, or a context summarization performed. Events are the atomic unit of observability. |
+| **Runner Catalog** | The flavors, storage classes, and capabilities a runner offers. Declared in the runner's own deployment configuration and reported by the runner to the platform — not managed through platform APIs. |
 | **Sandbox** | An on-demand workload started by a user rather than by message traffic. Runs an environment with shell access, carrying the environment's secrets and egress rules — used by engineers as a manual working copy of an agent's runtime. |
+| **Storage Class** | A named storage tier in a runner's catalog. Persistent volumes reference storage classes by name; the reference is resolved when the volume is provisioned. |
 | **Summarization** | An event where the agent's context is compressed to stay within token limits. The old context is replaced with a shorter summary. |
 | **Tool** | A capability available to an agent via an MCP server. Tools accept structured input, execute an action, and return output. Tool executions produce stdout/stderr streams. |

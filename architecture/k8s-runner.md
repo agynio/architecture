@@ -15,6 +15,37 @@ The k8s-runner is the Kubernetes-native implementation of the [Runner](runner.md
 
 The k8s-runner runs inside the same Kubernetes cluster where it creates workload Pods.
 
+## Runner Catalog
+
+The k8s-runner declares its [catalog](runners.md#runner-catalog) — flavors, storage classes, and advertised capabilities — in its deployment configuration (Helm values rendered into a ConfigMap), and reports it to the [Runners service](runners.md) via `ReportRunnerCatalog` at startup after enrollment and again on configuration reload. The catalog is operated with the same GitOps tooling as the rest of the runner deployment; there are no platform API calls to manage it.
+
+```yaml
+catalog:
+  flavors:
+    - name: small
+      default: true
+      resources:
+        requests_cpu: "500m"
+        requests_memory: "1Gi"
+        limits_cpu: "1"
+        limits_memory: "2Gi"
+    - name: large
+      resources:
+        requests_cpu: "2"
+        requests_memory: "8Gi"
+        limits_cpu: "4"
+        limits_memory: "16Gi"
+  storage_classes:
+    - name: standard
+      default: true
+      # storageClassName omitted — cluster default StorageClass
+    - name: fast-ssd
+      storageClassName: premium-rwo
+  capabilities: [docker]
+```
+
+Each `storage_classes` entry maps a platform-visible class name to a Kubernetes `storageClassName`; omitting the mapping uses the cluster's default StorageClass. The mapping is k8s-runner-internal — the platform only ever sees the entry names. Advertised `capabilities` must be implementable by the runner's [capability configuration](#capability-implementations).
+
 ## Workload-to-Kubernetes Mapping
 
 The Runner [workload model](runner.md#workload-model) maps to Kubernetes primitives:
@@ -67,7 +98,7 @@ The Pod's `restartPolicy` is `Never` — the Agents Orchestrator owns lifecycle 
 
 Persistent volumes are backed by PVCs. The k8s-runner creates a PVC on first use and reuses it on subsequent `StartWorkload` calls that reference the same volume. PVCs outlive Pods — this is what allows an agent to be shut down and later resume with its state intact.
 
-PVCs use the cluster's default StorageClass unless overridden by deployment configuration.
+Each named volume in the workload spec carries a `storage_class` — an entry name from the runner's [catalog](#runner-catalog). At PVC creation the k8s-runner translates it to the Kubernetes StorageClass configured for that entry; an entry with no explicit mapping uses the cluster's default StorageClass. The class is applied only at PVC creation — existing PVCs are never migrated.
 
 `RemoveVolume` deletes the PVC.
 

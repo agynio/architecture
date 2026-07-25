@@ -5,8 +5,9 @@
 The Runners service manages runner registrations and workload runtime state. It is the central registry for:
 
 1. **Runners** — registered runner instances (cluster-scoped and org-scoped), their enrollment state, and metadata.
-2. **Workloads** — the runtime state of workloads running on registered runners. Which workloads are running, on which runner, with which containers.
-3. **Provisioned volumes** — storage instances provisioned on runners for specific runtime owners.
+2. **Runner catalogs** — the flavors, storage classes, and capabilities each runner reports about itself. See [Runner Catalog](#runner-catalog).
+3. **Workloads** — the runtime state of workloads running on registered runners. Which workloads are running, on which runner, with which containers.
+4. **Provisioned volumes** — storage instances provisioned on runners for specific runtime owners.
 
 **Naming note:** `instance_id` on workload and volume records is the **runner-assigned runtime identifier** (Pod name, PVC name). It is unrelated to the platform owner. Platform ownership is recorded separately as `owner_kind` + `owner_id`.
 
@@ -23,6 +24,14 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | **ListRunners** | List registered runners. Supports filtering by organization |
 | **UpdateRunner** | Update a runner's mutable fields (name, labels) |
 | **DeleteRunner** | Delete a runner registration. Deletes the runner's OpenZiti identity and per-runner OpenZiti service via Ziti Management `DeleteRunnerIdentity` |
+
+### Catalog
+
+| Method | Description |
+|--------|-------------|
+| **ReportRunnerCatalog** | Replace the runner's stored catalog (flavors, storage classes, capabilities) with the reported state. Called by the runner itself — at startup after enrollment and on configuration change. Authenticated by service token, like `EnrollRunner`. See [Catalog Reporting](#catalog-reporting) |
+| **ListFlavors** | List the flavors a runner last reported. Visibility follows runner visibility |
+| **ListStorageClasses** | List the storage classes a runner last reported. Visibility follows runner visibility |
 
 ### Workload State
 
@@ -54,8 +63,8 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | `id` | string (UUID) | Unique runner identifier |
 | `name` | string | Display name |
 | `organization_id` | string (UUID), nullable | Organization scope. Null for cluster-scoped runners |
-| `labels` | map<string, string> | Key-value metadata (e.g., `region: "eu-west-1"`, `tier: "gpu"`). Informational — placement is determined by [flavors](#flavors), not labels. Set at registration time, mutable via `UpdateRunner` |
-| `capabilities` | list<string> | Capability names this runner implements (e.g., `["docker", "gpu"]`). The orchestrator uses this to match workloads that require specific capabilities. Set at registration time, mutable via `UpdateRunner` |
+| `labels` | map<string, string> | Key-value metadata (e.g., `region: "eu-west-1"`, `tier: "gpu"`). Informational — placement is determined by the [environment's runner reference](#runner-selection), not labels. Set at registration time, mutable via `UpdateRunner` |
+| `capabilities` | list<string> | Capability names this runner implements (e.g., `["docker", "gpu"]`). The orchestrator uses this to match workloads that require specific capabilities. Reported by the runner as part of its [catalog report](#catalog-reporting) — not set by admins. Empty until the runner's first report |
 | `identity_id` | string (UUID) | Runner's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token |
 | `openziti_service_name` | string | Per-runner OpenZiti service name (`runner-{id}`) |
@@ -67,23 +76,51 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 
 Cluster-scoped runners (`organization_id: null`) are available to all organizations. Org-scoped runners are available only to the owning organization. See [Runner Selection](#runner-selection) for how the orchestrator picks a runner.
 
-## Flavors
+## Runner Catalog
 
-A [Flavor](resource-definitions.md#flavor) is a named compute size (CPU/memory requests and limits) offered by a specific runner. Flavors are stored in the Runners service alongside the runner they belong to and managed via `CreateFlavor`, `UpdateFlavor`, and `ListFlavors` RPCs. Deletion is only allowed while no [Environment](resource-definitions.md#environment) references the flavor; a referenced flavor is deprecated instead (`deprecated: true` via `UpdateFlavor`).
+Each runner declares a **catalog** in its own deployment configuration and reports it to the Runners service: the [flavors](#flavors) it offers, the [storage classes](#storage-classes) it offers, and the capabilities it implements. The catalog is not managed through platform APIs — the runner's configuration is the source of truth, and the Runners service stores what the runner last reported. The runner is in charge of the implementation behind every catalog entry, so the entries are defined next to that implementation (for the k8s-runner: in its ConfigMap/Helm values — see [k8s-runner — Runner Catalog](k8s-runner.md#runner-catalog)).
 
-Authorization follows runner ownership: flavors on a cluster-scoped runner require `admin` on `cluster:global`; flavors on an org-scoped runner require `owner` on the organization — the same split as [runner registration](authz.md). Flavor visibility follows runner visibility (see [Organization Scoping](#organization-scoping)).
+Catalog visibility follows runner visibility (see [Organization Scoping](#organization-scoping)): catalogs of cluster-scoped runners are visible to every organization, catalogs of org-scoped runners only to the owning organization. `ListFlavors` and `ListStorageClasses` expose the stored catalog to Console and CLI pickers.
 
 See [Flavors and Environments](../product/environments/environments.md) for the product behavior.
 
+### Flavors
+
+A [Flavor](resource-definitions.md#flavor) is a named compute size (CPU/memory requests and limits) offered by a specific runner. [Environments](resource-definitions.md#environment) reference flavors **by name**, scoped to the environment's runner. The reference is late-bound: it is resolved against the runner's reported catalog at workload start and is deliberately not validated when the environment is created — an environment may name a flavor that does not exist yet, and its workloads simply fail to schedule until a runner report includes that name.
+
+A flavor entry may be marked `deprecated` — a soft signal surfaced in Console and CLI pickers; deprecated flavors still resolve and schedule. Removing an entry from the runner's configuration removes it from the catalog on the next report; environments referencing the removed name become unschedulable and are flagged in the Console. Renaming an entry is a removal plus an addition.
+
+### Storage Classes
+
+A [Storage Class](resource-definitions.md#storage-class) is a named storage tier offered by a specific runner. What backs a class is runner-internal — the k8s-runner maps each entry to a Kubernetes StorageClass in its configuration; other runners may map classes to whatever their storage layer provides.
+
+[Volume](resource-definitions.md#volume) definitions reference storage classes by name with the same late binding as flavors: the name is resolved against the catalog of the runner the workload lands on when the volume is provisioned. A volume that names no class uses the runner's `default` class, as do [sandbox workspace volumes](../product/sandboxes/sandboxes.md). Storage class entries support `default` (at most one per runner) and `deprecated` exactly like flavors.
+
+### Catalog Reporting
+
+The runner reports its full catalog via `ReportRunnerCatalog` — at startup, immediately after [enrollment](#enrollment) and before binding its service, and again whenever its configuration changes. The report is declarative: the Runners service atomically replaces the runner's stored catalog with the reported state. There are no per-entry create/update/delete RPCs and no delete-versus-deprecate enforcement — an entry absent from the report is gone, and anything referencing its name stops scheduling until it reappears.
+
+The report carries three sections; the whole report is rejected on any violation, keeping the previously stored catalog:
+
+| Section | Constraints |
+|---------|-------------|
+| `flavors` | Names unique within the report, max 64 chars, pattern `^[a-z0-9-]+$`. Compute resources present and well-formed. At most one entry marked `default` |
+| `storage_classes` | Same name constraints. At most one entry marked `default` |
+| `capabilities` | List of capability name strings. Replaces the runner's `capabilities` field |
+
+`ReportRunnerCatalog` is authenticated by the runner's service token — the same mechanism as `EnrollRunner`, no OpenFGA check.
+
 ## Runner Selection
 
-Placement is determined by the workload's [Environment](resource-definitions.md#environment): the environment references a [Flavor](#flavors), and the flavor belongs to exactly one runner — environment → flavor → runner. The [Agents Orchestrator](agents-orchestrator.md) does not choose among runners; it validates the determined runner:
+Placement is determined by the workload's [Environment](resource-definitions.md#environment): the environment references a runner directly (`runner_id`) and names a [flavor](#flavors) within that runner's catalog. The [Agents Orchestrator](agents-orchestrator.md) does not choose among runners; it validates the referenced runner and resolves catalog names at schedule time:
 
-1. **Resolve** — read the environment from the Agents service and its flavor from the Runners service; the flavor's `runner_id` is the target runner.
+1. **Resolve the runner** — read the environment from the Agents service; its `runner_id` is the target runner.
 2. **Validate enrollment** — the runner's status must be `enrolled`. Otherwise the workload fails to schedule and the standard retry policy applies.
-3. **Validate capabilities** — if the agent defines `capabilities`, the runner's `capabilities` list must contain every one of them. A runner may advertise additional capabilities. (Sandboxes define no capabilities.)
+3. **Resolve the flavor** — look up the environment's flavor name (or the runner's `default` flavor when the environment names none) in the runner's reported catalog. A name not present in the catalog fails scheduling the same way, and the environment is flagged unschedulable in Console and CLI.
+4. **Resolve storage classes** — every persistent volume in the workload that names a storage class must find that name in the runner's catalog; volumes naming none use the runner's `default` class. A missing class name — including a missing default when one is needed — fails scheduling the same way.
+5. **Validate capabilities** — if the agent defines `capabilities`, the runner's reported `capabilities` list must contain every one of them. A runner may advertise additional capabilities. (Sandboxes define no capabilities.)
 
-Environment create/update already validated that the flavor's runner is visible to the organization (cluster-scoped, or org-scoped to the same org), so a "wrong runner" pairing cannot reach scheduling. There is no fallback runner — a different runner has no contract to honor the flavor. Runner `labels` remain as metadata; they no longer participate in placement.
+Environment create/update validated only that the runner is visible to the organization (cluster-scoped, or org-scoped to the same org), so a "wrong runner" pairing cannot reach scheduling. Flavor and storage class names are deliberately **not** validated at create time — they are late-bound so platform resources and runner configuration can be applied in either order; Console and CLI warn (not reject) when a name does not match anything currently reported. There is no fallback runner — a different runner has no contract to honor the names. Runner `labels` remain as metadata; they do not participate in placement.
 
 ## Workload Resource
 
@@ -122,6 +159,7 @@ Tracks persistent volumes actually provisioned on runners. For agent-owned volum
 | `agent_id` | string (UUID), nullable | Agent class that owns the volume definition (denormalized). NULL for sandbox-owned volumes |
 | `organization_id` | string (UUID) | Organization scope |
 | `size_gb` | decimal | Size in gigabytes, from the Agents service Volume definition |
+| `storage_class` | string | Storage class name resolved at provisioning time — the [Volume](resource-definitions.md#volume) definition's requested class, or the runner's `default` class when none was requested. Recorded for audit and metering; the PVC does not change class retroactively when the runner's catalog changes |
 | `status` | enum | `provisioning`, `active`, `deprovisioning`, `deleted`, `failed` — see [Volume Reconciliation](agents-orchestrator.md#volume-reconciliation) |
 | `created_at` | timestamp | When the record was created by the Orchestrator |
 | `removed_at` | timestamp (nullable) | When the volume reached `deleted` status. NULL while active. Record is retained for audit history |
@@ -255,8 +293,7 @@ The [Terraform provider](operations/terraform-provider.md) exposes the `agyn_run
 | `id` | string | | ✓ | | UUID, assigned by the Runners service |
 | `name` | string | ✓ | | ✓ | Display name |
 | `organization_id` | string | | | | Organization scope. Omit for cluster-scoped runners. Immutable after creation |
-| `labels` | map(string) | | | ✓ | Key-value labels for routing and metadata. Used for [runner selection](#runner-selection) |
-| `capabilities` | list(string) | | | ✓ | Capability names this runner implements. Used for [runner selection](#runner-selection) |
+| `labels` | map(string) | | | ✓ | Key-value metadata. Informational — labels do not participate in [placement](#runner-selection) |
 | `identity_id` | string | | ✓ | | Runner's identity in the [Identity](identity.md) service |
 | `service_token` | string (sensitive) | | ✓ | | Service token returned on creation. Stored in Terraform state. Used by the runner to [enroll](#enrollment) |
 
@@ -268,7 +305,7 @@ The `service_token` output is provided to the runner deployment (e.g., as a Kube
 
 When a runner starts, it calls `EnrollRunner` with its service token. The Runners service validates the token, creates an OpenZiti identity via [Ziti Management](openziti.md) `CreateRunnerIdentity` (which deletes any previous identity for this runner first), enrolls it, and returns the enrolled identity (certificate + key) along with the service name (`runner-{runnerId}`). See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning) for the full enrollment sequence.
 
-After enrollment, the runner binds its per-runner OpenZiti service (`runner-{runnerId}`) and begins accepting workload commands from the Orchestrator.
+After enrollment, the runner reports its [catalog](#catalog-reporting) via `ReportRunnerCatalog`, then binds its per-runner OpenZiti service (`runner-{runnerId}`) and begins accepting workload commands from the Orchestrator.
 
 The service token is long-lived and reusable. If the runner restarts, it re-enrolls with the same token and receives a new OpenZiti identity. The previous identity is deleted by Ziti Management as part of `CreateRunnerIdentity` before creating the new one. All runners — whether deployed as platform infrastructure or by an enterprise admin — follow this same flow.
 
@@ -336,6 +373,10 @@ Runner management authorization depends on the runner's scope. Workload and volu
 | `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Service token validation — no OpenFGA check |
+| `ReportRunnerCatalog` | Service token validation — no OpenFGA check |
+| `ListFlavors`, `ListStorageClasses` (via Gateway, org-scoped runners) | `member` on `organization:<org_id>` |
+| `ListFlavors`, `ListStorageClasses` (via Gateway, cluster-scoped runners) | Any authenticated identity |
+| `ListFlavors`, `ListStorageClasses` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) to resolve flavor and storage class names |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required |
@@ -358,9 +399,9 @@ The following methods are exposed through the [Gateway](gateway.md):
 
 | Gateway Service | Methods |
 |----------------|---------|
-| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`, `TouchWorkload`, `StreamWorkloadLogs`, `GetVolume`, `ListVolumes`, `ListVolumesByAgentInstance` |
+| `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `EnrollRunner`, `ReportRunnerCatalog`, `ListFlavors`, `ListStorageClasses`, `ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`, `TouchWorkload`, `StreamWorkloadLogs`, `GetVolume`, `ListVolumes`, `ListVolumesByAgentInstance` |
 
-Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)).
+Runner management methods (`RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`) are used for runner provisioning via the [Terraform provider](operations/terraform-provider.md) and [agyn CLI](agyn-cli.md). `EnrollRunner` is called by runners at startup to exchange a service token for an OpenZiti identity (see [Enrollment](#enrollment)); `ReportRunnerCatalog` is called by runners after enrollment and on configuration change (see [Catalog Reporting](#catalog-reporting)). `ListFlavors` and `ListStorageClasses` back the Console and CLI catalog pickers.
 
 Workload query methods (`ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`) provide external access to workload state. `TouchWorkload` is exposed for [`agynd`](agynd-cli.md) to report agent activity; sandbox activity reports are internal calls from Terminal Proxy after terminal ticket validation. Both paths feed [idle timeout](#idle-timeout) enforcement.
 
@@ -370,7 +411,7 @@ Volume query methods (`GetVolume`, `ListVolumes`, `ListVolumesByAgentInstance`) 
 
 Internal-only methods (`CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt`, `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt`) are called by the [Agents Orchestrator](agents-orchestrator.md) and are not exposed through the Gateway.
 
-The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByAgentInstance`, `ListVolumesByAgentInstance`, and `GetRunner` via Istio, with filter shapes (`runner_id_in`, `pending_sample`, owner filters, and cross-organization instance queries) that are not accepted on the Gateway path. The Gateway-exposed variants of those RPCs require `organization_id` and apply OpenFGA checks; the internal variants are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
+The Orchestrator also reaches `ListWorkloads`, `ListVolumes`, `ListWorkloadsByAgentInstance`, `ListVolumesByAgentInstance`, `GetRunner`, `ListFlavors`, and `ListStorageClasses` via Istio, with filter shapes (`runner_id_in`, `pending_sample`, owner filters, and cross-organization instance queries) that are not accepted on the Gateway path. The Gateway-exposed variants of those RPCs require `organization_id` and apply OpenFGA checks; the internal variants are gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's ServiceAccount.
 
 ## Terminal Proxy Integration
 

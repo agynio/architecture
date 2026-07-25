@@ -82,7 +82,7 @@ A workload consists of:
 - **Init containers** — run before the main container to populate shared volumes.
 - **Main container** — the primary process.
 - **Sidecars** — optional containers sharing the same network namespace.
-- **Volumes** — ephemeral or named (persistent), mounted into containers.
+- **Volumes** — ephemeral or named (persistent), mounted into containers. A named volume carries a `storage_class` — the name of an entry from the runner's [reported catalog](runners.md#runner-catalog), resolved by the Orchestrator before `StartWorkload`; the runner maps it to its backing storage implementation.
 - **Image pull credentials** — optional registry credentials for pulling container images from private registries. The Runner receives resolved credentials (registry, username, password) from the Orchestrator.
 - **Inline files** — small files materialized into specific paths inside listed containers. See [Inline Files](#inline-files).
 

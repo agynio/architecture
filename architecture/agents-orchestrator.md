@@ -174,13 +174,13 @@ sequenceDiagram
     O->>O: Merge image pull credentials, detect conflicts
     O->>O: Generate workload_key and volume_key per persistent volume
     O->>O: Assemble workload spec — embed workload_key and volume_keys as labels
-    O->>RS: Select runner (predetermined by instance's existing volumes, else org+labels)
-    RS-->>O: Runner
+    O->>RS: Resolve runner + catalog names (environment's runner; flavor and storage classes by name)
+    RS-->>O: Runner, resolved flavor, resolved storage classes
     O->>ZM: CreateAgentIdentity(instanceId, workloadId)
     ZM-->>O: enrollmentJWT, openZitiIdentityId
     O->>RS: CreateWorkload(id=workload_key, runnerId, instanceId, agentId, status=starting)
     RS-->>O: OK
-    O->>RS: CreateVolume(id=volume_key, volumeId, instanceId, runnerId, agentId, size_gb, status=provisioning) [per persistent volume]
+    O->>RS: CreateVolume(id=volume_key, volumeId, instanceId, runnerId, agentId, size_gb, storage_class, status=provisioning) [per persistent volume]
     RS-->>O: OK
     O->>R: StartWorkload(spec with labels, enrollmentJWT, image_pull_credentials)
     R-->>O: instance_id
@@ -198,17 +198,17 @@ Before starting a workload, the orchestrator selects a runner:
 
 1. **Check for existing volumes** — call `Runners.ListVolumesByAgentInstance(agent_instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an instance reside on the same runner (recorded as `runner_id` on each volume record).
 2. **Validate the predetermined runner** — call `Runners.GetRunner(runner_id)` and verify its status is `enrolled`. If the runner is no longer registered or not enrolled, the instance cannot be recovered: call `Agents.PauseInstance(instance_id, reason="runner_deprovisioned")` and abort the start sequence.
-3. **No existing volumes** — the runner is determined by the class's [Environment](resource-definitions.md#environment): environment → [Flavor](resource-definitions.md#flavor) → runner. Validate that the runner is `enrolled` and advertises every capability the class requires (see [Runner Selection](runners.md#runner-selection)). If validation fails, the workload fails to schedule and the orchestrator retries on the next reconciliation pass.
-4. **Volume/flavor conflict** — if existing volumes pin the instance to a runner different from the environment's flavor runner (the environment or its flavor changed after volumes were provisioned), the instance cannot be recovered on the new runner: call `Agents.PauseInstance(instance_id, reason="runner_conflict")` and abort the start sequence.
+3. **No existing volumes** — the runner is the one referenced by the class's [Environment](resource-definitions.md#environment) (`runner_id`). Validate that the runner is `enrolled`, then resolve catalog names against the runner's [reported catalog](runners.md#runner-catalog): the environment's flavor name (or the runner's `default` flavor when the environment names none), the storage class name of every persistent volume (or the runner's `default` class when a volume names none), and every capability the class requires (see [Runner Selection](runners.md#runner-selection)). If any name does not resolve, the workload fails to schedule and the orchestrator retries on the next reconciliation pass — the unresolved reference is surfaced on the environment as unschedulable in Console and CLI.
+4. **Volume/runner conflict** — if existing volumes pin the instance to a runner different from the environment's runner (the environment or its runner reference changed after volumes were provisioned), the instance cannot be recovered on the new runner: call `Agents.PauseInstance(instance_id, reason="runner_conflict")` and abort the start sequence.
 
 ### Workload Spec Assembly
 
 The orchestrator assembles the full workload specification from multiple sources:
 
-1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the main container image; its [Flavor](resource-definitions.md#flavor) (from Runners) supplies the compute resources. Environment-targeted ENVs, image pull secret attachments, and egress rule attachments are collected alongside the agent's own.
+1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the main container image and the runner; its flavor name, resolved against the runner's [reported catalog](runners.md#runner-catalog) during [runner selection](#runner-selection), supplies the compute resources. Environment-targeted ENVs, image pull secret attachments, and egress rule attachments are collected alongside the agent's own.
 2. **Capabilities** (from Agents): named platform capabilities (e.g., `docker`). The orchestrator includes the capability list in the workload spec. The runner resolves each capability to its configured implementation — injecting the appropriate sidecars and environment variables. See [Resource Definitions — Capabilities](resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
 3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
-4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths.
+4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths. Each persistent volume carries its resolved [storage class](resource-definitions.md#storage-class) name — the volume definition's requested class, or the runner's `default` when none is set. The runner maps the class name to its backing storage.
 5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
 6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent ENVs into the agent container, MCP ENVs into the respective MCP sidecar, hook ENVs into the hook container. No container receives another container's resolved values. Agent ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
 7. **Init scripts** (from Agents): shell scripts for agent container initialization. Fetched by `agynd` at startup via the Gateway. MCP and hook init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
@@ -334,7 +334,7 @@ If the Orchestrator crashes, gaps in usage data equal the downtime duration. Mis
 | `CORE_SECONDS` | allocated_cpu × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent | deterministic(workload_id+interval_start) |
 | `GB_SECONDS` | allocated_ram_gb × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, kind=ram | deterministic(workload_id+interval_start+"ram") |
 
-`allocated_cpu` and `allocated_ram_gb` come from the workload's [Flavor](resource-definitions.md#flavor) allocation (via the environment), plus the inline resources of MCP and hook sidecars. Moving to flavor-denominated metering (`FLAVOR_SECONDS` with flavor/runner labels) is a planned next phase — see [Flavors and Environments — Metering](../product/environments/environments.md#metering).
+`allocated_cpu` and `allocated_ram_gb` come from the [Flavor](resource-definitions.md#flavor) resolved for the workload at start time (via the environment's flavor name), plus the inline resources of MCP and hook sidecars. Moving to flavor-denominated metering (`FLAVOR_SECONDS` with flavor/runner labels) is a planned next phase — see [Flavors and Environments — Metering](../product/environments/environments.md#metering).
 
 **Storage** — one record per persistent volume each interval:
 
