@@ -227,8 +227,7 @@ sequenceDiagram
     GW->>US: ResolveUser(oidc_subject)
     US-->>GW: identity_id (or not found)
     alt User not found (first login)
-        GW->>IdP: GET /userinfo (Bearer access_token)
-        IdP-->>GW: User claims (preferred_username, name, email, picture)
+        GW->>GW: Read profile claims (UserInfo endpoint or access_token)
         GW->>US: ProvisionUser(oidc_subject, claims)
         US->>US: Derive username from claims (resolve collisions)
         US->>IS: RegisterIdentity(identity_id, "user")
@@ -239,9 +238,9 @@ sequenceDiagram
 
 **ResolveUser** is called on every request. It is a fast lookup by OIDC subject — the hot path.
 
-**ProvisionUser** is called only when `ResolveUser` returns not-found (first login). The Gateway fetches profile claims from the IdP's [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) and passes them to `ProvisionUser`. The Users service generates an `identity_id`, derives a `username` from the claims (see [Derivation at Provisioning](#derivation-at-provisioning)), registers the identity in the [Identity](identity.md) service, and stores the user record.
+**ProvisionUser** is called only when `ResolveUser` returns not-found (first login). The Gateway obtains profile claims — from the IdP's [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) or from the access token itself, depending on the configured profile source (see [Authentication — User Authentication](authn.md#user-authentication-oidc)) — and passes them to `ProvisionUser`. The Users service generates an `identity_id`, derives a `username` from the claims (see [Derivation at Provisioning](#derivation-at-provisioning)), registers the identity in the [Identity](identity.md) service, and stores the user record.
 
-Initial profile fields (name, photo) are populated from the IdP UserInfo response at provisioning time.
+Initial profile fields (name, photo) are populated from those claims at provisioning time.
 
 ## Consumers
 

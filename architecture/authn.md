@@ -51,8 +51,12 @@ sequenceDiagram
     GW->>US: ResolveUser(oidc_subject)
     US-->>GW: identity_id (or not found)
     alt User not found (first login)
-        GW->>IdP: GET /userinfo (Bearer access_token)
-        IdP-->>GW: User claims (name, email, picture)
+        alt profile_source = userinfo
+            GW->>IdP: GET /userinfo (Bearer access_token)
+            IdP-->>GW: User claims (name, email, picture)
+        else profile_source = token
+            GW->>GW: Read profile claims from the access_token
+        end
         GW->>US: ProvisionUser(oidc_subject, profile from claims)
         US->>IS: RegisterIdentity(identity_id, "user")
         US-->>GW: identity_id
@@ -64,7 +68,16 @@ The SPA performs the full OIDC flow in the browser. The Gateway receives the res
 
 **On every request:** The Gateway validates the `access_token` JWT signature against the IdP's JWKS endpoint and extracts the `sub` claim. It then calls `Users.ResolveUser(sub)` to map the OIDC subject to a platform `identity_id`.
 
-**On first login (user not found):** The Gateway calls the IdP's standard [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) with the `access_token` to retrieve profile claims (name, email, picture). It then calls `Users.ProvisionUser(sub, profile)` to provision a new user record. The Users service registers the identity in the [Identity](identity.md) service. The UserInfo endpoint is called **once per user lifetime** — only during provisioning.
+**On first login (user not found):** The Gateway retrieves profile claims (name, email, picture, preferred username) and calls `Users.ProvisionUser(sub, profile)` to provision a new user record. The Users service registers the identity in the [Identity](identity.md) service. Profile claims are read **once per user lifetime** — only during provisioning.
+
+Claims come from one of two sources, selected by configuration:
+
+- **`userinfo`** — the Gateway calls the IdP's standard [UserInfo endpoint](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) with the `access_token`.
+- **`token`** — the Gateway reads the claims from the validated `access_token` itself, issuing no additional request.
+
+The `token` source exists because an access token cannot always be exchanged for profile data. Providers that follow [RFC 8707 Resource Indicators](https://datatracker.ietf.org/doc/html/rfc8707) issue an audience-restricted access token, and the OIDC UserInfo endpoint rejects any token carrying an `aud` claim. A deployment whose Gateway requires a verifiable JWT must therefore obtain the profile from the token, with the IdP configured to include the required claims.
+
+Claim names are configurable per field, because providers differ in how they expose profile data.
 
 Organization context is not validated at the Gateway level. Services that need organization context accept `organization_id` as a request parameter, and the [authorization model](authz.md) enforces access. See [Organizations — Request Flow](organizations.md#request-flow).
 
@@ -76,6 +89,14 @@ The OIDC provider is configured system-wide. Because the SPA is a public client 
 |-------|------|-------------|
 | `issuer` | string | OIDC issuer URL. Used for [OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html) (`{issuer}/.well-known/openid-configuration`) to resolve the `jwks_uri` for token signature verification |
 | `client_id` | string | OAuth2 client ID |
+| `resource` | string | Optional [resource indicator](https://datatracker.ietf.org/doc/html/rfc8707) the SPA requests. Set when the IdP only issues a verifiable JWT for a registered API resource |
+| `profile_source` | enum | Where provisioning-time profile claims come from: `userinfo` (default) or `token` |
+| `claims.name` | string | Claim holding the display name. Default `name` |
+| `claims.email` | string | Claim holding the email address. Default `email` |
+| `claims.picture` | string | Claim holding the avatar URL. Default `picture` |
+| `claims.preferred_username` | string | Claim holding the preferred username. Default `preferred_username` |
+
+Claim names apply to both sources, so an IdP that exposes a field under a non-standard name is configured the same way regardless of where the Gateway reads it. A claim that is absent yields an empty profile field; only `sub` is required.
 
 ## Network Identity (OpenZiti)
 
