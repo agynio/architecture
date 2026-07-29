@@ -25,7 +25,7 @@ The OpenZiti Go SDK implements Go's standard `net.Listener` and `net.Conn` inter
 | **Tracing** | Bind (server) | `zitiContext.ListenWithOptions("tracing", ...)` → accept connections |
 | **Egress Gateway** | Bind (server) | `zitiContext.ListenWithOptions("@egress-services", ...)` → binds every per-rule egress service tagged `egress-services` |
 
-The Orchestrator, Gateway, and LLM Proxy obtain their OpenZiti identities at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. Runners and Apps obtain their identities via the service token enrollment flow — see [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle). See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
+The Orchestrator, Gateway, LLM Proxy, and Terminal Proxy obtain their OpenZiti identities at runtime via self-enrollment through the [Ziti Management](#ziti-management-service) service. Runners and Apps obtain their identities via the service token enrollment flow — see [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle). See [Service Identity Self-Enrollment](#service-identity-self-enrollment) and [Authentication](authn.md#enrollment).
 
 ## Ziti Management Service
 
@@ -62,8 +62,8 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `DeleteIdentity` | Orchestrator | Delete an OpenZiti identity and its platform mapping |
 | `ListManagedIdentities` | Orchestrator | List all identities managed by the platform (for reconciliation) |
 | `ResolveIdentity` | Gateway | Map an OpenZiti identity ID to platform identity (identity_id, identity_type) |
-| `RequestServiceIdentity` | Orchestrator, Gateway | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
-| `ExtendIdentityLease` | Orchestrator, Gateway | Extend the lease on a service identity. Returns `NOT_FOUND` if the identity has no record (e.g. already garbage-collected) — the caller treats this as identity loss, see [Identity Loss](#identity-loss) |
+| `RequestServiceIdentity` | Orchestrator, Gateway, LLM Proxy, Terminal Proxy | Create and enroll an OpenZiti identity for the calling service, return enrolled identity (cert + key) |
+| `ExtendIdentityLease` | Orchestrator, Gateway, LLM Proxy, Terminal Proxy | Extend the lease on a service identity. Returns `NOT_FOUND` if the identity has no record (e.g. already garbage-collected) — the caller treats this as identity loss, see [Identity Loss](#identity-loss) |
 | `CreateServicePolicy` | Expose Service | Create a single OpenZiti service policy (Bind or Dial). Returns the policy ID |
 | `DeleteServicePolicy` | Expose Service | Delete an OpenZiti service policy by ID |
 | `DeleteService` | Expose Service | Delete an OpenZiti service by ID |
@@ -112,7 +112,7 @@ Lease expiry usually means the pod that held the enrolled certificate has stoppe
 Three identity lifecycle patterns coexist:
 
 - **Agent identities** — managed by the **Agents Orchestrator**. The Orchestrator creates and deletes agent identities via Ziti Management as part of its reconciliation loop. The Runner is not involved in identity management — it receives the enrollment JWT as opaque configuration and passes it to the agent pod's Ziti sidecar container.
-- **Service identities** — self-managed by each infrastructure service (Orchestrator, Gateway). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
+- **Service identities** — self-managed by each infrastructure service (Orchestrator, Gateway, LLM Proxy, Terminal Proxy). Each pod requests its own identity from Ziti Management at startup and extends the lease on a timer. See [Service Identity Self-Enrollment](#service-identity-self-enrollment).
 - **Runner and App identities** — provisioned via enrollment using a service token. Runners and Apps present their service token on startup, the Runners/Apps Service creates the OpenZiti identity via Ziti Management (deleting any previous identity for that runner/app first), and returns the enrolled credentials. See [Runner Provisioning](#runner-provisioning) and [App Identity Lifecycle](#app-identity-lifecycle).
 
 The agent identity pattern follows directly from the [Control Plane & Data Plane](control-data-plane.md) classification: the Orchestrator is control plane (decides what should exist), the Runner is data plane (executes what it is told).
@@ -182,7 +182,7 @@ This is the same reconciliation pattern used for agent workloads — no new mech
 
 ## Service Identity Self-Enrollment
 
-Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Gateway) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
+Infrastructure services that participate in the OpenZiti overlay (Orchestrator, Gateway, LLM Proxy, Terminal Proxy) obtain their OpenZiti identities at runtime by self-enrolling through Ziti Management.
 
 ### Design
 
