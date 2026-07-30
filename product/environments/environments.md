@@ -99,9 +99,13 @@ Flavor sets are defined per runner before migration. Each existing agent is migr
 
 ## Metering
 
-Metering keeps its current metrics for now: workloads emit `CORE_SECONDS` and `GB_SECONDS`, with allocations sourced from the flavor's resource definition instead of inline agent resources.
+Compute is metered per flavor. A workload emits `FLAVOR_SECONDS` dimensioned by the flavor it occupies and the runner whose catalog declares it, so usage is priced per tier the way cloud billing is priced per instance type. CPU and memory are two numbers inside a flavor; billing them separately re-derives a shape the platform already names, in units nobody prices.
 
-**Next phase:** metering moves to flavor-denominated usage — records dimensioned by `flavor_name`/`runner_id` with a `FLAVOR_SECONDS` unit (and storage by `storage_class`/`runner_id`), so usage can be priced per tier the way cloud billing is priced per instance type.
+The flavor billed is the one recorded on the workload when it started, not the one its environment names now — repointing an environment or editing a catalog entry does not rewrite history.
+
+A workload with no flavor emits no compute record. That is an agent still carrying an inline image and resources rather than an environment, which is the deprecated shape this replaces.
+
+**Next phase:** storage moves the same way — dimensioned by `storage_class`/`runner_id` rather than raw `GB_SECONDS`.
 
 ## Lifecycle
 

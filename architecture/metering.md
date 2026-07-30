@@ -4,7 +4,7 @@
 
 The Metering Service is the single store for all platform usage data. It ingests usage records from platform services, stores them in PostgreSQL, and exposes a query API for the console.
 
-All observable and billable resource consumption flows through the Metering Service: LLM token usage, compute (CPU and RAM) consumed by workloads, and platform entity counts (threads, messages).
+All observable and billable resource consumption flows through the Metering Service: LLM token usage, compute consumed by workloads — billed as flavor-time — and platform entity counts (threads, messages).
 
 ## Motivation
 
@@ -52,13 +52,38 @@ Accepts a batch of usage records. Producers call this fire-and-forget — the op
 | Value | Description |
 |-------|-------------|
 | `TOKENS` | Token count |
+| `FLAVOR_SECONDS` | Flavor × seconds — a workload occupying one flavor for one second |
 | `CORE_SECONDS` | CPU core × seconds |
 | `GB_SECONDS` | Gigabyte × seconds |
 | `COUNT` | Discrete event count |
 
+Compute is billed in `FLAVOR_SECONDS`. A flavor is what a workload is actually
+allocated — CPU and memory are two numbers inside it, and billing them
+separately re-derives a shape the platform already has a name for, in units
+nobody prices. `CORE_SECONDS` and `GB_SECONDS` remain in the contract, and the
+service continues to store and serve them, but workloads no longer emit them.
+
+The record stays a counter — the value carries no resource quantity, only
+elapsed time, and which flavor accrued it is a dimension:
+
+```
+unit=FLAVOR_SECONDS  value=60  flavor=ram-2gb  runner_id=…   # one 60s interval
+```
+
+Billing sums it per tier and multiplies by that tier's rate:
+
+```
+SUM(value) WHERE unit = FLAVOR_SECONDS GROUP BY flavor, runner_id
+```
+
+A rate card then holds one price per flavor, instead of separate core and
+gigabyte prices that have to be reassembled into a tier to mean anything.
+
 ### Labels
 
-Labels carry dimensional metadata. The Metering Service stores and indexes them without interpreting their meaning. Producers include only the labels they have context for.
+Labels carry dimensional metadata. Producers include only the labels they have context for.
+
+Each label a query can group or filter by has a column on [UsageEvent](#usageevent) — a label the service does not recognise is accepted on the wire and then dropped, so it cannot be queried. Adding a queryable dimension means adding a column, not just emitting a new key.
 
 | Label | Description |
 |-------|-------------|
@@ -70,6 +95,8 @@ Labels carry dimensional metadata. The Metering Service stores and indexes them 
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
 | `host` | Destination host (present for `resource=egress` records) |
 | `outcome` | Operation outcome for resources that distinguish outcomes (e.g., egress: `allow`, `deny`, `upstream_error`) |
+| `flavor` | Catalog entry the workload occupies (present on `FLAVOR_SECONDS` records) |
+| `runner_id` | Runner whose catalog the flavor belongs to. A flavor name is only meaningful against its runner, so it is never billed without one |
 | `kind` | Subtype discriminator (e.g., `input`, `cached`, `output`, `ram`, `thread`, `message`) |
 | `status` | Outcome of the operation (e.g., `success`, `failed`) |
 
@@ -126,6 +153,8 @@ The [Gateway](gateway.md) exposes the query API to authenticated callers. Access
 | `thread_id` | UUID (nullable) | Label: associated thread |
 | `kind` | string (nullable) | Label: subtype discriminator |
 | `status` | string (nullable) | Label: operation outcome |
+| `flavor` | string (nullable) | Label: catalog entry billed, on `FLAVOR_SECONDS` records |
+| `runner_id` | UUID (nullable) | Label: runner whose catalog declares the flavor. Grouping by flavor alone would merge two runners' identically named entries, which need not describe the same resources |
 
 Label columns are denormalized from the `labels` map for query performance. The table is partitioned by month on the generated `month` column, bounding time-range scans regardless of total history.
 
@@ -137,6 +166,7 @@ Label columns are denormalized from the `labels` map for query performance. The 
 | `(org_id, timestamp)` | Base partition-local scan |
 | `(org_id, unit, timestamp)` | Base query scan |
 | `(org_id, identity_id, unit, timestamp)` | Per-identity queries |
+| `(org_id, unit, flavor, runner_id, timestamp)` | Compute usage per flavor — the aggregation billing reads |
 | `(org_id, resource_id, unit, timestamp)` | Per-resource queries |
 
 ## Classification

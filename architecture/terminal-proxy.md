@@ -107,12 +107,21 @@ Checks run at ticket issuance (Gateway → OpenFGA):
 
 The WebSocket itself is authenticated solely by the ticket. Ticket properties: single-use, 30-second expiry, bound to `(identity, workload_id, container_name, command)`.
 
+## OpenZiti Identity
+
+The Terminal Proxy dials runners over the overlay, so it holds an identity of its own. It is an infrastructure service and follows [Service Identity Self-Enrollment](openziti.md#service-identity-self-enrollment): each pod requests an ephemeral identity from Ziti Management at startup, renews its lease on a timer, and terminates if the identity is lost.
+
+The identity is per-pod and is never mounted from a Secret. This service is designed to run several replicas — the ticket signing key is shared precisely so any replica can validate a ticket issued by another — and a mounted identity would be shared by all of them, outliving the pods that used it.
+
+Its identity carries the `terminal-proxy-hosts` role attribute, which the static `terminal-proxy-dial-runners` policy grants against `#runner-services`. See [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration).
+
 ## Failure Modes
 
 | Failure | Behavior |
 |---|---|
 | Proxy restart | All sessions drop (stateless service). Clients reconnect via a fresh `CreateTerminalSession` |
 | Runner unreachable (Ziti dial fails) | Session fails to establish; client receives a close with an error reason |
+| Proxy's Ziti identity lost (lease GC'd) | Pod terminates; the replacement enrolls a fresh identity. See [Identity Loss](openziti.md#identity-loss) |
 | Workload stopped mid-session | Exec stream ends; client receives `exit` with `reason: cancelled` |
 | Client vanishes (missed pongs) | Proxy cancels the exec (`CancelExecution`), releasing the PTY |
 
