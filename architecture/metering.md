@@ -63,9 +63,27 @@ separately re-derives a shape the platform already has a name for, in units
 nobody prices. `CORE_SECONDS` and `GB_SECONDS` remain in the contract, and the
 service continues to store and serve them, but workloads no longer emit them.
 
+The record stays a counter — the value carries no resource quantity, only
+elapsed time, and which flavor accrued it is a dimension:
+
+```
+unit=FLAVOR_SECONDS  value=60  flavor=ram-2gb  runner_id=…   # one 60s interval
+```
+
+Billing sums it per tier and multiplies by that tier's rate:
+
+```
+SUM(value) WHERE unit = FLAVOR_SECONDS GROUP BY flavor, runner_id
+```
+
+A rate card then holds one price per flavor, instead of separate core and
+gigabyte prices that have to be reassembled into a tier to mean anything.
+
 ### Labels
 
-Labels carry dimensional metadata. The Metering Service stores and indexes them without interpreting their meaning. Producers include only the labels they have context for.
+Labels carry dimensional metadata. Producers include only the labels they have context for.
+
+Each label a query can group or filter by has a column on [UsageEvent](#usageevent) — a label the service does not recognise is accepted on the wire and then dropped, so it cannot be queried. Adding a queryable dimension means adding a column, not just emitting a new key.
 
 | Label | Description |
 |-------|-------------|
@@ -135,6 +153,8 @@ The [Gateway](gateway.md) exposes the query API to authenticated callers. Access
 | `thread_id` | UUID (nullable) | Label: associated thread |
 | `kind` | string (nullable) | Label: subtype discriminator |
 | `status` | string (nullable) | Label: operation outcome |
+| `flavor` | string (nullable) | Label: catalog entry billed, on `FLAVOR_SECONDS` records |
+| `runner_id` | UUID (nullable) | Label: runner whose catalog declares the flavor. Grouping by flavor alone would merge two runners' identically named entries, which need not describe the same resources |
 
 Label columns are denormalized from the `labels` map for query performance. The table is partitioned by month on the generated `month` column, bounding time-range scans regardless of total history.
 
@@ -146,6 +166,7 @@ Label columns are denormalized from the `labels` map for query performance. The 
 | `(org_id, timestamp)` | Base partition-local scan |
 | `(org_id, unit, timestamp)` | Base query scan |
 | `(org_id, identity_id, unit, timestamp)` | Per-identity queries |
+| `(org_id, unit, flavor, runner_id, timestamp)` | Compute usage per flavor — the aggregation billing reads |
 | `(org_id, resource_id, unit, timestamp)` | Per-resource queries |
 
 ## Classification

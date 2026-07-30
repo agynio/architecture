@@ -21,7 +21,8 @@ The current records are also not measurements. `allocated_cpu_millicores` and `a
 ### Metering Service
 
 - No `FLAVOR_SECONDS` unit.
-- No `flavor` or `runner_id` label documented, though labels are stored uninterpreted, so the service needs no change to accept them.
+- **No `flavor` or `runner_id` column.** Labels are not stored generically: `UsageEvent` denormalizes each queryable label into its own column, so a key the service does not recognise is accepted on the wire and then dropped. Emitting `flavor` as a label without adding a column would produce records that bill nothing and cannot be grouped — the failure would be silent, and only visible as usage quietly going missing.
+- Needs both columns plus `(org_id, unit, flavor, runner_id, timestamp)`, which is the aggregation billing actually reads.
 
 `CORE_SECONDS` and `GB_SECONDS` stay in the contract and the service keeps storing and serving them. Only workload compute stops emitting them; storage still does.
 
