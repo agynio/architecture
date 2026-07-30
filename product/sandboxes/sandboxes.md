@@ -99,7 +99,7 @@ Because environment-attached secrets and egress credentials are reachable from i
 
 - Sandboxes appear in the Console alongside agent workloads, marked as sandboxes, with owner, environment, status, and log/terminal access. Status changes are pushed live via `sandbox.updated` notifications — to the owner's room for their own list, and to an org-level room for the organization owners' list-all view.
 - Egress from sandboxes emits the same spans as agent egress, attributed to the sandbox.
-- Sandbox workloads emit the same `CORE_SECONDS`/`GB_SECONDS` metering records as agent workloads (allocations from the flavor), attributed to the organization and labeled with the sandbox and its owner.
+- Sandbox workloads emit the same `FLAVOR_SECONDS` metering records as agent workloads, attributed to the organization and labeled with the sandbox and its owner. A sandbox always has a flavor, since it always runs through an environment.
 
 ## Constraints
 

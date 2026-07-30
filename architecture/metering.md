@@ -4,7 +4,7 @@
 
 The Metering Service is the single store for all platform usage data. It ingests usage records from platform services, stores them in PostgreSQL, and exposes a query API for the console.
 
-All observable and billable resource consumption flows through the Metering Service: LLM token usage, compute (CPU and RAM) consumed by workloads, and platform entity counts (threads, messages).
+All observable and billable resource consumption flows through the Metering Service: LLM token usage, compute consumed by workloads — billed as flavor-time — and platform entity counts (threads, messages).
 
 ## Motivation
 
@@ -52,9 +52,16 @@ Accepts a batch of usage records. Producers call this fire-and-forget — the op
 | Value | Description |
 |-------|-------------|
 | `TOKENS` | Token count |
+| `FLAVOR_SECONDS` | Flavor × seconds — a workload occupying one flavor for one second |
 | `CORE_SECONDS` | CPU core × seconds |
 | `GB_SECONDS` | Gigabyte × seconds |
 | `COUNT` | Discrete event count |
+
+Compute is billed in `FLAVOR_SECONDS`. A flavor is what a workload is actually
+allocated — CPU and memory are two numbers inside it, and billing them
+separately re-derives a shape the platform already has a name for, in units
+nobody prices. `CORE_SECONDS` and `GB_SECONDS` remain in the contract, and the
+service continues to store and serve them, but workloads no longer emit them.
 
 ### Labels
 
@@ -70,6 +77,8 @@ Labels carry dimensional metadata. The Metering Service stores and indexes them 
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
 | `host` | Destination host (present for `resource=egress` records) |
 | `outcome` | Operation outcome for resources that distinguish outcomes (e.g., egress: `allow`, `deny`, `upstream_error`) |
+| `flavor` | Catalog entry the workload occupies (present on `FLAVOR_SECONDS` records) |
+| `runner_id` | Runner whose catalog the flavor belongs to. A flavor name is only meaningful against its runner, so it is never billed without one |
 | `kind` | Subtype discriminator (e.g., `input`, `cached`, `output`, `ram`, `thread`, `message`) |
 | `status` | Outcome of the operation (e.g., `success`, `failed`) |
 

@@ -331,10 +331,13 @@ If the Orchestrator crashes, gaps in usage data equal the downtime duration. Mis
 
 | unit | value | labels | idempotency_key |
 |------|-------|--------|-----------------|
-| `CORE_SECONDS` | allocated_cpu × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent | deterministic(workload_id+interval_start) |
-| `GB_SECONDS` | allocated_ram_gb × interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, kind=ram | deterministic(workload_id+interval_start+"ram") |
+| `FLAVOR_SECONDS` | interval_s | resource_id=workload_id, resource=workload, identity_id, identity_type=agent, flavor, runner_id | deterministic(workload_id+interval_start) |
 
-`allocated_cpu` and `allocated_ram_gb` come from the [Flavor](resource-definitions.md#flavor) resolved for the workload at start time (via the environment's flavor name), plus the inline resources of MCP and hook sidecars. Moving to flavor-denominated metering (`FLAVOR_SECONDS` with flavor/runner labels) is a planned next phase — see [Flavors and Environments — Metering](../product/environments/environments.md#metering).
+The flavor is the one recorded on the workload at start time, resolved from the environment against the runner's [reported catalog](runners.md#runner-catalog). It is read from the workload record rather than re-resolved, so a workload keeps billing the flavor it actually started on even after the environment is repointed or the catalog entry changes.
+
+`runner_id` accompanies it because a flavor name is only meaningful against the runner that reported it — two runners may both declare `ram-2gb` with different resources.
+
+A workload with no flavor emits no compute record. That is every agent still carrying an inline image and resources instead of an environment; those are deprecated, and metering them in units nobody prices is what this replaced.
 
 **Storage** — one record per persistent volume each interval:
 
