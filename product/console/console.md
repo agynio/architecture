@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Console is the platform's management interface for organizations, users, agents, LLM providers, models, secrets, runners, apps, and operational monitoring.
+The Console is the platform's management interface for organizations, users, agents, apps, runtime and networking configuration, LLM providers and models, credentials, and operations.
 
 ## User Stories
 
@@ -28,6 +28,8 @@ The Console is the platform's management interface for organizations, users, age
 - As an organization owner, I want to invite users to my organization and assign roles so teammates can collaborate.
 - As an organization owner, I want to monitor active agent workloads so I can see what is running and troubleshoot issues.
 - As an organization owner, I want to list and read all threads in my organization so I can inspect agent conversations and troubleshoot issues.
+- As an organization owner, I want to see my agent instances with their state and pause reason so I can tell why an agent stopped picking up work and resume it.
+- As an organization owner, I want to see every private resource in my organization in one list, regardless of which network it sits behind, so I can audit what is reachable and who can reach it.
 
 ### Any Authenticated User
 
@@ -40,8 +42,8 @@ The Console is the platform's management interface for organizations, users, age
 
 | Role | Scope | What they see |
 |------|-------|---------------|
-| **Cluster admin** | Platform-wide | Cluster administration (users, organizations, cluster-scoped runners) + all organization-level sections |
-| **Organization owner** | Per-organization | Organization-level sections: agents, volumes, LLM providers, models, secret providers, secrets, runners, apps, members, monitoring |
+| **Cluster admin** | Platform-wide | Cluster administration (users, organizations, cluster-scoped runners, app catalog) + all organization-level sections |
+| **Organization owner** | Per-organization | Organization-level sections: the organization and its groups; agents and apps; runtime (environments, volumes, runners); networking (private networks, private resources, egress rules); LLM providers and models; credentials; operations |
 
 Organization members do not have Console access. A user can be an organization owner in one organization and a regular member (no Console access) in another. The Console displays only the organizations where the user is an owner.
 
@@ -104,65 +106,94 @@ The dropdown contains:
 
 The sidebar lists navigation sections for the currently selected context. Selecting a section loads its content in the main area.
 
+#### Grouping Rules
+
+The sidebar groups sections rather than listing them flat. Three rules govern the grouping, and any new section must satisfy all three:
+
+1. **Every section belongs to a group.** There are no ungrouped items — an item that fits no group means the grouping is wrong, not that the item is special. Importance and frequency of use are not grouping criteria; they determine order *within* the sidebar, never membership.
+2. **No group is named after one of its own sections.** A `Secrets` group containing a `Secrets` section makes the header useless for scanning, because the reader cannot tell header from link. Where the natural name collides, the group takes the name of the *category* (`Credentials`, `LLM`) or names its members explicitly (`Agents & Apps`).
+3. **Each group states what it governs**, and every member is governed by it. A group that can absorb an arbitrary new section is not a category — it is a leftovers bucket, and the sections in it belong somewhere else.
+
+Groups are collapsible, expanded by default, and each group's collapsed state persists in local storage. Every section carries its own icon; no icon is reused across sections within a context.
+
 #### Organization Sections
 
-Visible when an organization is selected in the context switcher. Available to organization owners and cluster admins. Sections are grouped and always expanded — groups are separated by headers and spacing.
+Visible when an organization is selected in the context switcher. Available to organization owners and cluster admins.
 
-**Organization**
+The groups follow the platform's own model: the organization itself, the actors that do work, where work runs, what work may use, and what actually ran.
+
+**Organization** — the organization itself.
 
 | Section | Description |
 |---------|-------------|
 | Overview | Organization summary (see [Overview](#overview)) |
 | Members | Member and invite management (see [Members](#members)) |
+| Groups | Membership groups used as grant principals (see [Groups](#groups)) |
 
-**Agents**
+**Agents & Apps** — the non-human thread participants. Both are definitions carrying their own platform [identity](../../architecture/identity.md), and both are grantable principals on [private resources](../private-networks/private-networks.md#granting-access).
 
 | Section | Description |
 |---------|-------------|
-| Agents | Agent CRUD and sub-resource management |
-| Volumes | Volume CRUD |
-| Runners | Org-scoped runner management |
+| Agents | Agent class CRUD and sub-resource management (see [Agents](#agents)) |
 | Apps | App installations and published apps (see [Apps](#apps)) |
 
-**Models**
+**Runtime** — where work runs.
 
 | Section | Description |
 |---------|-------------|
-| LLM Providers | LLM provider CRUD |
-| Models | Model CRUD |
+| Environments | Runtime definitions — runner, flavor, image (see [Environments](../environments/environments.md)) |
+| Volumes | Volume declarations (see [Volumes](#volumes)) |
+| Runners | Org-scoped runner management (see [Runners](#runners)) |
 
-**Secrets**
-
-| Section | Description |
-|---------|-------------|
-| Secret Providers | Secret provider CRUD |
-| Secrets | Secret CRUD |
-| Image Pull Secrets | Image pull secret CRUD |
-
-**Egress**
+**Networking** — what work can reach, inbound and outbound. Private Resources and Egress Rules are adjacent deliberately: they are the two sides of one per-destination decision (see [EgressRule interaction](../private-networks/private-networks.md#egressrule-interaction)).
 
 | Section | Description |
 |---------|-------------|
-| Egress Rules | Egress rule CRUD and agent attachment |
+| Private Networks | Networks and their tunnels (see [Private Networks](../private-networks/private-networks.md)) |
+| Private Resources | Org-wide resource list and access grants (see [Private Resources](#private-resources)) |
+| Egress Rules | Egress rule CRUD and agent attachment (see [Egress Rules](#egress-rules)) |
 
-**Activity**
+**LLM** — what work reasons with.
 
 | Section | Description |
 |---------|-------------|
-| Workloads | Active agent workloads (see [Workloads](#workloads)) |
-| Storage | Persistent volumes in use (see [Storage](#storage)) |
+| Providers | LLM provider CRUD (see [LLM Providers and Models](#llm-providers-and-models)) |
+| Models | Model CRUD (see [LLM Providers and Models](#llm-providers-and-models)) |
+
+**Credentials** — what work authenticates with.
+
+| Section | Description |
+|---------|-------------|
+| Secrets | Secret CRUD (see [Secret Providers and Secrets](#secret-providers-and-secrets)) |
+| Secret Providers | Secret provider CRUD (see [Secret Providers and Secrets](#secret-providers-and-secrets)) |
+| Image Pull Secrets | Image pull secret CRUD (see [Image Pull Secrets](#image-pull-secrets)) |
+
+**Operations** — what actually ran. Ordered down the runtime hierarchy — thread → instance → workload — then storage and consumption.
+
+| Section | Description |
+|---------|-------------|
 | Threads | List and read all threads in the organization (see [Threads](#threads)) |
+| Instances | Agent instances with lifecycle state and pause reason (see [Instances](#instances)) |
+| Workloads | Agent workloads (see [Workloads](#workloads)) |
+| Sandboxes | User-started workloads with shell access (see [Sandboxes](../sandboxes/sandboxes.md)) |
+| Provisioned Storage | Persistent volumes provisioned on runners (see [Provisioned Storage](#provisioned-storage)) |
 | Usage | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
+
+**Volumes and Provisioned Storage are different resources**, not two views of one. Volumes (Runtime) are organization-level *declarations* owned by the [Agents service](../../architecture/agents-service.md). Provisioned Storage (Operations) are the volumes actually *provisioned on runners*, owned by [Runners](../../architecture/runners.md). They have separate lifecycles and separate APIs; the section names must keep the distinction legible.
 
 #### Cluster Administration Sections
 
 Visible when Cluster Administration is selected in the context switcher. Only cluster admins see this option.
 
+Five sections, ungrouped — the list is short enough that grouping would add headers without adding meaning.
+
 | Section | Description |
 |---------|-------------|
+| **Overview** | Cluster summary. Named to match the organization context's landing page, which fills the same role |
 | **Users** | Platform user CRUD |
 | **Organizations** | View, update, and delete organizations across the platform |
-| **Runners** | Cluster-scoped runner management |
+| **Runners** | Cluster-scoped runner management. Not "Cluster Runners" — the selected context already establishes the scope |
+| **App Catalog** | Platform-wide app catalog. Named distinctly from the organization context's **Apps** section, which manages *installations* — the two are different surfaces and must not share a label or an icon |
 
 ### Empty States
 
@@ -186,7 +217,7 @@ All resource lists in the Console share common behaviors.
 
 Small, bounded lists that fetch completely on the first request (e.g., an organization's Agents list scoped to an owner who has tens of agents) may sort and filter client-side for snappiness. The threshold is the endpoint's contract: if `page_token` can be non-empty, behave as a large collection.
 
-Workloads, Storage, and Threads in the [Activity](#activity) section are large collections and follow the server-side rule. Usage is an aggregation view, not a row list, and is out of scope for this rule — see [Usage](../usage/usage.md).
+Threads, Instances, Workloads, and Provisioned Storage in the [Operations](#operations) section are large collections and follow the server-side rule. Usage is an aggregation view, not a row list, and is out of scope for this rule — see [Usage](../usage/usage.md).
 
 ## Destructive Actions
 
@@ -221,6 +252,16 @@ Organization owners manage membership within their organization.
 
 **Remove member** — inline action on the member list. Removes the member (any status). Available to organization owners.
 
+### Groups
+
+Named sets of identities — users, agents, and apps — used as a single grant principal. Membership changes propagate automatically to everything the group is granted, so a group is the way to avoid re-granting per identity. See [Groups service](../../architecture/groups-service.md).
+
+**Group list** — table of groups in the organization. Columns: name, member count, created date. Default sort: creation time, newest first.
+
+**Group detail** — name, description, and the member list (identity name, identity type — `user`, `agent`, or `app`). Actions: add member (search the organization's identities), remove member, rename, delete.
+
+Groups are also reachable as an inline "Create group" affordance in the [private resource access picker](../private-networks/private-networks.md#granting-access) — same data, two entry points.
+
 ### Agents
 
 **Agent list** — table of agents in the organization. Columns: name, model (resolved name), availability (`internal` or `private`), status (has active workloads or not), created date. Default sort: creation time, newest first.
@@ -239,6 +280,8 @@ Organization owners manage membership within their organization.
 - **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their domain pattern and effect summary, each with a Detach button. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
 
 ### Volumes
+
+Organization-level volume *declarations*, owned by the [Agents service](../../architecture/agents-service.md). A declaration is what the operator authors; the volume actually provisioned on a runner is a separate resource shown under [Provisioned Storage](#provisioned-storage).
 
 **Volume list** — table of volumes in the organization. Columns: name, size, attachment target (agent, MCP, or hook — or "unattached"), created date. Default sort: creation time, newest first.
 
@@ -341,6 +384,34 @@ Image pull secrets are attached to MCPs and hooks via the Manage menu on each ro
 - A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
 - A list of currently attached secrets (registry + username) each with a "Detach" button.
 
+### Private Networks
+
+Networks and the tunnels that reach them. A [Network](../private-networks/private-networks.md) has no settings beyond a name and description — it exists as the HA boundary and the OpenZiti binding unit for the resources behind it. Tunnels belong to exactly one network, and a network may have several for HA.
+
+**Network list** — table of networks in the organization. Columns: name, description, tunnel count, resource count, reachability (derived — **reachable** if at least one tunnel is online, **degraded** otherwise). Default sort: creation time, newest first.
+
+**Network detail** — name and description (editable inline), followed by the network's **tunnels**. No tabs: tunnels are the only thing a network contains directly. Each tunnel row shows enrollment state (`pending` / `enrolled`), connectivity (`online` / `offline` / `never enrolled`), last seen, provisioning state, and a Revoke action.
+
+**Issue tunnel credential** — creates a credential and reveals the one-time enrollment JWT once, with install snippets per supported tunneler distribution. The JWT cannot be retrieved again.
+
+Resources are **not** managed here. They are org-wide and have their own section — see [Private Resources](#private-resources).
+
+### Private Resources
+
+Addressable endpoints behind a private network, listed at organization scope rather than nested under a network. Org scope is what the data model already enforces: `intercept_host` + port uniqueness is checked across the whole organization, not per network (see [Private Networks — PrivateResource](../../architecture/private-networks.md#privateresource)), so a per-network list would present a namespace that does not exist and could not explain a collision.
+
+**Resource list** — table of resources across all of the organization's networks. Columns: name, network (link to network detail), protocol (`tcp` / `http` / `https`), intercept address (`intercept_host:ports`), target address (`target_host:ports`), grant count, reachability (derived from the owning network's tunnels), provisioning state. Default sort: creation time, newest first.
+
+**Filters** — filter bar with Network (multi-select), Protocol (multi-select), and Provisioning state (multi-select). Search matches on name and `intercept_host`.
+
+**Resource detail** — its own page, not a card in a list. Shows the network it belongs to, protocol, target host and ports, intercept host and ports, provisioning state, and a **Copy connection string** affordance (`prod-postgres.corp:5432`) for pasting into agent configuration or tooling.
+
+**Access grants** — the resource detail page owns the access list. Each grant binds a principal (`agent`, `user`, `app`, or `group`) to the resource; every grant materializes exactly one OpenZiti dial policy. Grants are create-and-delete only — there is no edit. The principal picker offers the organization's agents, users, apps, and groups, with an inline "Create group" affordance. Revocation takes effect immediately, with a propagation window of ≤15 seconds to live workloads; the confirmation dialog states this.
+
+Creating a resource requires selecting a network. The form rejects the reserved intercept zones and warns — without blocking — when the chosen `intercept_host` is a real public hostname, since all agent traffic for that hostname will then route through the tunnel.
+
+See [Private Networks](../private-networks/private-networks.md) for the full model.
+
 ### Egress Rules
 
 Rules that control and shape agent outbound HTTP/HTTPS traffic — denying destinations or injecting credentials on the fly. See [Egress Gateway](../egress-gateway/egress-gateway.md) for the model. Org-scoped resources, attached to agents.
@@ -375,7 +446,67 @@ Rules that control and shape agent outbound HTTP/HTTPS traffic — denying desti
 
 **Organization detail** — name, member count, agent count, runner count. Cluster admin can update the organization name or delete the organization.
 
-## Activity
+### Overview (Cluster Admin)
+
+The landing page when Cluster Administration is selected. Displays platform-wide summary counters — users, organizations, cluster-scoped runners, active workloads — each linking to the corresponding section. Named **Overview**, matching the organization context's landing page, because it fills the same role.
+
+### App Catalog (Cluster Admin)
+
+The platform-wide app catalog: every app defined on the platform, across all organizations. This is a different surface from the organization context's [Apps](#apps) section, which manages *installations* into one organization — the two must not share a label or an icon.
+
+**App list** — all apps on the platform. Columns: name, address (`{org-slug}/{app-slug}`), owning organization, visibility (`public` or `internal`), installation count across all organizations, created date. Default sort: creation time, newest first.
+
+**App detail** — the same detail surface as [Published Apps](#published-apps), read-write for cluster admins regardless of owning organization.
+
+## Operations
+
+The Operations sections are the record of what actually ran. They follow the platform's runtime hierarchy: a [thread](../../architecture/threads.md) references agent [instances](../../architecture/agent-instances.md) as participants; workloads are scheduled on instances; volumes are provisioned for instances. Each section links to the next level down.
+
+### Threads
+
+Read-only view of all threads in the organization. Available to organization owners and cluster admins (`can_view_threads`).
+
+**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated — resolved by the server, not the client), message count, status (`active`, `archived`, or `degraded`), created date. Default sort: creation time, newest first. Sortable columns: Created, Updated, Message count, Status.
+
+**Filters** — filter bar with Status (multi-select), Participant (multi-select of identities), and Created range (from / to). All sort, filter, and search are server-side — see [Threads — ListOrganizationThreads request shape](../../architecture/threads.md#listorganizationthreads-request-shape).
+
+**Thread detail** — participant list, paginated message history (newest first), and associated workloads. Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view. Associated workloads are loaded through `RunnersGateway.ListWorkloadsByThread(thread_id)` and are associated to the thread by each workload record's `thread_id` field.
+
+A thread is **not** a view of instances. The relationship is many-to-many: a thread has several instance participants, and one instance's inbox spans many threads. To see instances, use [Instances](#instances).
+
+Backing RunnersGateway API:
+
+- `ListWorkloadsByThread(thread_id)` for associated workloads in Thread Detail.
+
+### Instances
+
+Agent [instances](../../architecture/agent-instances.md) in the organization. An instance is a persistent instantiation of an agent class with its own inbox, state, and identity — the level at which workloads are scheduled and state is keyed. This is the only Console surface for instance lifecycle; without it, a paused instance and its reason are invisible.
+
+**Instance list** — table of instances in the organization.
+
+| Column | Description |
+|--------|-------------|
+| Handle | The instance's `@nick#suffix` handle (see [Agent Instances — Handles](../../architecture/agent-instances.md#handles)). Resolved server-side |
+| Agent | Class name (link to agent detail). The Console never displays the raw `agent_id` |
+| State | `active`, `paused`, or `terminated` |
+| Pause reason | Present only when `paused`. Rendered as readable text (e.g., `idle_ttl_exceeded` → "Idle timeout exceeded"), never the raw enum |
+| Inbox | Whether the instance has unacked inbox items, from the `has_unacked` filter field |
+| Last activity | `last_activity_at` — set by `agynd` when the workload last did work. Drives idle GC |
+| Created | Creation time |
+
+Default sort: last activity, most recent first. Sortable columns: Handle, Agent, State, Last activity, Created.
+
+**Filters** — filter bar with Agent (multi-select of the organization's agent classes), State (multi-select), and Inbox (has unacked items). Filters combine with AND and map to the `agent_id`, `state_in`, and `has_unacked` filters on `ListInstances`. Sort, filter, and search are server-side — see [Agents Service — ListInstances](../../architecture/agents-service.md).
+
+**Instance detail** — handle, class (link to agent detail), state, pause reason, label, `last_activity_at`, timestamps. Three linked sections resolved per instance:
+
+- **Threads** — threads this instance participates in.
+- **Workloads** — loaded via `RunnersGateway.ListWorkloadsByAgentInstance(instance_id)`.
+- **Storage** — loaded via `RunnersGateway.ListVolumesByAgentInstance(instance_id)`.
+
+**Actions** — Pause (requires confirmation; sets `pause_reason` to `manual`) and Resume (clears `pause_reason`). Both are available to organization owners and cluster admins. Pausing stops workloads from spawning but leaves the inbox accepting writes, so no messages are lost — the confirmation dialog states this.
+
+Terminated instances are excluded from the default view and shown only when `terminated` is selected in the State filter.
 
 ### Workloads
 
@@ -424,9 +555,15 @@ Backing RunnersGateway APIs:
 - `GetWorkload(workload_id)` for workload metadata and containers.
 - `ListVolumesByThread(workload.thread_id)` for thread storage shown from the workload context.
 
-### Storage
+### Sandboxes
 
-Real-time view of persistent volumes in use across the organization.
+User-started workloads with shell access — an engineer's manual working copy of an agent's runtime, running an [environment](../environments/environments.md) and carrying its secrets and egress rules. Filed under Operations because a sandbox *is* a workload; it differs from an agent workload only in being started by a user rather than by message traffic.
+
+See [Sandboxes](../sandboxes/sandboxes.md) for the full specification.
+
+### Provisioned Storage
+
+Real-time view of persistent volumes provisioned on runners across the organization. These are the volumes that actually exist on a runner, owned by [Runners](../../architecture/runners.md) — distinct from the organization-level [Volumes](#volumes) declarations under Runtime.
 
 | Column | Description |
 |--------|-------------|
@@ -444,20 +581,6 @@ Default sort: name. Sortable columns: Name, Size, Status, Created.
 
 All sort, filter, and search are server-side — see [Runners — ListVolumes request shape](../../architecture/runners.md#listvolumes-request-shape).
 
-### Threads
-
-Read-only view of all threads in the organization. Available to organization owners and cluster admins (`can_view_threads`).
-
-**Thread list** — table of threads in the organization. Columns: ID (truncated), participants (@nicknames, comma-separated — resolved by the server, not the client), message count, status (`active`, `archived`, or `degraded`), created date. Default sort: creation time, newest first. Sortable columns: Created, Updated, Message count, Status.
-
-**Filters** — filter bar with Status (multi-select), Participant (multi-select of identities), and Created range (from / to). All sort, filter, and search are server-side — see [Threads — ListOrganizationThreads request shape](../../architecture/threads.md#listorganizationthreads-request-shape).
-
-**Thread detail** — participant list, paginated message history (newest first), and associated workloads. Each message shows the sender's @nickname, timestamp, and body. File attachments are listed as named download links. The detail view is read-only — owners cannot send messages or modify threads from this view. Associated workloads are loaded through `RunnersGateway.ListWorkloadsByThread(thread_id)` and are associated to the thread by each workload record's `thread_id` field.
-
-Backing RunnersGateway API:
-
-- `ListWorkloadsByThread(thread_id)` for associated workloads in Thread Detail.
-
 ### Usage
 
 Resource consumption metrics — LLM tokens, compute, storage, and platform activity. See [Usage](../usage/usage.md) for the full specification.
@@ -473,7 +596,7 @@ The Console receives real-time updates via WebSocket for data that changes durin
 
 On WebSocket disconnection, the Console reconnects automatically and re-fetches the current view's data.
 
-**Real-time updates with active filters.** On the Workloads and Storage pages, when a `workload.updated` or `volume.updated` event arrives and any filter, sort, or search is active, the Console refetches the current page from the server rather than mutating the local list. This keeps the view consistent with the server's filter predicate — a workload that moves out of the filtered set disappears, a new match appears in its sorted position — without requiring the client to mirror filter logic. With no active filter (default view), the Console applies the update in place as before.
+**Real-time updates with active filters.** On the Workloads and Provisioned Storage pages, when a `workload.updated` or `volume.updated` event arrives and any filter, sort, or search is active, the Console refetches the current page from the server rather than mutating the local list. This keeps the view consistent with the server's filter predicate — a workload that moves out of the filtered set disappears, a new match appears in its sorted position — without requiring the client to mirror filter logic. With no active filter (default view), the Console applies the update in place as before.
 
 Resource management views (agents, providers, models, secrets, members) do not require real-time updates — they are loaded on navigation and refreshed on user action.
 
@@ -492,6 +615,8 @@ Resource management views (agents, providers, models, secrets, members) do not r
 - [Organizations](../../architecture/organizations.md)
 - [Users](../../architecture/users.md)
 - [Agents service](../../architecture/agents-service.md)
+- [Agent instances](../../architecture/agent-instances.md)
+- [Threads](../../architecture/threads.md)
 - [Runners](../../architecture/runners.md)
 - [LLM](../../architecture/llm.md)
 - [Secrets](../../architecture/secrets.md)
@@ -499,3 +624,6 @@ Resource management views (agents, providers, models, secrets, members) do not r
 - [Apps service](../../architecture/apps-service.md)
 - [EgressRules service](../../architecture/egress-rules-service.md)
 - [Egress Gateway](../../architecture/egress-gateway.md)
+- [Private Networks](../../architecture/private-networks.md)
+- [Networks service](../../architecture/networks-service.md)
+- [Groups service](../../architecture/groups-service.md)

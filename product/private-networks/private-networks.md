@@ -46,7 +46,7 @@ For HTTP/HTTPS resources with injection rules attached, the Egress Gateway is in
 
 ## Adding a tunnel
 
-1. **Create a Network** in the Console (Org Settings → Private Networks → New). Pick a name. No other configuration is required.
+1. **Create a Network** in the Console (Networking → Private Networks → New). Pick a name. No other configuration is required.
 2. **Issue a Tunnel Credential** for the network. The Console shows the enrollment JWT once and offers install snippets for the supported tunneler distributions.
 3. **Run the tunneler** on a host inside the private network. The host must have outbound connectivity to the OpenZiti Controller and the edge routers (standard requirement of any OpenZiti tunneler). It does **not** require inbound connectivity, public IP, or open ports.
 4. The tunneler's status flips to **Online** in the Console within seconds of enrollment.
@@ -55,7 +55,18 @@ For HA, issue multiple credentials in the same Network and run each on a separat
 
 ### Console layout
 
-Private Networks lives as a top-level item in the Console sidebar under the **Infrastructure** group (alongside Egress Gateway, Runners, etc.) — it's operational machinery operators set up once, not per-thread configuration. Groups live separately under **Org Settings → Groups**, but are also reachable as an inline "Create group" affordance in the resource access picker — same data, two entry points.
+Networks and resources are **two sidebar sections, not one nested surface**. Both live in the Console's **Networking** group — see [Console — Organization Sections](../console/console.md#organization-sections):
+
+| Section | Contains |
+|---|---|
+| **Private Networks** | The network list, and per network its name, description, and **tunnels**. Nothing else — a network has no settings beyond name and description, so there is nothing to tab between |
+| **Private Resources** | Every resource in the organization, across all networks. Each has its own detail page owning the resource's fields and its access grants |
+
+Resources are listed at **organization** scope, not under their network. That matches the constraint the model already enforces: `intercept_host` + port uniqueness is checked across the whole organization (see [Uniqueness](../../architecture/private-networks.md#privateresource)). A per-network list would present a namespace that does not exist, and could not explain a cross-network collision to the operator who hit it.
+
+`Private Resources` sits directly beside `Egress Rules` in the group. That adjacency is deliberate: the two are the alternatives in one per-destination decision — see [EgressRule interaction](#egressrule-interaction).
+
+Groups live under **Organization → Groups**, but are also reachable as an inline "Create group" affordance in the resource access picker — same data, two entry points.
 
 Each resource detail page surfaces a **Copy connection string** affordance (`prod-postgres.corp:5432`) for fast paste-into-agent-config or paste-into-tooling workflows. There is no agent-side discovery API in v1 — operators configure agents with hostnames through the agent's system prompt, skills, or external runbooks.
 
