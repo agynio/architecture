@@ -337,7 +337,7 @@ The `local` command group runs the full Agyn platform on the user's machine from
 | `agyn local stop` \| `restart` | Stop / restart the VM |
 | `agyn local status` | State, version, port, endpoint health, CA trust. `--output table\|json\|yaml` |
 | `agyn local delete` | Remove the VM. `--purge` also removes downloaded images and certs |
-| `agyn local upgrade` | Recreate the VM from a newer image. Destructive (the VM's state is replaced) — requires confirmation |
+| `agyn local upgrade` | Upgrade the `agyn-platform` and `agyn-apps` releases in the running VM to the newest charts, keeping the VM and its data. Everything from the image (k3s, Istio, cert-manager, OpenZiti) moves only by recreating the VM — see [Upgrade Model](operations/local-bundle.md#upgrade-model) |
 | `agyn local doctor` | Dependency and environment checks with fix hints |
 | `agyn local config` | `list` \| `get <key>` \| `set <key> <value>` |
 | `agyn local ca` | `show` \| `export` \| `install` \| `uninstall` |
