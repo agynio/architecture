@@ -63,7 +63,9 @@ Base images are build inputs, not consumer artifacts — they are published as O
 
 ## Runtime
 
-The image runs under [Lima](https://lima-vm.io/) (QEMU-backed) using the published `lima.yaml`. One instance per machine, named `agyn` — no multi-instance.
+The image runs under [Lima](https://lima-vm.io/) (QEMU-backed) using the published `lima.yaml`.
+
+One VM is the ordinary case and is never named: it is the instance `agyn`, reached with no flag. More than one is supported for what a single VM cannot do — moving data between versions an [upgrade](#upgrade-model) cannot bridge, or holding separate clusters side by side during development. Each additional VM is named, gets its own [profile, kubeconfig context and CA](../agyn-cli.md#design), and is given free host ports rather than the well-known `2496`.
 
 ### Networking
 

@@ -334,6 +334,8 @@ The `local` command group runs the full Agyn platform on the user's machine from
 | Command | Description |
 |---------|-------------|
 | `agyn local start` | Download the image if needed → create/boot the VM → optionally install the CA. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--download-only`, `-y` |
+| `agyn local list` | The configured VMs with status, ports and profile; the selected one is marked |
+| `agyn local select` \| `use NAME` | Choose the VM other commands act on — interactively, or by name for scripts |
 | `agyn local stop` \| `restart` | Stop / restart the VM |
 | `agyn local status` | State, version, port, endpoint health, CA trust. `--output table\|json\|yaml` |
 | `agyn local delete` | Remove the VM. `--purge` also removes downloaded images and certs |
@@ -346,8 +348,10 @@ The `local` command group runs the full Agyn platform on the user's machine from
 
 | Concern | Behavior |
 |---------|----------|
-| **Single instance** | One Lima VM named `agyn` per machine; no multi-instance |
-| **State containment** | Everything lives under `~/.agyn/local/` — `images/<version>/<arch>/` (verified downloads), `certs/`, `lima/` (dedicated `LIMA_HOME`) — so `delete --purge` is a clean sweep. Settings live in `~/.agyn/config.yaml` under a `local:` key (`port`, `version`, `cpus`, `memory`) |
+| **One VM by default, more on request** | A single VM needs no naming: no flag, no selection, and everything derived from it keeps the plain names (`agyn`, profile `local`, context `agyn-local`). `--instance NAME` addresses another, and `agyn local select` fixes the choice. Resolution is `--instance`, then the selection, then the default. A second VM exists for what one cannot do: moving data between versions an [upgrade](operations/local-bundle.md#upgrade-model) cannot bridge, or holding separate clusters side by side |
+| **Per-VM naming** | Two VMs share nothing that identifies them: the Lima instance, the [profile](#profiles) (`local`, then `local-<name>`), the kubeconfig context (`agyn-local-<name>`) and the CA file are all named for the VM |
+| **Port allocation** | The default VM takes the well-known `2496`/`6445`. Further VMs are given the next free pair, skipping ports already listening or claimed by another configured VM — running a second cluster should not require arithmetic |
+| **State containment** | Everything lives under `~/.agyn/local/` — `images/<version>/<arch>/` (verified downloads, shared between VMs on the same version), `certs/`, `lima/` (dedicated `LIMA_HOME`) — so `delete --purge` is a clean sweep. Settings live in `~/.agyn/config.yaml` under `local.instances.<name>` (`port`, `apiPort`, `version`, `cpus`, `memory`); a pre-existing flat `local:` block is migrated on load |
 | **Version resolution** | `version: latest` resolves via `bundle-vm/latest.json` on the CDN; pinned versions bypass it. Downloads are sha256-verified against the published checksums, resumable, and atomic |
 | **Networking** | The host port (default `2496`) is a Lima forward onto the VM's ingress NodePort; port collision detection suggests alternatives. `*.agyn.dev` resolves to `127.0.0.1`, so endpoints are `https://console.agyn.dev:<port>` etc. — see [Local Bundle — Networking](operations/local-bundle.md#networking) |
 | **Certificates** | `agyn local ca` extracts the CA baked into the image and installs it into the system trust store (macOS keychain / Linux ca-certificates; requires sudo) |
