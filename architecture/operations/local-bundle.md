@@ -29,7 +29,15 @@ No GitOps tooling is involved at any stage — neither image contains Argo CD, a
 
 ### Upgrade Model
 
-Upgrades are **image replacement, not in-place upgrades**. Nothing inside the VM reconciles or upgrades itself. To move to a new platform version, the consumer downloads the new image and recreates the VM (`agyn local upgrade`).
+Two things can move, and they move separately.
+
+**The platform** — the `agyn-platform` and `agyn-apps` Helm releases — upgrades in place. [`agyn local upgrade`](../agyn-cli.md#local-platform-commands-agyn-local) moves them to the newest published charts inside the running VM, keeping its databases, threads, agents and workloads. Values are reused from the installed release rather than re-rendered: the bake configured this cluster, and `start` has since written the bootstrap token and the host's port into it, so re-rendering would revert both.
+
+**Everything under it** — k3s, Istio, cert-manager, OpenZiti, Postgres — comes from the image and moves only by replacing the image: `agyn local delete` then `agyn local start`. Nothing inside the VM reconciles or upgrades itself, and no in-place path exists for these.
+
+Image replacement is deliberately not what `upgrade` means. It discards everything in the VM, it is not reversible, and a user asking to pick up a new platform release is not asking for that. Recreating the VM stays available, spelled as what it is.
+
+An in-place upgrade rewrites every workload the charts own, so a service running from source against the VM (see [Local Development](local-development.md)) is reset to its chart image.
 
 ## Artifacts and Publishing
 
