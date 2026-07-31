@@ -46,12 +46,23 @@ The full entity model, inbox schema, routing rules, and lifecycle live in [Agent
 
 | Method | Description |
 |--------|-------------|
-| **CreateInstance** | Create an instance of a class. Called by Threads during class-on-add rewrite; also exposed to callers directly (e.g., `agyn agents instantiate`). Enforces the [Agent Availability Check](threads.md#agent-availability-check) against the class. Returns a conflict error when the requested `label` is already taken by a non-terminated instance of the same class |
-| **GetInstance** | Fetch instance record (id, agent_id, state, pause_reason, label, timestamps) |
+| **CreateInstance** | Create an instance of a class. Takes an optional `context` describing the circumstances of the creation — see [Creation Context](#creation-context). Called by Threads during class-on-add rewrite, which supplies `context.thread_id`; this service applies the class's [`default_thread`](resource-definitions.md#agent) policy to it, storing it as [`default_thread_id`](agent-instances.md#default-thread) under `origin` and ignoring it under `none`. Also exposed to callers directly (e.g., `agyn agents instantiate`), where an explicitly supplied `default_thread_id` is honored regardless of the policy. Enforces the [Agent Availability Check](threads.md#agent-availability-check) against the class. Returns a conflict error when the requested `label` is already taken by a non-terminated instance of the same class |
+| **GetInstance** | Fetch instance record (id, agent_id, state, pause_reason, label, `default_thread_id`, timestamps) |
+| **SetInstanceDefaultThread** | Set or clear the instance's [`default_thread_id`](agent-instances.md#default-thread). Requires `can_manage` on the instance. Creation sets this field; this is the only way it changes afterwards — joining further threads does not move it |
 | **ListInstances** | List instances in an organization with server-side sort/filter/pagination. Filters include `agent_id`, `state_in`, and `has_unacked` (true when the instance has unacked inbox items). The Orchestrator uses `state=active, has_unacked=true` for its desired-state query |
 | **PauseInstance** | Transition `active → paused` with a `pause_reason`. Called by the Orchestrator on unrecoverable instance failures (start failures exhausted, volume lost, runner deprovisioned), by the [idle GC](#idle-gc), or manually by an authorized caller. Inbox continues to accept writes |
 | **ResumeInstance** | Transition `paused → active` and clear `pause_reason`. Pending inbox items are picked up on the Orchestrator's next reconciliation tick |
 | **DeleteInstance** | Transition to `terminated`. Inbox rejects further writes. State volume TTL and cleanup follow the standard [Runners volume reconciliation](agents-orchestrator.md#volume-reconciliation) |
+
+#### Creation Context
+
+`CreateInstance` takes an optional `context` object describing **the circumstances the instance is being created in**, as plain facts. Callers report what they know; this service decides what any of it means, according to the class definition. Nothing in `context` is a request.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `thread_id` | string (UUID) | The thread whose class-on-add rewrite triggered the creation. Supplied by [Threads](threads.md#class-on-add-rewrite). Interpreted per the class's [`default_thread`](resource-definitions.md#agent) policy |
+
+The object is the extension point for anything later creation paths need to report — a source app installation, an initiating identity, a scheduling origin. New circumstances arrive as new `context` fields interpreted by new class policy, without widening the top-level request or teaching callers what the fields are for.
 
 ### Inbox API
 

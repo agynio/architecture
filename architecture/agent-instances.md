@@ -12,7 +12,7 @@ This document defines the entity, its inbox, the routing rules that get messages
 - [Agents Orchestrator](agents-orchestrator.md) — reconciliation on instances with unacked inbox items
 - [Agents Service](agents-service.md) — manages both classes and instances
 - [Identity](identity.md) — instance identities and `@nick#suffix` handles
-- [`agyn` CLI](agyn-cli.md) — mandatory `--thread` on send; class vs. instance in thread commands
+- [`agyn` CLI](agyn-cli.md) — when `--thread` may be omitted on send; class vs. instance in thread commands
 - [`agynd`](agynd-cli.md) — inbox fetch/ack protocol replaces per-thread reads
 
 ## Entity
@@ -23,6 +23,7 @@ This document defines the entity, its inbox, the routing rules that get messages
 | `agent_id` | string (UUID) | Class this instance was spawned from |
 | `organization_id` | string (UUID) | Denormalized from the class for authorization scope |
 | `label` | string (nullable) | Optional user-chosen handle suffix (see [Handles](#handles)). Unique within the class — `CreateInstance` with a label already taken by a non-terminated instance of the same class returns a conflict error. Unlabeled instances get a system-generated suffix, which cannot collide |
+| `default_thread_id` | string (UUID, nullable) | Thread this instance writes to when a message names no target. Set once at creation to the thread the instance was created to serve; not updated when the instance later joins other threads. NULL for instances created outside any thread. See [Outbound](#outbound) |
 | `state` | enum | `active` (workload eligible), `paused` (no workload spawns; inbox still accepts writes), `terminated` (soft-deleted; inbox rejects writes) |
 | `pause_reason` | string (nullable) | Machine-readable reason set on `active → paused` — e.g., `idle_ttl_exceeded`, `start_failures_exhausted`, `volume_lost`, `runner_deprovisioned`, or `manual`. NULL while `active`. Cleared on `ResumeInstance` |
 | `created_at` | timestamp | Creation time |
@@ -101,6 +102,37 @@ The two paths are mutually exclusive per participant. There is no double-write: 
 
 Cross-thread ordering is not guaranteed globally, only within a single inbox. A `SendMessage` on thread X at wall-clock time T and a `SendMessage` on thread Y at time T' > T are ordered `T` before `T'` inside any inbox that receives items from both.
 
+## Outbound
+
+[Routing rules](#routing-rules) cover what arrives in the inbox. This section covers where the instance's own messages go.
+
+**Explicit targeting is the rule.** Every `Threads.SendMessage` from an instance names its target thread. An instance participating in several threads — the normal case once agents delegate — decides per message which one it is writing to, because *the thread an item arrived on is not the thread the answer belongs on*. In a chain A → B → C, C's reply reaches B on thread BC, but B's answer to A belongs on thread AB. No rule derived from the triggering item gets this right; only the agent knows.
+
+### Default thread
+
+`default_thread_id` is the instance's fallback target — the thread it was created to serve.
+
+- **Set once, at creation.** On the [class-on-add](#class-on-add-rewrite) path the joining thread is assigned automatically when the class sets [`default_thread = origin`](resource-definitions.md#agent), which is the default; under `none` the field is left NULL. On `agyn agents instantiate` it comes from the optional `--default-thread` whatever the class policy says — an explicit choice is not overridden.
+- **Not moved by joining.** Adding the instance to further threads leaves it alone. It records origin ("who I owe an answer to"), not recency ("where I last heard something"). Changing it is an explicit operation — [`SetInstanceDefaultThread`](agents-service.md#agent-instance-api), requiring `can_manage`.
+- **Resolved server-side.** `Threads.SendMessage` with no `thread_id` from an `agent_instance` caller delivers to that instance's `default_thread_id`. This is what makes `--thread` optional on [`agyn threads send`](agyn-cli.md#thread-commands) inside an agent workload. Callers that are not agent instances, and instances with a NULL default, get an error — the fallback is a property of the caller's platform identity, never of anything in the container's environment.
+
+Because delegation creates sub-threads downward, origin semantics compose: B's default is AB, C's default is BC, and an untargeted message from each travels back up the chain. Writing *sideways* — onto a sub-thread the instance itself created — always requires an explicit `thread_id`.
+
+### Final turn message
+
+Agent CLIs end a turn with plain assistant text that carries no thread target. What becomes of that text is controlled by [`final_message`](resource-definitions.md#agent) on the **class**, default `discard`:
+
+| Value | Behavior |
+|-------|----------|
+| `discard` | The final text is dropped. The agent's output reaches threads only through explicit sends. Default, because an agent that manages its own sends would otherwise post everything twice |
+| `default_thread` | [`agynd`](agynd-cli.md) posts the turn's final text to the instance's `default_thread_id`, after the turn completes and before [ack](#inbox) |
+
+Under `default_thread` the post is unconditional — `agynd` does not attempt to detect whether the agent already sent something itself. Which value fits is a statement about how the agent is written, which is why it lives on the class rather than the instance.
+
+`default_thread` with a NULL `default_thread_id`, or an empty final text, posts nothing and logs. Nothing is guessed.
+
+This is the path that carries a plain conversational agent's reply back to a user in [Chat](chat.md) — one instance, one thread, no thread-id bookkeeping in the prompt. It also gives `source_kind = direct` items somewhere to be answered: an instance woken by an app's direct write has no thread on the item, but it does have a default.
+
 ## Configuration
 
 Instances read **live class configuration** — there is no per-instance config snapshot. A workload picks up the class's current definition (image, model, prompt, sub-resources) at start; the [configuration-driven fast retry](agents-orchestrator.md#start-decision) already assumes this. Consequently, deleting a class is **blocked while it has non-terminated instances** — callers must terminate (or let expire) all instances first. Per-instance configuration overrides are out of scope for the initial model.
@@ -109,8 +141,10 @@ Instances read **live class configuration** — there is no per-instance config 
 
 ### Creation
 
-- **Lazy** — a fresh instance is created by `CreateThread` / `AddParticipant` when a class is provided. This is the primary path.
-- **Explicit** — `agyn agents instantiate @class [--label LABEL]` creates an instance without joining a thread. Useful when an app wants to address an instance directly before any conversation exists.
+- **Lazy** — a fresh instance is created by `CreateThread` / `AddParticipant` when a class is provided. This is the primary path. Threads supplies the thread being joined as [`context.thread_id`](agents-service.md#creation-context) on `CreateInstance`; the Agents service applies the class's [`default_thread`](resource-definitions.md#agent) policy to decide whether it becomes the instance's [`default_thread_id`](#default-thread).
+- **Explicit** — `agyn agents instantiate @class [--label LABEL] [--default-thread REF]` creates an instance without joining a thread. Useful when an app wants to address an instance directly before any conversation exists. `default_thread_id` is NULL unless `--default-thread` is given.
+
+Instance creation is never performed by the [Agents Orchestrator](agents-orchestrator.md) — it reconciles instances that already exist and have unacked inbox items, and starts workloads for them. Every instance is created by `Agents.CreateInstance`, on one of the two paths above.
 
 The class must satisfy the agent [availability](agents-service.md#availability) check for the caller (`can_initiate`). Instance creation is authorized by the same rule as adding the class to a thread. Creating a labeled instance whose `label` collides with a non-terminated instance of the same class returns a conflict error.
 
@@ -162,4 +196,5 @@ The `agent_instance` identity itself holds `member` on its organization (via its
 | `passive` participant | Removed |
 | Agent state volume | Keyed by instance (was: keyed by `(agent, thread)`) |
 | `THREAD_ID` env var | Removed; replaced by `AGENT_INSTANCE_ID` |
+| Implicit reply thread | Was the workload's `THREAD_ID`. Now [`default_thread_id`](#outbound) on the instance, resolved server-side from the caller identity — and opt-in for the final turn message |
 | `thread_participant:{id}` notification room (for agents) | Replaced by `instance_inbox:{id}` for agent instances; users and apps still use `thread_participant` |

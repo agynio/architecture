@@ -45,7 +45,7 @@ FILE_ID=$(agyn files upload ./diagram.png)
 agyn threads send --thread research --message "See diagram" --file "$FILE_ID"
 
 # Explicit agent instance creation (usually not needed — threads create/add does it lazily)
-agyn agents instantiate @research_bot --label planning-run-1
+agyn agents instantiate @research_bot --label planning-run-1 --default-thread research
 
 # Port exposure (inside agent containers)
 agyn expose add 3000
@@ -77,13 +77,13 @@ All users interact with the same Gateway API. [Authorization](authz.md) determin
 
 ## Output Format
 
-All `agyn` commands accept `--json` or `--yaml` global flags to change output format. Default is markdown, optimized for LLM consumption. Structured formats are useful for scripting or when the output will be parsed programmatically.
+All `agyn` commands accept a global `-o` / `--output` flag (`table`, `json`, or `yaml`) to change output format. Thread and message output defaults to markdown, optimized for LLM consumption. Structured formats are useful for scripting or when the output will be parsed programmatically.
 
 ```bash
 agyn threads read --thread research --unread          # markdown (default)
-agyn threads read --thread research --unread --json   # JSON
-agyn threads read --thread research --unread --yaml   # YAML
-agyn agents list --json                               # JSON
+agyn threads read --thread research --unread -o json   # JSON
+agyn threads read --thread research --unread -o yaml   # YAML
+agyn threads list -o json                              # JSON
 ```
 
 ## Thread Commands
@@ -94,14 +94,22 @@ Agents use the `threads` command group to create threads, send messages, and rea
 
 | Command | Description |
 |---------|-------------|
-| `agyn threads create --thread REF [--add @HANDLE]... [--message TEXT] [--file FILE_ID]... [--wait SECONDS]` | Create a new thread. Stores a local ref alias, optionally adds participants, optionally sends an initial message. `--wait` blocks until a response arrives. The caller is added as a participant automatically, using its own [instance](agent-instances.md) identity (see [Handles](#agent-and-instance-handles)) |
+| `agyn threads create --ref REF [--add @HANDLE]... [--send TEXT] [--file FILE_ID]... [--wait SECONDS]` | Create a new thread. Stores a local ref alias, optionally adds participants, optionally sends an initial message. `--wait` blocks until a response arrives. The caller is added as a participant automatically, using its own [instance](agent-instances.md) identity (see [Handles](#agent-and-instance-handles)) |
 | `agyn threads add --thread REF --participant @HANDLE` | Add a participant to an existing thread. `@HANDLE` may reference an agent class (`@bob`) or an agent instance (`@bob#7a2f`) — see [Class vs. Instance](#class-vs-instance-in-thread-commands) |
-| `agyn threads send --thread REF --message TEXT [--file FILE_ID]... [--wait SECONDS]` | Send a message. `--thread` is required. With `--wait`: block until any new message arrives on the thread from a different sender, or timeout |
+| `agyn threads send [--thread REF] --message TEXT [--file FILE_ID]... [--wait SECONDS]` | Send a message. `--thread` may be omitted only inside an agent workload whose instance has a [default thread](agent-instances.md#default-thread) — see [Omitting `--thread`](#omitting---thread). With `--wait`: block until any new message arrives on the thread from a different sender, or timeout |
 | `agyn threads reply --to-message MSG_ID --message TEXT [--file FILE_ID]... [--wait SECONDS]` | Reply to a specific message. The thread is derived from the message; the sender is set on the reply for audit. Useful for agents so the LLM does not need to track thread IDs by hand |
 | `agyn threads read --thread REF... [--unread] [--after MESSAGE_ID] [--tail N] [--limit N] [--wait SECONDS]` | Read messages from one or more threads. `--thread` can be repeated |
 | `agyn threads list` | List locally known ref → thread ID mappings |
 
-`REF` is either a local ref (resolved via `~/.agyn/threads.json`) or a thread UUID directly. Unlike earlier versions of this CLI, `--thread` is **mandatory** on `send` — the CLI does not resolve a current thread from any environment variable. See [Agent Instances — Outbound](agent-instances.md) for the rationale.
+`REF` is either a local ref (resolved via `~/.agyn/threads.json`) or a thread UUID directly.
+
+### Omitting `--thread`
+
+`--thread` is required on `send` for every caller except one: an agent workload whose [instance](agent-instances.md) has a non-NULL `default_thread_id`. There, omitting it sends to that default thread.
+
+The resolution happens **server-side**, in `Threads.SendMessage`, from the caller's platform identity — the CLI omits the field rather than filling it in. No environment variable participates, and there is no local notion of a "current thread": a stale env var in a long-lived container is exactly the misrouting this avoids. Users, apps, and instances without a default get an error, unchanged.
+
+Omitting `--thread` is right for an agent that lives on one thread. An agent that delegates participates in several and is answering a different thread than the one that just spoke to it — see [Agent Instances — Outbound](agent-instances.md#outbound) for why the trigger thread is not a safe default. Those agents pass `--thread` explicitly, or use `threads reply --to-message`.
 
 ### Agent and Instance Handles
 
@@ -136,7 +144,7 @@ Thread refs are local aliases stored in `~/.agyn/threads.json` as a ref → thre
 }
 ```
 
-Threads created via `agyn threads create --thread REF` are written to this file. When `REF` is passed to any command, `agyn` checks this file first and falls back to treating the value as a raw thread UUID.
+Threads created via `agyn threads create --ref REF` are written to this file. When `REF` is passed to any command, `agyn` checks this file first and falls back to treating the value as a raw thread UUID.
 
 ### Read Options
 
@@ -184,7 +192,7 @@ The timeline looks good.
 
 ```
 
-With `--json`, each message is an object with `id`, `thread_id`, `thread_ref` (if a local ref is known), `sender` (`@nickname`), `body`, and `created_at`.
+With `-o json`, each message is an object with `id`, `thread_id`, `thread_ref` (if a local ref is known), `sender` (`@nickname`), `body`, and `created_at`.
 
 `agyn threads create` outputs the thread ID as plain text. `agyn threads send` (without `--wait`) outputs the sent message ID.
 
@@ -193,11 +201,11 @@ With `--json`, each message is an object with `id`, `thread_id`, `thread_ref` (i
 ```bash
 # Create a sub-thread with a fresh instance of @research_bot and send the first message.
 # The caller is added as its own agent instance so replies land in its inbox.
-agyn threads create --thread research --add @research_bot \
-  --message "Summarize recent papers on X"
+agyn threads create --ref research --add @research_bot \
+  --send "Summarize recent papers on X"
 
 # Spin up two sub-threads in parallel; both instances reply asynchronously into the caller's inbox.
-agyn threads create --thread planning --add @planning_agent --message "Draft a timeline"
+agyn threads create --ref planning --add @planning_agent --send "Draft a timeline"
 
 # The agent's next invocation (triggered by the incoming inbox item) reads the messages:
 agyn threads read --thread research --thread planning --unread
@@ -270,7 +278,7 @@ size_bytes: 204800
 created_at: 2025-11-15T10:30:00Z
 ```
 
-With `--json`:
+With `-o json`:
 
 ```json
 {

@@ -38,7 +38,7 @@ graph TB
 | **Acknowledge items** | Call `AckInboxItems` after successful processing |
 | **Access files via MCP** | File content is accessed on demand by the LLM through the [files-mcp](../files-mcp.md) MCP server, which reads from the Files service |
 | **Process** | Run implementation-specific logic (LLM calls, tool use, etc.) |
-| **Post responses** | Write response messages back via [`Threads.SendMessage`](../threads.md), specifying an explicit `thread_id` per send |
+| **Post responses** | Write response messages back via [`Threads.SendMessage`](../threads.md), specifying a `thread_id` per send. An omitted `thread_id` resolves server-side to the instance's [default thread](../agent-instances.md#default-thread); the turn's inbox items never determine the target. See [Outbound](../agent-instances.md#outbound) |
 | **Subscribe to notifications** | Listen for `message.created` events on the [`instance_inbox:me`](../notifications.md#self-subscription-sentinel) room (resolved server-side to the caller's `identity_id`, which is the instance id) |
 | **Use tools via MCP** | Connect to MCP servers for tool access |
 | **Report tracing** | Optionally emit tracing data |
@@ -132,8 +132,11 @@ sequenceDiagram
     W->>CLI: Feed items
     CLI->>MCP: Tool calls
     MCP-->>CLI: Tool results
-    CLI-->>W: Output
-    W->>GW: Threads.SendMessage(thread_id, ...)
+    CLI->>GW: Threads.SendMessage(thread_id, ...) for addressed replies
+    CLI-->>W: Final turn text (no thread target)
+    opt final_message = default_thread
+        W->>GW: Threads.SendMessage(default_thread_id, ...)
+    end
     W->>GW: AckInboxItems
     Note over W: Wait for notification or poll
     GW-->>W: message.created
@@ -147,7 +150,7 @@ The wrapper:
 2. Starts the agent CLI process with configuration.
 3. Connects MCP tool servers to the agent.
 4. Pulls unacknowledged inbox items (via Gateway → Agents Service) and feeds them to the CLI, tagged with their source thread.
-5. Collects CLI output and posts responses to explicit threads (via Gateway → Threads).
+5. Posts the CLI's final turn text to the instance's [default thread](../agent-instances.md#default-thread) when the class sets [`final_message = default_thread`](../resource-definitions.md#agent). Messages the agent addresses to a specific thread are sent by the agent itself during the turn.
 6. Acknowledges processed items via `AckInboxItems`.
 7. Waits for notifications or poll fallback for new items.
 

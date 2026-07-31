@@ -19,7 +19,8 @@
 
 - Subscribes to `instance_inbox:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` (this workload's instance id) before authorization, so `agynd` does not need to hard-code its id.
 - Pulls unacknowledged [inbox items](agent-instances.md#inbox) via `GetUnackedInboxItems(instance_id: AGENT_INSTANCE_ID)` on the [Agents Service](agents-service.md) (via Gateway). Each item is tagged with `source_kind` (`thread` or `direct`), and — when routed from a thread — `thread_id`, `message_id`, and `sender_id`.
-- Posts agent responses to threads via `Threads.SendMessage(thread_id, ...)`. Every send specifies an explicit `thread_id` — there is no "current thread" default.
+- Posts agent responses to threads via `Threads.SendMessage(thread_id, ...)`. Sends carry an explicit `thread_id`; an omitted one resolves server-side to the instance's [`default_thread_id`](agent-instances.md#default-thread). There is no "current thread" derived from the turn's inbox items — see [Agent Instances — Outbound](agent-instances.md#outbound).
+- Posts the agent CLI's final turn text to the default thread when the class sets [`final_message = default_thread`](resource-definitions.md#agent). See [Final Turn Message](#6-final-turn-message).
 - Acknowledges processed inbox items via `AckInboxItems(instance_id, item_ids)` — by default after the turn completes (responses posted). SDKs that cannot observe turn boundaries may ack once items are durably written to the agent's state volume. See [Agent Instances — Ack timing](agent-instances.md#inbox).
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable delivery.
 - Sends keepalive signals to the [Runners](runners.md) service (via [Gateway](gateway.md)) while the agent is actively processing. See [Activity Keepalive](#5-activity-keepalive).
@@ -37,7 +38,7 @@ What's in this image?
 agyn://file/file-uuid-1
 ```
 
-For `source_kind = direct` (app-written) items, `thread:` is replaced by `source: direct` — the agent has no thread to reply on for these; it must decide where to write (typically a thread it already participates in).
+For `source_kind = direct` (app-written) items, `thread:` is replaced by `source: direct` — the item carries no thread. The agent either names a thread explicitly or falls back to the instance's [default thread](agent-instances.md#default-thread), which is also where the final turn message goes when the class enables it.
 
 When an item has file attachments, `agynd` appends `agyn://file/` URIs after the message body. See [Media — Message Formatting for LLM](media.md#message-formatting-for-llm). Items without file attachments contain only the header + body. The `agyn://file/` scheme is only appended when the `files` array is non-empty.
 
@@ -139,6 +140,14 @@ The agent CLI can be:
 When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long.
 
 `agynd` determines activity state from the agent CLI SDK — it knows when the agent is processing a request vs. waiting for input. The keepalive is SDK-agnostic: regardless of which agent CLI is running (Codex, Claude Code, `agn`), `agynd` uses the same `TouchWorkload` mechanism.
+
+### 6. Final Turn Message
+
+An agent CLI ends a turn with plain assistant text. No agent CLI protocol carries a thread target on it — Codex, Claude Code, and `agn` all emit text — so this output is not addressable on its own. Anything the agent wants delivered to a named thread goes through an explicit send (a platform tool call or `agyn threads send`) during the turn.
+
+When the class sets [`final_message`](resource-definitions.md#agent) to `default_thread`, `agynd` additionally posts that final text to the instance's [`default_thread_id`](agent-instances.md#default-thread), after the turn completes and before acking the turn's inbox items. The post is unconditional — `agynd` does not inspect whether the agent already sent something, which is why the default is `discard` for agents that manage their own sends. Nothing is posted when the final text is empty or the instance's default thread is NULL; `agynd` logs and continues to ack.
+
+`agynd` never derives a target from the turn's inbox items. An instance handling a sub-thread reply is frequently answering a *different* thread than the one that woke it — see [Agent Instances — Outbound](agent-instances.md#outbound).
 
 ## Agent Communication Protocol
 
@@ -257,9 +266,11 @@ sequenceDiagram
         D->>GW: GetUnackedInboxItems(instanceId)
         GW-->>D: Inbox items (tagged with thread/sender)
         D->>A: Feed items via SDK (with thread-source headers)
-        A->>A: Process (LLM loop, tools, etc.)
-        A-->>D: Events/responses via SDK (each specifies target thread)
-        D->>GW: Threads.SendMessage(thread_id, body, files)
+        A->>A: Process (LLM loop, tools, explicit sends)
+        A-->>D: Final turn text via SDK (no thread target)
+        opt final_message = default_thread
+            D->>GW: Threads.SendMessage(default_thread_id, body, files)
+        end
         D->>GW: AckInboxItems(instanceId, itemIds)
     end
 
