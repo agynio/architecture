@@ -38,6 +38,22 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Apps](../architecture/apps.md)
 - [Apps Service](../architecture/apps-service.md)
 
+## CLI Login
+
+### Product docs
+
+- [CLI Login](../product/cli-login/cli-login.md)
+
+### Architecture docs
+
+- [CLI Login](../architecture/cli-login.md)
+- [agyn CLI](../architecture/agyn-cli.md)
+- [API Tokens](../architecture/api-tokens.md)
+- [Authentication](../architecture/authn.md)
+- [Users](../architecture/users.md)
+- [Gateway](../architecture/gateway.md)
+- [Console](../architecture/console.md)
+
 ## Port Exposure
 
 ### Product docs

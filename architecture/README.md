@@ -33,6 +33,7 @@ Desired architecture state of the platform.
 - [Authentication](authn.md)
 - [Authorization](authz.md)
 - [API Tokens](api-tokens.md)
+- [CLI Login](cli-login.md)
 
 ### Messaging and UI surfaces
 

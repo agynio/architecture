@@ -18,7 +18,7 @@ The path-based route allows the web app (platform-ui) to call gateway APIs witho
 - Route external API requests to internal services.
 - Serve both gRPC and HTTP/JSON protocols from the same handler using [ConnectRPC](#connectrpc).
 - Stream multipart file uploads to FilesService.UploadFile (client-streaming gRPC).
-- Authenticate requests and resolve identity context. For OIDC users: validate the `access_token` JWT signature against the IdP's JWKS endpoint, extract the `sub` claim, and resolve identity via [Users](users.md) service (`ResolveUser` / `CreateUser`). For [API token](api-tokens.md) holders: hash the token and resolve identity via [Users](users.md) service (`ResolveAPIToken`). For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). Every request is authenticated independently via the bearer token. Organization membership is validated by the [authorization model](authz.md), checked by the service performing the operation. See [Authentication](authn.md) and [Organizations — Request Flow](organizations.md#request-flow).
+- Authenticate requests and resolve identity context. For OIDC users: validate the `access_token` JWT signature against the IdP's JWKS endpoint, extract the `sub` claim, and resolve identity via [Users](users.md) service (`ResolveUser` / `CreateUser`). For [API token](api-tokens.md) holders: hash the token and resolve identity via [Users](users.md) service (`ResolveAPIToken`). For OpenZiti actors: resolve identity via [Ziti Management](openziti.md). Every request is authenticated independently via the bearer token, apart from the two [unauthenticated methods](#unauthenticated-methods) that exist to issue one. Organization membership is validated by the [authorization model](authz.md), checked by the service performing the operation. See [Authentication](authn.md) and [Organizations — Request Flow](organizations.md#request-flow).
 
 ## ConnectRPC
 
@@ -73,10 +73,21 @@ Only methods intended for external use appear in gateway proto services. Interna
 | `FilesGateway` | [Files](media.md) | UploadFile (client-streaming), GetFileMetadata, GetDownloadURL, GetFileContent (server-streaming) |
 | `TracingGateway` | [Tracing](tracing.md) | Ingest, Query |
 | `SecretsGateway` | [Secrets](secrets.md) | ResolveSecretValue, CreateSecretProvider, GetSecretProvider, ListSecretProviders, UpdateSecretProvider, DeleteSecretProvider, CreateSecret, GetSecret, ListSecrets, UpdateSecret, DeleteSecret |
-| `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, GetUserByOIDCSubject, ListUsers, UpdateUser, DeleteUser, CreateDevice, ListDevices, DeleteDevice |
+| `UsersGateway` | [Users](users.md) | GetMe, CreateAPIToken, ListAPITokens, RevokeAPIToken, CreateUser, GetUser, GetUserByOIDCSubject, ListUsers, UpdateUser, DeleteUser, CreateDevice, ListDevices, DeleteDevice, StartCLILogin, PollCLILogin, GetCLILoginRequest, ApproveCLILogin, DenyCLILogin |
 | `RunnersGateway` | [Runners](runners.md) | RegisterRunner, GetRunner, ListRunners, UpdateRunner, DeleteRunner, EnrollRunner, ListWorkloads, ListWorkloadsByAgentInstance, GetWorkload, TouchWorkload, StreamWorkloadLogs, GetVolume, ListVolumes, ListVolumesByAgentInstance |
 | `OrganizationsGateway` | [Organizations](organizations.md) | CreateOrganization, GetOrganization, ListOrganizations, UpdateOrganization, DeleteOrganization, CreateMembership, AcceptMembership, DeclineMembership, RemoveMembership, UpdateMembershipRole, ListMembers, ListMyMemberships |
 | `LLMGateway` | [LLM](llm.md) | CreateProvider, GetProvider, ListProviders, UpdateProvider, DeleteProvider, CreateModel, GetModel, ListModels, UpdateModel, DeleteModel |
+
+### Unauthenticated Methods
+
+Two methods on `UsersGateway` are served without authentication, because they are how a client without a credential obtains one:
+
+| Method | Why unauthenticated | Protection |
+|--------|--------------------|-----------|
+| `StartCLILogin` | Called by a CLI that holds no credential yet | Per-source-address rate limit; the request it creates grants nothing until a user approves it in an authenticated browser session |
+| `PollCLILogin` | Called by that same CLI while waiting | Authenticated by possession of the device code; polls faster than the returned interval are throttled, and sustained violation terminates the request |
+
+Both carry the Gateway's rate limits rather than its identity middleware. `ApproveCLILogin`, `DenyCLILogin`, and `GetCLILoginRequest` are authenticated like every other method — approval is what binds a login request to an identity. See [CLI Login](cli-login.md).
 
 ### Terminal Sessions
 

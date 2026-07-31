@@ -20,6 +20,9 @@ The one exception is the [`agyn local`](#local-platform-commands-agyn-local) com
 ## Usage Examples
 
 ```bash
+# Sign in — opens a browser, no token to copy by hand
+agyn auth login --host agyn.cloud
+
 # Resource management
 agyn agents list
 agyn agents create --name "my-agent" --model <model-id>
@@ -365,6 +368,34 @@ With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > 
 
 ---
 
+## Profiles
+
+A profile is the CLI's context: which Gateway to talk to, which organization to act in, and which CA to trust. One machine routinely addresses more than one platform — a cloud account and one or more [local VMs](#local-platform-commands-agyn-local) — and a profile is what makes switching between them free of re-authentication.
+
+| Command | Description |
+|---------|-------------|
+| `agyn profile list` | The configured profiles; the current one is marked |
+| `agyn profile show [NAME]` | One profile's settings |
+| `agyn profile select` \| `use NAME` | Choose the profile subsequent commands run under — interactively, or by name for scripts |
+| `agyn profile set NAME [--gateway-url URL] [--organization ID] [--ca-file PATH]` | Create or update a profile. Fields not given are left as they are |
+| `agyn profile remove NAME` | Delete a profile and its stored token |
+
+| Field | Description |
+|-------|-------------|
+| `gatewayUrl` | Gateway base URL |
+| `organization` | Organization ID for org-scoped commands |
+| `caFile` | PEM bundle trusted in addition to the system trust store. Written by `agyn local credentials` for a VM's own CA |
+
+Settings live in `~/.agyn/config.yaml` under `profiles.<name>`. Tokens live in `~/.agyn/credentials`, keyed by profile name, mode `0600`.
+
+| Concern | Behavior |
+|---------|----------|
+| **Resolution** | `--profile`, then `AGYN_PROFILE`, then the recorded choice, then `default`. `--gateway-url` and `AGYN_TOKEN` address a platform directly without touching any profile — the form CI uses |
+| **Naming** | `default` until something names one. `agyn local` owns `local` and `local-<name>` (see [Design](#design)); `agyn auth login --host HOST` names one after the host it signed in to, unless `--profile` says otherwise |
+| **Host to gateway** | `--host example.com` resolves to `gatewayUrl: https://gateway.example.com`, carrying a port when the host has one (`agyn.dev:2496` → `https://gateway.agyn.dev:2496`). `--host` is sugar over that one field — there is no separate host setting — and `--gateway-url` sets it outright for deployments that do not follow the subdomain convention |
+| **Current organization** | Stored per profile. Set on sign-in when the user belongs to exactly one |
+| **Interaction with `agyn local`** | `agyn local start` provisions its profile and makes it current only when no profile is selected yet. Otherwise it prints how to switch, rather than silently repointing a CLI aimed at a cloud platform |
+
 ## Authentication
 
 `agyn` supports two authentication methods, with the same priority order used by all CLI tools in the platform (see [CLI Authentication](authn.md#cli-authentication)):
@@ -372,9 +403,35 @@ With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > 
 | Method | Mechanism | Use Case |
 |--------|-----------|----------|
 | **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](authn.md#network-identity-openziti) mTLS via the Ziti sidecar — automatic when the sidecar is present | Inside agent pods where a Ziti sidecar has enrolled an OpenZiti identity |
-| **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Developer machines, CI, any environment without OpenZiti |
+| **Auth token** | Token stored in `~/.agyn/credentials` for the current [profile](#profiles) and sent to the [Gateway](gateway.md) | Developer machines, CI, any environment without OpenZiti |
 
-Network identity takes precedence when available. Otherwise, `agyn` reads the stored token from `~/.agyn/credentials`.
+Network identity takes precedence when available. Otherwise, `agyn` reads the stored token for the current profile.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `agyn auth login [--host HOST] [--gateway-url URL] [--profile NAME] [--no-browser]` | Sign in through the browser (see [Browser Sign-In](#browser-sign-in)). Writes the issued token to the profile and makes it current. `agyn auth` with no subcommand is an alias |
+| `agyn auth set-token` | Store a token for the active profile without the browser flow — for CI and scripts. Read from stdin, or prompted for on a terminal; never taken as an argument, so it stays out of shell history |
+| `agyn auth whoami` | The active profile, the identity its token authenticates as, the organization in effect, and the token's expiry |
+| `agyn auth logout [--revoke]` | Delete the stored token for the profile. `--revoke` also revokes it through the Gateway |
+| `agyn auth create-token --name NAME [--expires-at TIME]` | Create an [API token](api-tokens.md). Prints it once |
+| `agyn auth list-tokens` | List the caller's API tokens (metadata only) |
+| `agyn auth revoke-token ID` | Revoke a token by ID |
+
+### Browser Sign-In
+
+`agyn auth login` obtains a credential without the user handling one. The CLI asks the Gateway to open a login request, prints the confirmation code it receives, and opens the verification URL the Gateway returns — the CLI does not derive that URL, so the flow works on any deployment regardless of how its browser surface is addressed. It then polls until the request is approved, denied, or expires, and writes the issued token to the profile.
+
+| Concern | Behavior |
+|---------|----------|
+| **Code display** | The confirmation code is printed before the browser opens and stays on screen. The user compares it with the browser — the comparison is what makes an unsolicited approval request detectable |
+| **No browser** | When no browser can be opened (no display, SSH session) the CLI prints the URL and code instead of failing. `--no-browser` forces this |
+| **Polling** | At the interval the Gateway returns, backing off when told to, and stopping at the request's expiry with an instruction to run the command again |
+| **Result** | The signed-in identity, the current organization, and the token expiry are printed. The CLI warns on later commands when the token is within seven days of expiring |
+| **Flow disabled** | A deployment may disable browser sign-in. The CLI then reports that and points at `agyn auth set-token` |
+
+See [CLI Login](cli-login.md) for the request model, the endpoints, and the security properties, and [Product — CLI Login](../product/cli-login/cli-login.md) for the user-facing behavior.
 
 ## Relationship to Other Components
 

@@ -331,6 +331,20 @@ The enrollment JWT is shown once at creation time and cannot be retrieved again.
 | `DeleteDeviceIdentity` | Users Service | Delete a device's OpenZiti identity |
 | `PatchIdentityRoleAttributes` | Users Service | Add or remove role attributes on an existing device identity. Called from the group-event subscription handler |
 
+## CLI Login Requests
+
+The Users service also owns the short-lived login requests that back `agyn auth` — a CLI asks the platform to open a request, a browser session approves it, and an [API token](api-tokens.md) is issued to the waiting CLI. The requests live here because approving one mints an API token, and API tokens are this service's resource.
+
+| Method | Auth | Description |
+|--------|------|-------------|
+| **StartCLILogin** | None | Create a login request. Returns the device code, the user code, and the polling parameters |
+| **PollCLILogin** | None | Exchange a device code for the issued token once approved |
+| **GetCLILoginRequest** | User | Request metadata for the approval screen, looked up by user code |
+| **ApproveCLILogin** | User | Mint the token for the calling user and mark the request approved |
+| **DenyCLILogin** | User | Mark the request denied |
+
+All five are exposed through the [Gateway](gateway.md) on `UsersGateway`; `StartCLILogin` and `PollCLILogin` are the only unauthenticated methods on that surface. See [CLI Login](cli-login.md) for the request model, token delivery, and abuse controls.
+
 ## Events Consumed
 
 The Users service subscribes to group lifecycle events from the platform [event bus](messaging.md) and reconciles its device identities accordingly.
@@ -347,7 +361,7 @@ Reconciliation: the Users service runs a periodic sweep that, for each user with
 
 ## Data Store
 
-PostgreSQL. System-wide `users`, `user_api_tokens`, and `user_devices` tables. See [API Tokens](api-tokens.md) for the token model.
+PostgreSQL. System-wide `users`, `user_api_tokens`, `user_devices`, and `cli_login_requests` tables. See [API Tokens](api-tokens.md) for the token model and [CLI Login](cli-login.md) for the login request model.
 
 ## Classification
 

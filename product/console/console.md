@@ -36,6 +36,7 @@ The Console is the platform's management interface for organizations, users, age
 - As a user, I want to create an organization so I can start using the platform.
 - As a user, I want to view and accept pending organization invites so I can join teams.
 - As a user, I want to manage my API tokens so I can set up programmatic access.
+- As a user, I want to approve a CLI sign-in from the browser so my terminal gets a credential without me copying a token by hand.
 - As a user, I want to view and edit my profile so my identity is accurate across the platform.
 
 ## Roles
@@ -98,7 +99,7 @@ The dropdown contains:
 |------|-------------|
 | **Profile** | View and edit the user's own profile (name, `username`, nickname, photo URL). `username` is cluster-wide unique and used for invite discovery — see [Users — Username](../../architecture/users.md#username). Read-only fields: OIDC subject |
 | **Devices** | Register and manage devices enrolled in the platform network for accessing [exposed agent ports](../port-exposure/port-exposure.md). Each device has a name, enrollment status, and a one-time enrollment JWT. See [Port Exposure — Devices](../port-exposure/port-exposure.md#devices) |
-| **API Tokens** | Create, list, and revoke API tokens for programmatic access. Token value is shown once at creation and cannot be retrieved again |
+| **API Tokens** | Create, list, and revoke API tokens for programmatic access. Token value is shown once at creation and cannot be retrieved again. Tokens issued by a [CLI sign-in](../cli-login/cli-login.md) appear in the same list, named for the machine that requested them (`CLI on vitalii-mbp`), so a user can tell which entry is their laptop and revoke it |
 | **Pending Invites** | List of pending organization invites with accept/decline actions. Badge on the user menu shows the count of pending invites. Accepting an invite adds the organization to the context switcher and switches to it |
 | **Logout** | Ends the session |
 
@@ -202,6 +203,18 @@ Five sections, ungrouped — the list is short enough that grouping would add he
 **No organizations but is cluster admin** — the Console auto-selects Cluster Administration. The context switcher shows only "Cluster Administration" and "Create Organization".
 
 **Organization with no resources** — each section shows an empty state with a prompt to create the first resource (e.g., "No agents yet. Create your first agent.").
+
+## Standalone Routes
+
+Pages reached by link rather than by navigation, and rendered without the three-region layout — no sidebar and no context switcher, because nothing on them is scoped to an organization.
+
+### CLI Login Approval
+
+`/cli-login` is where a user approves a sign-in that the [`agyn` CLI](../cli-login/cli-login.md) requested. The CLI opens it; the user confirms that the code shown matches the one in their terminal, sees which machine asked, and approves or denies. Approving issues the credential directly to the waiting CLI — it is never displayed in the browser.
+
+The page requires a signed-in session like every other Console route, so a user who is not signed in authenticates first and returns to it. For a user who has never signed in, that is also account creation, which makes `agyn auth` a valid first contact with the platform.
+
+See [CLI Login — Approval Screen](../cli-login/cli-login.md#approval-screen) for what the page shows and why.
 
 ## Resource Lists
 

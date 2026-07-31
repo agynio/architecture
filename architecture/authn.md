@@ -252,7 +252,7 @@ They operate on different connections:
 
 ## CLI Authentication
 
-All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order. The auth token stored in `~/.agyn/credentials` is any token the Gateway accepts — an OIDC access token from a login flow or a long-lived [API token](api-tokens.md) created via `agyn auth create-token`.
+All platform CLI tools ([`agyn`](agyn-cli.md), [`agynd`](agynd-cli.md), [`agn`](agn-cli.md)) use the same authentication convention with two methods and a fixed priority order. The auth token stored in `~/.agyn/credentials` is any token the Gateway accepts — in practice an [API token](api-tokens.md), issued either by the browser sign-in flow (see [CLI Login](cli-login.md)) or created by hand via `agyn auth create-token`.
 
 | Priority | Method | Mechanism | When Used |
 |----------|--------|-----------|-----------|
@@ -272,4 +272,8 @@ Tokens are stored in the user's home directory:
 ~/.agyn/credentials
 ```
 
-The file contains the auth token used to authenticate against the Gateway. It is created by a login flow (e.g., `agyn auth login`) and read by all CLI tools.
+The file contains the auth tokens used to authenticate against the Gateway, keyed by [profile](agyn-cli.md#profiles) so a machine can hold credentials for several platforms at once. It is written by `agyn auth` and read by all CLI tools. A legacy file holding a single bare token is read as the credential for the default profile.
+
+### Obtaining a Token
+
+`agyn auth` runs a platform-brokered browser sign-in: the CLI opens a verification URL, the user approves in a browser session authenticated by this same OIDC flow, and the platform issues an API token to the waiting CLI. The identity provider performs the human authentication; the platform brokers the handoff, so no CLI needs its own OIDC client registration and no CLI handles refresh tokens. See [CLI Login](cli-login.md).

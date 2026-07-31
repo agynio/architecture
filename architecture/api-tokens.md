@@ -21,6 +21,7 @@ The token value is **hashed** (SHA-256) before storage. The plaintext is returne
 | `name` | string | Human-readable label (e.g., "CI pipeline", "local dev") |
 | `token_hash` | string | SHA-256 hash of the token value. Lookup key |
 | `token_prefix` | string | First 8 characters of the token (for identification in UI without exposing the full value) |
+| `origin` | enum | `manual` (created through the Console or `agyn auth create-token`) or `cli_login` (issued by a browser sign-in — see [CLI Login](cli-login.md)). Lets the Console label the credential a machine is using |
 | `expires_at` | timestamp (nullable) | Expiration time. Null = no expiration |
 | `created_at` | timestamp | Creation time |
 | `last_used_at` | timestamp (nullable) | Last successful authentication time |
@@ -94,9 +95,13 @@ An API token carries the same permissions as the user who created it. The resolv
 | **CLI** | `agyn auth create-token --name "CI pipeline"` → prints token once. `agyn auth list-tokens`. `agyn auth revoke-token <id>` |
 | **Gateway API** | `UsersGateway` proto service: `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` |
 
+Tokens with `origin = cli_login` are managed the same way — listed and revoked through the same surface. Revoking one signs that machine's CLI out at its next request.
+
 ## CLI Integration
 
 The created token is stored in `~/.agyn/credentials` — the same path all CLI tools already read (see [CLI Authentication](authn.md#cli-authentication)). The token format (`agyn_...`) is opaque to the CLI — it is sent as a bearer token to the Gateway like any other auth token.
+
+Users do not normally create a token in order to use the CLI: `agyn auth` runs a browser sign-in that issues one and stores it, without the token ever being displayed. See [CLI Login](cli-login.md). Hand-made tokens remain the path for CI, Terraform, and integrations.
 
 ## Data Store
 

@@ -67,6 +67,15 @@ The Console displays:
 | `SecretsGateway` | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
 | `AppsGateway` | `CreateApp`, `GetApp`, `GetAppBySlug`, `ListApps`, `UpdateApp`, `DeleteApp`, `InstallApp`, `GetInstallation`, `GetInstallationBySlug`, `ListInstallations`, `UpdateInstallation`, `UninstallApp` | Org owner or cluster admin | Apps (Published Apps, Installed Apps) |
 | `UsersGateway` | `CreateDevice`, `ListDevices`, `DeleteDevice` | Any authenticated user (own devices) | Devices (User Menu) |
+| `UsersGateway` | `GetCLILoginRequest`, `ApproveCLILogin`, `DenyCLILogin` | Any authenticated user (approves for themselves) | CLI Login approval (`/cli-login`) |
+
+## CLI Login Approval
+
+`/cli-login` is the browser half of [CLI Login](cli-login.md) — the page a CLI sends the user to in order to approve a sign-in. It is a standalone route: no sidebar, no context switcher, and no organization selection, because approving a sign-in is not scoped to an organization.
+
+The route takes the confirmation code as a query parameter (`?code=WDJB-MJHT`) and falls back to a code entry field when opened without one. It requires a signed-in session like every other Console route, so an unauthenticated visit runs the ordinary OIDC flow first and returns to the page — which is also how a first-ever sign-in provisions the user. On approval, the token is issued to the polling CLI and never shown in the browser.
+
+See [Product — CLI Login](../product/cli-login/cli-login.md#approval-screen) for what the page displays and why.
 
 ## Deployment
 
