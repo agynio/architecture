@@ -60,7 +60,9 @@ Instance state (`active` / `paused` / `terminated`) and `pause_reason` (`idle_tt
 
 ### Gateway
 
-- [Agents service](../architecture/agents-service.md) already defines `ListInstances` (server-side sort/filter/pagination on `agent_id`, `state_in`, `has_unacked`), `GetInstance`, `PauseInstance`, `ResumeInstance`. [Gateway](../architecture/gateway.md) describes `AgentsGateway` only as "All CRUD methods for agents and sub-resources" — the instance methods need to be confirmed as exposed, and listed explicitly if they are not.
+No gateway change is needed; every method these pages call is already exposed.
+
+- [Agents service](../architecture/agents-service.md) defines `ListInstances` (server-side sort/filter/pagination on `agent_id`, `state_in`, `has_unacked`), `GetInstance`, `PauseInstance`, `ResumeInstance`, and `AgentsGateway` exposes all four — [Gateway](../architecture/gateway.md) covers them under "All CRUD methods for agents and sub-resources".
 - `RunnersGateway` already exposes `ListWorkloadsByAgentInstance` and `ListVolumesByAgentInstance`, so the instance-scoped queries Instance Detail needs exist.
 
 ### Route canonicalization
