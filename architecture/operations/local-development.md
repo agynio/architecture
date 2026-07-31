@@ -1,26 +1,22 @@
 # Local Development
 
-This document covers **developing the platform itself** — running a mutable local cluster that service code can be hot-reloaded into. To simply **run** the platform locally (use it, demo it, develop agents or apps against it), use the prebuilt VM image instead — see [Local Bundle](local-bundle.md) and [`agyn local`](../agyn-cli.md#local-platform-commands-agyn-local).
+This document covers **developing the platform itself** — running a local cluster that service code can be hot-reloaded into. To simply **run** the platform locally (use it, demo it, develop agents or apps against it), the same image is all you need — see [Local Bundle](local-bundle.md) and [`agyn local`](../agyn-cli.md#local-platform-commands-agyn-local).
 
-## Bootstrap
+## The Cluster
 
-The single source of truth for running the full Agyn cluster locally is:
+The full Agyn platform runs locally as the prebuilt VM image, started with [`agyn local start`](../agyn-cli.md#local-platform-commands-agyn-local). `agyn local kubeconfig` adds it to the kubeconfig as its own context, and DevSpace attaches to it from there.
 
-**Repository:** [`agynio/bootstrap`](https://github.com/agynio/bootstrap)
+No other custom docker-compose files or local setups should exist.
 
-No other custom docker-compose files or local setups should exist. All services are configured and deployed from this repo.
-
-Bootstrap uses **Terraform** to provision a local Kubernetes cluster (k3d) and deploy all services via **Argo CD**. Setup instructions, stack descriptions, and local endpoints are documented in the [bootstrap repository](https://github.com/agynio/bootstrap).
+Nothing inside the VM reconciles: the platform is a Helm release that is applied once, at bake time. A DevSpace patch therefore stays in place until something rewrites the workload — an [in-place upgrade](local-bundle.md#upgrade-model), or `agyn local reset`, which restores workloads from the stored release and is the way back to a clean cluster without losing data.
 
 ## Service Development with DevSpace
 
-Individual service development uses **DevSpace** against the local cluster provisioned by bootstrap.
-
 ### How It Works
 
-1. Bootstrap provisions the full cluster with all services running from released images.
+1. The VM boots with every service running the version the image shipped.
 2. DevSpace attaches to a running service's pod, syncs local source code, and restarts the process with hot-reload.
-3. The Argo CD Application's auto-sync is paused during the dev session and restored after.
+3. The patch survives until the workload is rewritten — by `agyn local reset`, an upgrade, or a VM restart.
 
 ### Development Modes
 
@@ -33,11 +29,13 @@ Individual service development uses **DevSpace** against the local cluster provi
 
 | Concern | Behavior | Why it matters |
 |---------|----------|----------------|
-| Argo CD integration | Auto-sync is paused on start and restored on exit. | Prevents Argo CD from reverting the dev patch while keeping the cluster convergent afterwards. |
 | Pod patching | DevSpace patches the existing deployment (dev image + empty volume for sync) instead of replacing the pod. | Preserves deployment identity and allows the session to end without rolling back the workload. |
 | File sync + hot reload | Local code sync completes first, then the dev container starts the app with hot reload. | Ensures the process boots on local code and supports fast iteration without rebuilds. |
+| Returning to released state | `agyn local reset [--service NAME]` restores workloads from the `agyn-platform` release; data is untouched. | Gives the dev loop an explicit undo, so a patched cluster is never the only way back. |
 
 The gateway service (`agynio/gateway`) is the reference implementation for this DevSpace setup.
+
+Service `devspace.yaml` files still pause an Argo CD Application before patching and restore it afterwards. Nothing in the VM runs Argo CD, so those steps find no Application and warn; they remain for clusters that do have one.
 
 ### Default Mode Exit Flow
 
@@ -59,13 +57,12 @@ devspace dev
 ```
 
 This:
-- Pauses Argo CD auto-sync for the gateway Application.
 - Syncs local source into the running container.
 - Starts the dev server with hot-reload.
-- Restores auto-sync on session exit.
+- Leaves the patched pod running when the session exits.
 
 ### Principle
 
-- **Bootstrap** owns cluster topology and service versions.
+- **The platform image** owns cluster topology and service versions.
 - **DevSpace** owns the developer inner loop (code → sync → reload).
 - No per-service docker-compose or standalone local environments.

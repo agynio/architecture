@@ -1,6 +1,6 @@
 # E2E Testing
 
-All E2E tests live in a single repository: [`agynio/e2e`](https://github.com/agynio/e2e). Tests are grouped into **suites**; each suite declares the container image it needs. A test declares the services it exercises through tags. A service repository runs E2E by composing two reusable composite actions — one from [`agynio/bootstrap`](https://github.com/agynio/bootstrap) to provision the cluster, one from `agynio/e2e` to run the tests — with its own deploy-from-source logic in between. Only suites that contain at least one test matching the service's tag are brought up. On the `agynio/e2e` repo's own `main`, the full set of suites runs against pinned bootstrap images.
+All E2E tests live in a single repository: [`agynio/e2e`](https://github.com/agynio/e2e). Tests are grouped into **suites**; each suite declares the container image it needs. A test declares the services it exercises through tags. A service repository runs E2E by composing two reusable composite actions from `agynio/e2e` — one to provision the cluster, one to run the tests — with its own deploy-from-source logic in between. Only suites that contain at least one test matching the service's tag are brought up. On the `agynio/e2e` repo's own `main`, the full set of suites runs against the platform as the VM image ships it.
 
 ## Rationale
 
@@ -20,11 +20,11 @@ The cost — synchronizing tests with in-flight service changes — is paid by [
 
 ```mermaid
 graph LR
-    subgraph "Bootstrap Cluster"
+    subgraph "Platform VM Cluster"
         SVC1[Service Under Test<br/>patched by devspace dev<br/>runs from synced source]
-        SVC2[Threads :50051<br/>pinned bootstrap image]
-        SVC3[Gateway :8080<br/>pinned bootstrap image]
-        SVCN[... pinned bootstrap images]
+        SVC2[Threads :50051<br/>image-shipped version]
+        SVC3[Gateway :8080<br/>image-shipped version]
+        SVCN[... image-shipped versions]
     end
 
     subgraph "Test Pod (deployed from agynio/e2e)"
@@ -200,7 +200,7 @@ If a change genuinely cannot be expressed as expand-contract (rare, e.g. a secur
 | Concurrency | Suites run sequentially. May parallelize later; not a contract. |
 | Exit code | Non-zero if any suite's `run` exited non-zero. |
 
-The pipeline touches only test pods. It never patches, deploys, or modifies a service pod — service pods are whatever is currently deployed in the namespace (pinned bootstrap images, or a service running from source if a prior `devspace dev` call patched it).
+The pipeline touches only test pods. It never patches, deploys, or modifies a service pod — service pods are whatever is currently deployed in the namespace (the versions the image shipped, or a service running from source if a prior `devspace dev` call patched it).
 
 Adding a suite is adding a `suites/<name>/` directory with a `suite.yaml`. No pipeline change, no central registry.
 
@@ -307,21 +307,23 @@ CI orchestration is split into two composite actions — one per repository that
 
 Three explicit steps, in order:
 
-1. **Provision** — `uses: agynio/bootstrap/.github/actions/provision@main`. Cluster comes up with all services at pinned images.
+1. **Provision** — `uses: agynio/e2e/.github/actions/provision-vm@main`. Boots the prebuilt platform VM; every service is already running the version the image shipped.
 2. **Deploy** — service-owned. Default is `run: devspace dev`, which patches the service's pod to run from synced source. A service with custom bring-up (local image build + `k3d image import`, data migrations, fixture priming) replaces this step with whatever it needs.
 3. **Test** — `uses: agynio/e2e/.github/actions/run-tests@main` with `service: <name>`. Runs the service's tagged subset plus smoke.
 
-No wrapping reusable workflow. The middle step is inherently service-specific — parameterizing it away would mean either forcing every service to deploy the same way or adding a half-dozen optional inputs. Composing three primitives in the service's own `ci.yml` is simpler and keeps ownership boundaries clean: bootstrap owns provisioning, the service owns bring-up, e2e owns execution.
+No wrapping reusable workflow. The middle step is inherently service-specific — parameterizing it away would mean either forcing every service to deploy the same way or adding a half-dozen optional inputs. Composing three primitives in the service's own `ci.yml` is simpler and keeps ownership boundaries clean: the platform image owns what runs, the service owns bring-up, e2e owns provisioning and execution.
 
-### Composite action: `agynio/bootstrap/.github/actions/provision`
+### Composite action: `agynio/e2e/.github/actions/provision-vm`
 
-**Responsibility.** Stand up the bootstrap cluster with every service at its pinned image, verify platform health, export `KUBECONFIG` into the job environment so subsequent steps pick it up automatically.
+**Responsibility.** Boot the [platform VM](local-bundle.md) on the runner and describe it to every later step: `KUBECONFIG`, `AGYN_BASE_URL`, `AGYN_API_TOKEN`, `AGYN_ORGANIZATION_ID` and `AGYN_MODEL_ID` are exported into the job environment.
 
-**Inputs.** `ref` — optional `agynio/bootstrap` ref (default `main`). Nothing else.
+That environment is the whole interface. No later step knows how the cluster was provisioned, which is what allowed the k3d-and-Terraform stack it replaced to be swapped out without touching a suite.
 
-**Outputs.** `kubeconfig` — absolute path to the generated kubeconfig (also exported via `$GITHUB_ENV`).
+**Inputs.** `version` (image version, default `latest`), `upgrade` (move the platform Helm releases to the newest published charts after boot, default true), `port`, `cpus`, `memory`, `agyn-cli-version`.
 
-**What it encapsulates (caller doesn't see).** Pinned versions of `kubectl`, `k3d`, and `terraform`; disk reclaim on the GitHub runner; the `apply.sh` / `verify.sh` invocation; the exact location of the kubeconfig file.
+**Outputs.** `kubeconfig` — absolute path to the kubeconfig (also exported via `$GITHUB_ENV`); `base-url`.
+
+**What it encapsulates (caller doesn't see).** Runner preparation — disk reclaim, the KVM assertion, Lima and QEMU — and the agyn CLI calls that own the VM's boot contract. Everything it does to the VM it does through that CLI: a second implementation of the boot contract in CI would drift from the one users run.
 
 ### Composite action: `agynio/e2e/.github/actions/run-tests`
 
@@ -347,17 +349,17 @@ No wrapping reusable workflow. The middle step is inherently service-specific �
 
 ### `agynio/e2e` main CI
 
-`agynio/e2e`'s own workflow composes the same two actions with no deploy step in between: provision → run-tests (no `service:` input, so no service tag is added; the pipeline runs every suite). Every suite executes against a cluster where every service is running its pinned bootstrap image.
+`agynio/e2e`'s own workflow composes the same two actions with no deploy step in between: provision → run-tests (no `service:` input, so no service tag is added; the pipeline runs every suite). Every suite executes against a cluster where every service is running the version the image shipped.
 
 ### Secrets
 
 Composite actions cannot read `${{ secrets.* }}` directly — secrets must be piped in by the caller. The convention:
 
-- **`agynio/bootstrap/.github/actions/provision`** — needs nothing beyond `GITHUB_TOKEN` (pulls from public GHCR for bootstrap images; private images, if any, are fetched via the runner's login from the workflow step). The action itself does not declare secret inputs.
+- **`agynio/e2e/.github/actions/provision-vm`** — needs nothing beyond `GITHUB_TOKEN`, used to resolve the agyn CLI release asset. The image comes from the public CDN and the platform's images ship inside it. The action itself does not declare secret inputs.
 - **`agynio/e2e/.github/actions/run-tests`** — needs no secrets. TestLLM, the only external dependency in the happy path, runs inside the cluster and is reached over in-cluster DNS. If a future suite needs an external credential (e.g. a third-party API key), the action grows an explicit input rather than reading a well-known secret name; the caller maps `${{ secrets.X }}` → that input.
 - **Service deploy step (middle)** — owned by the service; secrets are injected via the `env:` block on that step, scoped to that step alone.
 
-Neither `agynio/bootstrap` nor `agynio/e2e` stores secrets. Any credentials that E2E needs live as organization-level GitHub Actions secrets in the calling repo's org, referenced by name from the service's workflow. This keeps the two library repos free of credential contracts.
+`agynio/e2e` stores no secrets. Any credentials that E2E needs live as organization-level GitHub Actions secrets in the calling repo's org, referenced by name from the service's workflow. This keeps the two library repos free of credential contracts.
 
 ## Non-service repos
 
@@ -366,8 +368,8 @@ The convention for repos that are not a deployable service:
 | Repo | E2E on PR | Why |
 |------|-----------|-----|
 | [`agynio/api`](https://github.com/agynio/api) | Full suite | A proto change can break any consumer |
-| [`agynio/base-chart`](https://github.com/agynio/base-chart) | Smoke only | Chart changes exercised by bootstrap CI; smoke catches common breakage |
-| [`agynio/bootstrap`](https://github.com/agynio/bootstrap) | Full suite | Bootstrap defines the platform |
+| [`agynio/base-chart`](https://github.com/agynio/base-chart) | Smoke only | Chart changes reach CI through the platform image; smoke catches common breakage |
+| [`agynio/platform-charts`](https://github.com/agynio/platform-charts) | Full suite | The umbrella chart defines what the platform is |
 | [`agynio/e2e`](https://github.com/agynio/e2e) | Full suite | Catches regressions in the tests themselves |
 | [`agynio/terraform-provider-agyn`](https://github.com/agynio/terraform-provider-agyn) | `go-terraform` suite, PR-built binary | See [Testing the Terraform provider](#testing-the-terraform-provider) |
 | Any other repo | Smoke by default | Small blast radius; opt into full suite only when warranted |
@@ -390,15 +392,15 @@ How the binary gets from the runner filesystem into the test pod is an implement
 |--------|----------|
 | Where tests live | Single repo: [`agynio/e2e`](https://github.com/agynio/e2e), organized into suites under `suites/` |
 | What is a suite | A directory with a `suite.yaml` declaring its container image, `select` command, and `run` command |
-| Where tests run | Dedicated test pods inside the bootstrap cluster — one pod per executing suite |
+| Where tests run | Dedicated test pods inside the platform VM's cluster — one pod per executing suite |
 | Service under test | Deployed from source via `devspace dev` from the service repo — no image build |
-| Other services | Run from pinned bootstrap images |
+| Other services | Run the versions the platform VM image shipped |
 | How test pods are created | Auto-discovered from `suites/*/suite.yaml`; one pod per executing suite, created at pipeline runtime |
 | How tests are triggered | `devspace run test-e2e [--tag <name>]...` |
 | How tests reach services | Kubernetes DNS (`<service>:<port>`) |
 | Filter mechanism | `--tag` only — repeatable, comma-separated; service selection is `--tag svc_<name>` |
 | Skip-empty-suites | Suites with no tests matching the requested tags are skipped before any pod is deployed |
 | Breaking-change model | Expand-contract — no atomic cross-repo changes |
-| Who owns the CI job | The service repo. It composes `agynio/bootstrap/.github/actions/provision` (cluster) + its own deploy step + `agynio/e2e/.github/actions/run-tests` (execution) |
+| Who owns the CI job | The service repo. It composes `agynio/e2e/.github/actions/provision-vm` (cluster) + its own deploy step + `agynio/e2e/.github/actions/run-tests` (execution) |
 | Deterministic LLM | [TestLLM](https://github.com/agynio/testllm) — scripted conversations in [`agynio/testllm-suites`](https://github.com/agynio/testllm-suites) |
 | Guards / skip conditions (inside tests) | Not allowed — every test in the selected subset runs unconditionally, or is deleted |

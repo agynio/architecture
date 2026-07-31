@@ -85,4 +85,6 @@ Per-install CA generation (host generates the CA and injects it into the VM, rat
 
 ## Relationship to Local Development
 
-The bundle serves **consumers of the platform**: running Agyn locally to use it, demo it, or develop agents and apps against it. **Developing the platform itself** (hot-reloading service code inside a live cluster) remains the domain of [Local Development](local-development.md) — bootstrap provisions a mutable GitOps-managed cluster that DevSpace can attach to, which the immutable bundle image deliberately does not support.
+The bundle serves **consumers of the platform** — running Agyn locally to use it, demo it, or develop agents and apps against it — and it is also the cluster [Local Development](local-development.md) attaches to. The image is immutable; the cluster it boots is not, and since nothing inside reconciles, a DevSpace patch stays until something rewrites the workload. `agyn local reset` is the way back to the released state.
+
+The same image is what CI provisions for E2E — see [E2E Testing](e2e-testing.md).
