@@ -76,7 +76,7 @@ ENTRYPOINT ["/app/service"]
 
 ### E2E Job
 
-Every service's `ci.yml` includes an e2e job that composes two composite actions — one from [`agynio/bootstrap`](https://github.com/agynio/bootstrap) to provision the cluster, one from [`agynio/e2e`](https://github.com/agynio/e2e) to run the tests — with a service-specific deploy step in between:
+Every service's `ci.yml` includes an e2e job that composes two composite actions from [`agynio/e2e`](https://github.com/agynio/e2e) — one to provision the cluster, one to run the tests — with a service-specific deploy step in between:
 
 ```yaml
 jobs:
@@ -87,7 +87,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: agynio/bootstrap/.github/actions/provision@main
+      - uses: agynio/e2e/.github/actions/provision-vm@main
       - name: Deploy this service from source
         run: devspace dev
       - uses: agynio/e2e/.github/actions/run-tests@main
@@ -95,7 +95,7 @@ jobs:
           service: <service-name>
 ```
 
-Three logical blocks: cluster provisioning (owned by `agynio/bootstrap`), service deployment from source (owned by the service — typically `devspace dev`, but a service with custom bring-up needs does its own thing here), and test execution (owned by `agynio/e2e`). Cluster-level concerns (kubectl/k3d/Terraform versions, stack order, verification) live in `agynio/bootstrap` and propagate via the `provision` action. E2E-level concerns (suite discovery, test selection, pod lifecycle, artifacts) live in `agynio/e2e` and propagate via the `run-tests` action. No image is built or pushed.
+Three logical blocks: cluster provisioning, service deployment from source (owned by the service — typically `devspace dev`, but a service with custom bring-up needs does its own thing here), and test execution. Cluster-level concerns — which platform VM image, how it boots, and the environment it exports — live in `agynio/e2e` and propagate via the `provision-vm` action; what actually runs inside the cluster is whatever the [platform image](local-bundle.md) shipped. E2E-level concerns (suite discovery, test selection, pod lifecycle, artifacts) live in `agynio/e2e` and propagate via the `run-tests` action. No image is built or pushed.
 
 See [E2E Testing — CI Integration](e2e-testing.md#ci-integration) for the full action definitions and rationale for the two-action split.
 
@@ -121,4 +121,4 @@ Source: [`agynio/base-chart`](https://github.com/agynio/base-chart)
 2. Add a `Dockerfile`.
 3. Add a Helm chart in `charts/<service>/` with a dependency on `service-base`.
 4. Add CI/CD workflows following the patterns above.
-5. Register the chart in the bootstrap configuration (see [Local Development](local-development.md)).
+5. Add the chart to the `agyn-platform` umbrella so the platform image ships it (see [Local Bundle](local-bundle.md)).

@@ -8,7 +8,7 @@ This document describes the process for developing a new service from API schema
 flowchart LR
     A[API Schema] --> B[Implementation]
     B --> C[CI/CD]
-    C --> D[Bootstrap]
+    C --> D[Platform Image]
     D --> E[E2E Tests]
 ```
 
@@ -17,7 +17,7 @@ flowchart LR
 | [API Schema](#api-schema) | Proto definitions merged in `agynio/api` |
 | [Implementation](#implementation) | Service repo with application code, Dockerfile, Helm chart, DevSpace config |
 | [CI/CD](#cicd) | GitHub Actions publish image and chart to GHCR on every release |
-| [Bootstrap](#bootstrap) | Service deployed in the local cluster via Argo CD |
+| [Platform Image](#platform-image) | Service ships in the `agyn-platform` umbrella and boots with the VM |
 | [E2E Tests](#e2e-tests) | Automated tests verify the service in a real cluster |
 
 ---
@@ -118,13 +118,11 @@ Full setup: [Local Development](https://github.com/agynio/architecture/blob/main
 ### Prepare environment
 
 ```bash
-git clone https://github.com/agynio/bootstrap.git
-cd bootstrap
-chmod +x apply.sh
-./apply.sh -y
+agyn local start
+agyn local kubeconfig
 ```
 
-See [bootstrap](https://github.com/agynio/bootstrap) for details.
+See [Local Bundle](local-bundle.md) for details.
 
 ### Run from sources
 
@@ -217,9 +215,9 @@ On `v*.*.*` tag push:
 
 ---
 
-## Bootstrap
+## Platform Image
 
-Register the service in `agynio/bootstrap` so it is deployed in the local cluster. See [Local Development](local-development.md) for how bootstrap provisions the cluster.
+Add the service to the `agyn-platform` umbrella chart in `agynio/platform-charts` so the [platform VM image](local-bundle.md) ships it. See [Local Development](local-development.md) for developing against a running VM.
 
 ---
 
@@ -246,7 +244,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: agynio/bootstrap/.github/actions/provision@main
+      - uses: agynio/e2e/.github/actions/provision-vm@main
       - name: Deploy this service from source
         run: devspace dev
       - uses: agynio/e2e/.github/actions/run-tests@main
@@ -254,6 +252,6 @@ jobs:
           service: <service-name>
 ```
 
-The first action — owned by [`agynio/bootstrap`](https://github.com/agynio/bootstrap) — stands up the cluster with every service at its pinned image and exports `KUBECONFIG`. The middle step is owned by the service: most services use `devspace dev`, but a service with custom bring-up (local image build, migrations, fixtures) does that here. The third action — owned by [`agynio/e2e`](https://github.com/agynio/e2e) — runs the suites tagged for this service and uploads artifacts. No image is built or pushed for the service under test.
+The first action — owned by [`agynio/e2e`](https://github.com/agynio/e2e) — boots the [platform VM](local-bundle.md), where every service already runs the version the image shipped, and exports `KUBECONFIG` along with the Gateway token, organization and model the suites need. The middle step is owned by the service: most services use `devspace dev`, but a service with custom bring-up (local image build, migrations, fixtures) does that here. The third action — owned by [`agynio/e2e`](https://github.com/agynio/e2e) — runs the suites tagged for this service and uploads artifacts. No image is built or pushed for the service under test.
 
 See [CI/CD — E2E Job](ci-cd.md#e2e-job) and [E2E Testing — CI Integration](e2e-testing.md#ci-integration).
