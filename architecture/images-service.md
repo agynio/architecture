@@ -22,7 +22,7 @@ This is a **control plane** service. It stores what an organization declared and
 |---|---|
 | **Plane** | Control |
 | **Language** | Go |
-| **Repository** | `agynio/image-catalog` |
+| **Repository** | `agynio/images` |
 | **API** | gRPC (internal) + Gateway (external via ConnectRPC) |
 | **State** | PostgreSQL — `images` and `image_versions` tables |
 | **External dependencies** | [Authorization](authz.md) (permission checks), [Secrets](secrets.md) (credential storage), [Notifications](notifications.md) (Console reactivity), upstream container registries |
