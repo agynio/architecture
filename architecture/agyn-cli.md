@@ -57,6 +57,11 @@ agyn sandbox start --env python-tools
 agyn sandbox connect brave-otter
 agyn sandbox list
 
+# Copy files in and out, or keep a directory in step with the sandbox workspace
+agyn sandbox cp ./report.pdf brave-otter:/workspace/
+agyn sandbox sync
+agyn sandbox sync status
+
 # Run the full platform locally from a prebuilt VM image
 agyn local start
 agyn local status
@@ -326,13 +331,66 @@ Engineers use the `sandbox` command group to start on-demand workloads and attac
 
 | Command | Description |
 |---------|-------------|
-| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted |
+| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes. Terminated sandboxes are hidden unless `--terminated` is passed. `--all` lists every sandbox in the organization (org owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
+| `agyn sandbox cp [-r] SRC DST` | Copy files between the local machine and a sandbox. Exactly one of `SRC`/`DST` carries a `NAME:path` prefix, naming the sandbox side — the `docker cp` and `kubectl cp` convention. `-r` copies directories |
 
-The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). A dropped connection ends the session, not the sandbox — `agyn sandbox connect` reattaches. `start` and `connect` require a TTY; there is no non-interactive exec mode in v1.
+`cp` is a one-shot transfer, not a relationship: it scans the source, transfers what differs, applies through the same staged atomic write [sync](#sandbox-sync-commands) uses, and exits. No daemon, no watching, no reconciliation base, and no conflict handling — there are no two sides to keep in agreement over time.
+
+```bash
+agyn sandbox cp ./report.pdf brave-otter:/workspace/
+agyn sandbox cp brave-otter:/workspace/out.csv ./
+agyn sandbox cp -r ./src brave-otter:/workspace/src
+```
+
+The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). A dropped connection ends the session, not the sandbox — `agyn sandbox connect` reattaches. `start` and `connect` require a TTY; the only non-interactive session the CLI opens is [workspace sync](#sandbox-sync-commands).
+
+`agyn sandbox start --sync PATH` composes start, shell attach, and sync in one invocation.
+
+---
+
+## Sandbox Sync Commands
+
+The `sandbox sync` subgroup keeps a local directory and a sandbox directory continuously reconciled. See [Sandbox Workspace Sync](sandbox-sync.md) for the architecture and [Sandboxes — Workspace Sync](../product/sandboxes/sandboxes.md#workspace-sync) for the product behavior.
+
+| Command | Description |
+|---------|-------------|
+| `agyn sandbox sync [NAME] [--local PATH] [--remote PATH] [--foreground]` | Create and start a session between a local directory (`--local`, default the working directory) and a sandbox directory (`--remote`, default `/workspace`). Returns as soon as the session is established. `NAME` resolves as it does for `connect`, and additionally from the working directory when it already belongs to a session |
+| `agyn sandbox sync list` | Sessions with their local root, sandbox, state, and last successful sync. Sessions whose daemon is not running are listed as such |
+| `agyn sandbox sync status [SESSION]` | Detailed state, including quarantined conflicts and the reason for any halt. Exits non-zero while anything needs attention |
+| `agyn sandbox sync pause \| resume \| stop [SESSION]` | Suspend, restart, or remove a session. `stop` removes the session; neither side's files are touched |
+| `agyn sandbox sync resolve <path> --keep-local \| --keep-remote` | Resolve a quarantined conflict. `--all` applies one side to every conflict in the session |
+| `agyn sandbox sync reset --from-local \| --from-remote` | Re-establish a halted session by declaring one side authoritative. Required after the sandbox's workspace has been replaced |
+| `agyn sandbox sync undelete [--since DURATION]` | Restore files sync removed locally, from the session's trash |
+| `agyn sandbox sync daemon start \| stop \| status` | Manage the local sync daemon directly |
+| `agyn sandbox sync daemon install \| uninstall` | Register or remove a user-level service so sessions resume at login. Opt-in; nothing is installed otherwise |
+| `agyn sandbox sync serve --root PATH` | Hidden. The in-sandbox endpoint, launched by the platform inside the container — never run by hand |
+
+The positional is the sandbox, as everywhere else in the group — local and remote directories are flags, mirroring [`files download`](#download), where the remote object is positional and the local path is `--output`. A session is named for its local directory and its sandbox (`api-brave-otter`) and is unique per daemon; `SESSION` may be omitted whenever only one session is a candidate.
+
+There is no selected-sandbox setting. `profile` and `local` have `select`/`use` because a profile and a VM are long-lived machine-level choices; a sandbox is org-scoped and expires, so a stored selection would routinely point at something terminated. Sandboxes resolve the way `connect` resolves them — the sole owned sandbox, otherwise named. Sync adds one further step first: a working directory that already belongs to a session resolves to that session's sandbox, which is a per-directory answer rather than a machine-wide mode.
+
+### Daemon
+
+Sync outlives the command that starts it, so sessions survive closing the terminal.
+
+| Concern | Behavior |
+|---------|----------|
+| **Start** | Only `agyn sandbox sync` and `sync daemon start` launch it. No other command in the CLI does — an unrelated invocation never spawns a sync daemon |
+| **Detachment** | A new session with no controlling terminal, output to a rotating log under `~/.agyn/sync/`. Unaffected by the invoking shell exiting |
+| **Address** | gRPC over an owner-only unix socket under `~/.agyn/sync/`, guarded by a lock file against concurrent daemons |
+| **Stop** | Explicitly, or automatically once the last session is removed |
+| **Reboot** | Nothing resumes on its own; sessions persist and are reported as not running. `sync daemon install` is the opt-in for resume-at-login |
+| **Upgrade** | A daemon running an incompatible version is detected on the socket handshake and restarted; sessions persist across it |
+
+`--foreground` runs a single session in the invoking process with no daemon, logging to the terminal and ending on interrupt — for debugging and non-interactive environments.
+
+### Local State
+
+Everything lives under `~/.agyn/sync/`: the socket, the daemon log, and one directory per session holding its configuration, its reconciliation base, its status, and its trash of locally deleted files.
 
 ---
 

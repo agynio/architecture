@@ -186,7 +186,9 @@ When an instance is created, the Agents service writes:
 
 #### sandbox
 
-[Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them. Organization owners can list, stop, and delete every sandbox in the organization, but terminal attach is owner-only: an org owner cannot connect to another user's sandbox unless they are also that sandbox's `owner`.
+[Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them. Organization owners can list, stop, and delete every sandbox in the organization, but attaching to one is owner-only: an org owner cannot connect to another user's sandbox unless they are also that sandbox's `owner`.
+
+`can_connect` gates every session the [Terminal Proxy](terminal-proxy.md#session-kinds) issues a ticket for, not shells alone — a [workspace sync](sandbox-sync.md) session reaches the same filesystem a shell does and is authorized identically.
 
 ```
 type sandbox

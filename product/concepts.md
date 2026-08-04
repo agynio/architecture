@@ -23,7 +23,7 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Run** | A single execution cycle within a conversation, triggered when the agent processes unacknowledged messages. A conversation accumulates multiple runs over its lifetime. |
 | **Run Event** | A discrete step within a run: a message received, an LLM call made, a tool executed, or a context summarization performed. Events are the atomic unit of observability. |
 | **Runner Catalog** | The flavors, storage classes, and capabilities a runner offers. Declared in the runner's own deployment configuration and reported by the runner to the platform — not managed through platform APIs. |
-| **Sandbox** | An on-demand workload started by a user rather than by message traffic. Runs an environment with shell access, carrying the environment's secrets and egress rules — used by engineers as a manual working copy of an agent's runtime. |
+| **Sandbox** | An on-demand workload started by a user rather than by message traffic. Runs an environment with shell access and optional two-way file sync to a directory on the engineer's machine, carrying the environment's secrets and egress rules — used by engineers as a manual working copy of an agent's runtime. |
 | **Storage Class** | A named storage tier in a runner's catalog. Persistent volumes reference storage classes by name; the reference is resolved when the volume is provisioned. |
 | **Summarization** | An event where the agent's context is compressed to stay within token limits. The old context is replaced with a shorter summary. |
 | **Tool** | A capability available to an agent via an MCP server. Tools accept structured input, execute an action, and return output. Tool executions produce stdout/stderr streams. |

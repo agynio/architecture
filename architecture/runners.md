@@ -423,7 +423,7 @@ The [Terminal Proxy](terminal-proxy.md) needs to reach the specific runner hosti
 3. Terminal Proxy calls `GetWorkload` on the Runners service to resolve `runner_id`.
 4. Terminal Proxy dials the specific runner via OpenZiti (`zitiContext.Dial("runner-{runnerId}")`) and opens [`Runner.Exec`](runner.md#execution).
 
-While terminal sessions are attached to a sandbox workload, the Terminal Proxy calls `TouchWorkload` on this service every 10 seconds — the same activity path `agynd` uses — so the [idle timeout](#idle-timeout) machinery applies to sandboxes unchanged. See [Terminal Proxy — Sandbox Activity Reporting](terminal-proxy.md#sandbox-activity-reporting).
+While TTY sessions are attached to a sandbox workload, the Terminal Proxy calls `TouchWorkload` on this service every 10 seconds — the same activity path `agynd` uses — so the [idle timeout](#idle-timeout) machinery applies to sandboxes unchanged. [Sync sessions](sandbox-sync.md) deliberately do not touch, so a sandbox still idles out under one. See [Terminal Proxy — Sandbox Activity Reporting](terminal-proxy.md#sandbox-activity-reporting).
 
 Per-runner OpenZiti addressing is established at registration time — each runner has its own OpenZiti service. See [OpenZiti Integration — Runner Provisioning](openziti.md#runner-provisioning).
 

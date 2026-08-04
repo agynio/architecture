@@ -10,12 +10,15 @@ The primary use case is running agents in "manual mode": an engineer gets the sa
 agyn sandbox start                 # start a sandbox, drop into a shell
 # ... laptop sleeps, wifi drops ...
 agyn sandbox connect brave-otter   # reattach to the same sandbox
+
+agyn sandbox sync                  # keep the working directory and /workspace in step
 ```
 
 ## User Stories
 
 - As an engineer, I want to start a sandbox from my terminal and get a shell in it, so I can work inside the same runtime my agents use.
 - As an engineer, I want to reconnect to my sandbox by name after a disconnect, without losing running processes or files.
+- As an engineer, I want a directory on my machine and a directory in the sandbox to stay in step, so I can edit in my own editor while the work runs in the sandbox and see whatever it writes back.
 - As an engineer, I want the sandbox to carry the environment's secrets and egress rules, so I can manually exercise exactly what an agent in that environment could do.
 - As an organization owner, I want to see every sandbox running in my organization and terminate any of them.
 - As a platform operator, I want sandboxes to stop when idle and disappear after a TTL, so forgotten sandboxes don't consume capacity forever.
@@ -26,6 +29,7 @@ agyn sandbox connect brave-otter   # reattach to the same sandbox
 |---|---|
 | **Sandbox** | An org-scoped resource owned by the user who created it: one workload (plus a workspace volume) running an [environment](../environments/environments.md), started on demand rather than by inbox traffic. |
 | **Shell session** | An interactive terminal attached to the sandbox's main container. A sandbox can have zero or more concurrent sessions; the workload keeps running between sessions. |
+| **Sync session** | A continuous two-way reconciliation between a directory on the engineer's machine and a directory in the sandbox. Runs in the background on the engineer's machine, independent of any shell session. |
 
 ## CLI
 
@@ -33,13 +37,15 @@ Sandboxes are managed through a new `agyn sandbox` command group:
 
 | Command | Description |
 |---|---|
-| `agyn sandbox start [--env NAME] [--name NAME]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted |
+| `agyn sandbox start [--env NAME] [--name NAME] [--sync PATH]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
+| `agyn sandbox cp [-r] SRC DST` | Copy files in or out once. The sandbox side carries a `NAME:path` prefix |
+| `agyn sandbox sync [NAME] [--local PATH] [--remote PATH]` | Keep a local directory (default the working directory) and a sandbox directory (default `/workspace`) continuously reconciled. See [Workspace Sync](#workspace-sync) |
 
-Convenience: `agyn sandbox start --agent @coder` resolves the agent's environment. Note this grants the *environment's* attachments only — rules and ENVs attached directly to the agent do not apply to the sandbox.
+Convenience: `agyn sandbox start --agent @coder` resolves the agent's environment. Note this grants the *environment's* attachments only — rules and ENVs attached directly to the agent do not apply to the sandbox. `agyn sandbox start --sync .` starts a sandbox, attaches a shell, and begins syncing the current directory in one step.
 
 ## Lifecycle
 
@@ -51,7 +57,7 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 | `failed` | Workload failed to start. Sticky until the user acts: `connect` performs a fresh start attempt (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). TTL still applies |
 | `terminated` | Deleted explicitly or by TTL; workspace volume removed. A soft state: the record is retained for audit and usage history but hidden from default lists |
 
-- **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped but the sandbox and its workspace volume survive — `connect` restarts the workload on the same volume. While a session is attached the sandbox is never considered idle.
+- **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped but the sandbox and its workspace volume survive — `connect` restarts the workload on the same volume. While a session is attached the sandbox is never considered idle. A [sync session](#workspace-sync) is deliberately **not** an activity signal: a laptop left syncing would otherwise keep a sandbox running indefinitely.
 - **TTL** (default `72h` from creation): when it elapses, the sandbox is terminated and its volume deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
 - **Defaults are organization-configurable** (org owners set default TTL and idle timeout in organization settings, within platform bounds). Both values are resolved and stored on the sandbox at creation — changing the org default later does not affect existing sandboxes.
 - One workload at a time per sandbox. Sandboxes are first-class workload owners in the runtime model (`owner_kind=sandbox` on workload and volume records) — no agent instance exists behind a sandbox.
@@ -83,12 +89,37 @@ The experience is SSH-parity — a real PTY with no platform-imposed limitations
 
 A dropped connection ends the session but not the sandbox — like a dropped SSH connection, the foreground process group gets SIGHUP while the container keeps running. Anything that must survive a session drop should run under `nohup`/`tmux` (from the image); `agyn sandbox connect` opens a fresh shell. See [Terminal Proxy — Terminal Semantics](../../architecture/terminal-proxy.md#terminal-semantics).
 
+## Workspace Sync
+
+A sandbox is only as useful as the files in it. Workspace sync keeps a directory on the engineer's machine and a directory in the sandbox continuously reconciled in both directions, so work can be edited locally with local tooling and run inside the sandbox, and whatever the sandbox writes appears back on the machine.
+
+Both sides remain ordinary local filesystems — nothing is mounted over the network. Editors, watchers, builds, and `git` run at local disk speed on both ends, and a sleeping laptop or a dropped connection stalls nothing locally.
+
+```bash
+agyn sandbox sync                     # sync the working directory; returns immediately
+agyn sandbox sync status              # what is syncing, and anything needing attention
+agyn sandbox sync stop api-brave-otter
+```
+
+For a single transfer rather than an ongoing relationship, `agyn sandbox cp` copies files in or out once and exits.
+
+- **It runs in the background.** Sync outlives the command that started it and is unaffected by closing the terminal. It does not start unless asked: only `agyn sandbox sync` and an explicit daemon start bring it up, and it exits when the last session is removed. Nothing resumes automatically after a reboot — sessions are listed as not running until started again, or an opt-in login item is installed.
+- **It never interrupts.** Sync does not prompt. When something needs a decision it stops making that particular change and reports, and the engineer resolves it whenever they get to it — inline if a session is attached, in a status file inside the synced directory, as a desktop notification, through `agyn sandbox sync status`, and as a banner on the next `agyn sandbox connect`.
+- **Conflicts are per-file.** When both sides change the same file, that path is set aside with both versions intact and everything else keeps syncing.
+- **Deletions are recoverable.** Files removed locally by sync go to a retained trash directory rather than being unlinked, so a surprising deletion can be undone instead of having to be prevented.
+- **A destroyed sandbox never destroys local work.** A sandbox terminated by its TTL comes back with an empty workspace. Sync recognizes this and stops rather than mirroring the emptiness onto the engineer's machine.
+- **A stopped sandbox pauses sync; it does not restart it.** Editing a local file must never silently start billable compute. Sync resumes on the next `agyn sandbox connect`.
+- **Ownership is not carried across.** Only the executable bit is preserved; files are created as the sandbox image's user.
+
+Sync is intended for working trees — source, configuration, notes, results. It is not a data-transfer mechanism for large datasets: those belong on the sandbox side, reached through the environment or the organization's own storage.
+
 ## Permissions
 
 | Action | Who |
 |---|---|
 | Create a sandbox | Any organization member |
 | Connect (attach a shell) | The sandbox owner only |
+| Sync a workspace | The sandbox owner only — the same check as attaching a shell |
 | List | Owner sees own; organization owners (and cluster admins, as with workloads) see all |
 | Stop / delete | The owner and organization owners |
 
@@ -107,7 +138,9 @@ Because environment-attached secrets and egress credentials are reachable from i
 - A sandbox runs exactly one environment, fixed at creation. To use a different environment, start a new sandbox.
 - No MCP sidecars or additional volumes in v1 — a sandbox is the environment's main container, its init containers, and platform sidecars.
 - The environment's workspace image must provide a shell for sessions to be useful; the platform does not inject one.
-- Shell access requires the Terminal Proxy path; there is no direct network path from the engineer's machine to the workload other than platform-mediated ones (terminal, port exposure).
+- Shell access requires the Terminal Proxy path; there is no direct network path from the engineer's machine to the workload other than platform-mediated ones (terminal, port exposure, sync).
+- Sync propagates changes; it does not mount. The two directories are separate filesystems kept in step, so a change is visible on the other side shortly after it is made, not at the instant of the write.
+- While no shell session is attached, sync reduces to periodic reconciliation — changes originating in the sandbox surface on the next pass rather than immediately.
 
 ## Future
 
@@ -124,6 +157,7 @@ Because environment-attached secrets and egress credentials are reachable from i
 - [Environments](../environments/environments.md)
 - [Agents Orchestrator](../../architecture/agents-orchestrator.md)
 - [Terminal Proxy](../../architecture/terminal-proxy.md)
+- [Sandbox Workspace Sync](../../architecture/sandbox-sync.md)
 - [agyn-cli — Sandbox Commands](../../architecture/agyn-cli.md#sandbox-commands)
 - [Expose Service](../../architecture/expose-service.md)
 - [Secrets](../../architecture/secrets.md)

@@ -5,7 +5,7 @@
 - [Authorization](../architecture/authz.md)
 - [LLM Proxy — Authorization](../architecture/llm-proxy.md#authorization)
 - [LLM — Authorization](../architecture/llm.md#authorization)
-- [Agents Orchestrator — Workload Assembly](../architecture/agents-orchestrator.md#workload-assembly)
+- [Agents Orchestrator — Workload Assembly](../architecture/agents-orchestrator.md#workload-spec-assembly)
 - [Agents Service — Authorization](../architecture/agents-service.md#authorization)
 - [Agents Service — agynd Startup Fetch](../architecture/agents-service.md#agynd-startup-fetch)
 - [agynd — Environment Preparation](../architecture/agynd-cli.md#3-environment-preparation)

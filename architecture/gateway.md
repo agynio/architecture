@@ -91,7 +91,7 @@ Both carry the Gateway's rate limits rather than its identity middleware. `Appro
 
 ### Terminal Sessions
 
-`CreateTerminalSession` is the Gateway-exposed ticket issuance endpoint for browser and CLI terminal access. The client supplies a target `workload_id`, `container_name`, and optional command override. The request does not carry an identity; Gateway derives the caller identity from authenticated context and passes it only to the internal [Terminal Proxy](terminal-proxy.md) `IssueTicket` RPC.
+`CreateTerminalSession` is the Gateway-exposed ticket issuance endpoint for browser and CLI session access. The client supplies a target `workload_id`, `container_name`, and a [session kind](terminal-proxy.md#session-kinds) with that kind's parameters. The Gateway derives the command from the kind; only `EXEC` carries a caller-supplied command, and it is authorized before being bound into the ticket. The request does not carry an identity; Gateway derives the caller identity from authenticated context and passes it only to the internal [Terminal Proxy](terminal-proxy.md) `IssueTicket` RPC.
 
 Gateway authorizes the target before issuing a ticket:
 

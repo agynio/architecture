@@ -98,6 +98,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Image Proxy](../architecture/image-proxy.md)
 - [Agent Init Container](../architecture/agent-init.md)
 - [Terminal Proxy](../architecture/terminal-proxy.md)
+- [Sandbox Workspace Sync](../architecture/sandbox-sync.md)
 - [Runners](../architecture/runners.md)
 - [Agents Orchestrator](../architecture/agents-orchestrator.md)
 - [Agents Service](../architecture/agents-service.md)

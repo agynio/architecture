@@ -8,6 +8,9 @@ Primary consumers:
 
 - **[Sandboxes](../product/sandboxes/sandboxes.md)** — `agyn sandbox start`/`connect` attach shells through the proxy.
 - **Console workload inspection** — the terminal on the Workload Detail and Sandbox Detail pages ([Container](../product/concepts.md) terminal access).
+- **[Sandbox Workspace Sync](sandbox-sync.md)** — file sync sessions use the same transport in its non-TTY form.
+
+Despite the name, the proxy is not shell-specific: it carries any bidirectional stream to a process in a container. What varies between consumers is the [session kind](#session-kinds), not the transport.
 
 ## Classification
 
@@ -33,7 +36,7 @@ sequenceDiagram
     participant R as Runner
     participant K as Container PTY
 
-    C->>G: CreateTerminalSession(workload_id, container_name)
+    C->>G: CreateTerminalSession(workload_id, container_name, kind)
     G->>G: OpenFGA check (see Authorization)
     G->>TP: IssueTicket (internal)
     TP-->>C: { ticket, url }
@@ -44,10 +47,24 @@ sequenceDiagram
     C-->>K: raw bytes, both directions, until exit
 ```
 
-1. **`CreateTerminalSession`** (Gateway RPC): the caller requests a session for `(workload_id, container_name)`. The Gateway performs the authorization check, then asks the Terminal Proxy to issue a **ticket** — single-use, bound to the caller's identity and the target, expiring in 30 seconds. The response carries the ticket and the proxy's WebSocket URL. Long-lived auth tokens never appear in WebSocket URLs (same reasoning as the [Media Proxy](media-proxy.md)'s avoidance of tokens in `GET` URLs).
+1. **`CreateTerminalSession`** (Gateway RPC): the caller requests a session for `(workload_id, container_name, kind)`. The Gateway performs the authorization check, resolves the kind to a command, then asks the Terminal Proxy to issue a **ticket** — single-use, bound to the caller's identity and the target, expiring in 30 seconds. The response carries the ticket and the proxy's WebSocket URL. Long-lived auth tokens never appear in WebSocket URLs (same reasoning as the [Media Proxy](media-proxy.md)'s avoidance of tokens in `GET` URLs).
 2. **WebSocket connect**: the client opens the WebSocket with the ticket, sends a JSON handshake carrying **only the initial terminal size**, and the proxy resolves the hosting runner via `Runners.GetWorkload`, dials it over OpenZiti (`runner-{runnerId}` — see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)), and opens `Runner.Exec` with TTY enabled.
 
-The command is fixed at ticket issuance, never at attach time. The default is a login shell resolved inside the container: `/bin/sh -c 'exec ${SHELL:-sh} -l'`; `CreateTerminalSession` accepts an optional command override (used by the Console for non-shell inspection commands), which is authorized and bound into the ticket by the Gateway. The WebSocket handshake carries no command — a client cannot escalate beyond what the ticket was issued for.
+The command is fixed at ticket issuance, never at attach time. It is derived from the requested [session kind](#session-kinds) and authorized and bound into the ticket by the Gateway. The WebSocket handshake carries no command — a client cannot escalate beyond what the ticket was issued for.
+
+## Session Kinds
+
+`CreateTerminalSession` takes a **session kind** rather than a command. The Gateway holds the command for each kind, so a client never supplies one and the ticket always describes something the platform defined.
+
+| Kind | TTY | Command | Consumer |
+|---|---|---|---|
+| `SHELL` | yes | A login shell resolved inside the container: `/bin/sh -c 'exec ${SHELL:-sh} -l'` | `agyn sandbox start`/`connect`, Console terminal |
+| `EXEC` | yes | A caller-supplied command, authorized and bound at issuance | Console non-shell inspection commands |
+| `SYNC` | no | `agyn sandbox sync serve --root <path>` | [Workspace sync](sandbox-sync.md) |
+
+`SYNC` takes a root path parameter, which the Gateway validates as absolute and normalizes before binding. No other argument is caller-controlled. This is not a privilege boundary — a sandbox owner can already obtain a shell — but it keeps tickets meaningful and prevents the surface from generalizing into arbitrary remote execution.
+
+Non-TTY kinds need nothing new from [`Runner.Exec`](runner.md#execution), which already supports non-interactive mode with stdout and stderr kept separate.
 
 Tickets are **self-contained signed tokens** (key shared across proxy replicas), so any replica can validate a ticket issued via any other. Single-use is enforced per replica (best-effort under horizontal scaling); the 30-second expiry and the binding to `(identity, workload, container, command)` bound the replay window.
 
@@ -63,9 +80,11 @@ One WebSocket per session. Frames:
 | Text (JSON) | proxy → client | Control: `{"type":"exit","code":N,"reason":"completed\|cancelled\|error"}` — final message before close |
 | Ping/Pong | both | Liveness, every 30s; a peer missing two intervals is considered gone |
 
+The proxy does not interpret binary frames, so the same wire protocol serves every session kind: for TTY kinds they carry PTY bytes, for `SYNC` they carry the endpoint protocol. `resize` is meaningful only to TTY kinds.
+
 ## Terminal Semantics
 
-The proxy provides SSH-parity terminal behavior. Explicit guarantees:
+For TTY session kinds, the proxy provides SSH-parity terminal behavior. Explicit guarantees:
 
 - **8-bit clean, zero interpretation.** The data path carries raw bytes. No line buffering, no encoding validation or transformation, no filtering of escape sequences. Colors (16/256/truecolor), alternate screen, cursor addressing, mouse reporting, bracketed paste — anything the container-side program emits and the client-side terminal understands passes through untouched. Full-screen TUIs (`vim`, `htop`, `tmux`) work.
 - **A real PTY.** The runner allocates a PTY in the container (Kubernetes `pods/exec` with `tty: true`); the shell runs as a proper foreground process group. Job control, signals-as-bytes (`Ctrl-C` → `^C` → SIGINT via the line discipline), `isatty()` — all behave as on a local terminal.
@@ -90,8 +109,9 @@ The Console uses xterm.js over the same wire protocol.
 
 The Terminal Proxy is the component that knows whether a session is attached, so it owns sandbox idle signaling. The accounting is deliberately **per-session, not per-proxy** — no replica coordination, shared session counts, or sticky routing is needed:
 
-- Each attached session to a sandbox workload independently drives `Runners.TouchWorkload` every 10 seconds (the same activity path [`agynd`](agynd-cli.md) uses for agent workloads; concurrent touches are idempotent). The [Agents Orchestrator](agents-orchestrator.md)'s existing idle-timeout machinery then applies unchanged: a sandbox is stopped when `now − last_activity_at` exceeds its `idle_timeout`, which can only happen once **no session on any replica** is touching anymore.
-- On every session detach, the proxy sets `last_session_at` on the [Sandbox](resource-definitions.md#sandbox) via an internal Agents service RPC (display/bookkeeping only — idle enforcement uses workload activity, so there is no need to detect the "final" detach).
+- Each attached **TTY** session to a sandbox workload independently drives `Runners.TouchWorkload` every 10 seconds (the same activity path [`agynd`](agynd-cli.md) uses for agent workloads; concurrent touches are idempotent). The [Agents Orchestrator](agents-orchestrator.md)'s existing idle-timeout machinery then applies unchanged: a sandbox is stopped when `now − last_activity_at` exceeds its `idle_timeout`, which can only happen once **no session on any replica** is touching anymore.
+- **`SYNC` sessions never touch the workload.** A background sync session would otherwise keep a sandbox running for as long as a laptop stayed connected, defeating the idle timeout and the metering it bounds. A sandbox therefore idles out from under an active sync session, which pauses until the owner connects again — see [Sandbox Workspace Sync — Reconnection](sandbox-sync.md#reconnection).
+- On every TTY session detach, the proxy sets `last_session_at` on the [Sandbox](resource-definitions.md#sandbox) via an internal Agents service RPC (display/bookkeeping only — idle enforcement uses workload activity, so there is no need to detect the "final" detach). `SYNC` sessions do not update it, for the same reason they do not touch the workload.
 - A crashed proxy replica needs no cleanup protocol: its sessions' touches simply stop, and the idle clock starts running from the last touch.
 
 Agent workloads get no activity touches from terminal sessions — inspecting an agent container does not keep it alive, and the orchestrator may stop it mid-session (the session ends with `reason: cancelled`).
@@ -102,10 +122,10 @@ Checks run at ticket issuance (Gateway → OpenFGA):
 
 | Target | Check |
 |---|---|
-| Sandbox workload | Caller is the sandbox's `owner`. Org owners can manage sandboxes but **cannot** attach — see [Sandboxes — Permissions](../product/sandboxes/sandboxes.md#permissions) |
+| Sandbox workload | Caller is the sandbox's `owner`, for every session kind including `SYNC`. Org owners can manage sandboxes but **cannot** attach — see [Sandboxes — Permissions](../product/sandboxes/sandboxes.md#permissions) |
 | Agent workload container | `can_edit_config` on the agent class — a terminal grants nothing a config editor couldn't already obtain by editing the agent's configuration |
 
-The WebSocket itself is authenticated solely by the ticket. Ticket properties: single-use, 30-second expiry, bound to `(identity, workload_id, container_name, command)`.
+The WebSocket itself is authenticated solely by the ticket. Ticket properties: single-use, 30-second expiry, bound to `(identity, workload_id, container_name, kind, command)`.
 
 ## OpenZiti Identity
 
@@ -130,5 +150,6 @@ Its identity carries the `terminal-proxy-hosts` role attribute, which the static
 - [Runner — Execution](runner.md#execution)
 - [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)
 - [Sandboxes](../product/sandboxes/sandboxes.md)
+- [Sandbox Workspace Sync](sandbox-sync.md)
 - [OpenZiti Integration](openziti.md)
 - [agyn-cli — Sandbox Commands](agyn-cli.md#sandbox-commands)

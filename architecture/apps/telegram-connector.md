@@ -55,7 +55,7 @@ The connector persists the last processed `update_id` per installation. Each `ge
 For each incoming Telegram update:
 
 1. Look up or create the thread mapping for the chat.
-2. Determine the message type and process accordingly (see [Media Handling](#media-handling)).
+2. Determine the message type and process accordingly (see [Inbound Media Upload](#inbound-media-upload)).
 3. Call `SendMessage` on the platform Threads service via the Gateway.
 
 ### Message Types

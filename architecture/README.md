@@ -55,6 +55,8 @@ Desired architecture state of the platform.
 - [Runner](runner.md)
 - [k8s-runner](k8s-runner.md)
 - [Agent Init Container](agent-init.md)
+- [Terminal Proxy](terminal-proxy.md)
+- [Sandbox Workspace Sync](sandbox-sync.md)
 - [Images Service](images-service.md)
 - [Image Proxy](image-proxy.md)
 - [agyn-cli](agyn-cli.md)

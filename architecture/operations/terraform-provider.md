@@ -106,7 +106,7 @@ resource "agyn_membership" "alice_eng" {
 
 ## Provisioning Resources
 
-Some resources produce a **service token** on creation. The token is returned only once (on `terraform apply`) and stored in Terraform state. It is used to enroll the service at startup. See [Authentication — Service Tokens](../authn.md#service-tokens).
+Some resources produce a **service token** on creation. The token is returned only once (on `terraform apply`) and stored in Terraform state. It is used to enroll the service at startup. See [Authentication — Enrollment](../authn.md#enrollment).
 
 | Resource | Token Output | Enrollment |
 |----------|-------------|------------|

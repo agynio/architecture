@@ -293,5 +293,5 @@ Media files consume tokens that cannot be estimated from text length. When file 
 ## Related Documents
 
 - [files-mcp](files-mcp.md) — MCP server for file access
-- [agynd](agynd-cli.md#message-formatting) — Thread message translation (body + `agyn://file/` URIs)
+- [agynd](agynd-cli.md#2-message-formatting) — Thread message translation (body + `agyn://file/` URIs)
 - [Agent Implementation — MCP-to-LLM Translation](agent/implementation.md#mcp-to-llm-translation) — How `agn` converts MCP tool results to OpenAI Responses API format
