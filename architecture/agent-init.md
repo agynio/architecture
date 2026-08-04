@@ -2,67 +2,83 @@
 
 ## Overview
 
-The agent container runs the user's **dev container image** — their tools, language runtimes, project dependencies. Platform binaries (`agynd` and the agent CLI) are not baked into this image. They are injected at Pod startup via a Kubernetes **init container**.
+The agent container runs the user's **workspace image** — their tools, language runtimes, project dependencies. Platform binaries are not baked into it. They are injected at Pod startup by **init containers** that write into a volume the main container shares.
 
-The user controls which init image to use through a single field on the [Agent](resource-definitions.md#agent) resource: `init_image`. The init image contains `agynd`, the agent CLI binary, and a config file that defines agynd's runtime behaviour. The [Agents Orchestrator](agents-orchestrator.md) treats the init image as an opaque string — it does not parse image names, derive agent types, or set binary paths.
+Three images are injected, from two different places, because they change for different reasons:
+
+| Injected | Source | Contains |
+|---|---|---|
+| **`agynd-cli-init`** | [Agents Orchestrator](agents-orchestrator.md) configuration — chart-pinned, not a catalog entry | `agynd`, the workload's runtime |
+| **`agyn-cli-init`** | Agents Orchestrator configuration — chart-pinned, not a catalog entry | The [`agyn`](agyn-cli.md) CLI |
+| **Agent runtime image** | The [environment](../product/environments/environments.md) | An agent CLI binary and its `config.json` |
+
+The two platform images are not choices anyone makes. They ship with the platform's Helm chart and are injected into every workload, in the same class as the [Ziti sidecar](openziti.md#ziti-sidecar) — plumbing the platform provides. The agent runtime image is selected from the [image catalog](../product/images/images.md) through the environment, and is what decides which agent CLI an agent runs.
 
 ## Problem
 
-The platform supports multiple agent CLI types (Codex, Claude Code, agn). Each requires a specific binary and SDK integration inside `agynd`. The agent container image is the user's dev environment — requiring users to rebuild their images with `agynd` and a specific agent CLI baked in is not viable.
+The platform supports multiple agent CLI types (Codex, Claude Code, [`agn`](agn-cli.md), and others as they are added). Each requires a specific binary and SDK integration inside `agynd`. The main container image is the user's workspace — requiring users to rebuild it with `agynd` and an agent CLI baked in is not viable.
 
 **Constraints:**
 
-- The user's dev container image must remain untouched.
-- The orchestrator must not know about agent CLI binaries, SDK types, or binary paths.
-- `agynd` is always the main process in the agent container — there is no use case without it.
-- The mechanism must work with any Linux base image regardless of distro, glibc version, or installed packages.
-- The release cadence of `agynd` and each agent CLI are independent. Bumping one must not force a rebuild of unrelated images.
+- The user's workspace image must remain untouched.
+- The mechanism must work with any Linux base image regardless of distro, libc, or installed packages.
+- `agynd` is always the main process in the agent container — there is no case without it.
+- `agynd` speaks the platform's APIs on one side and each agent CLI's protocol on the other. Its platform side must never lag the platform, or a workload silently fails to implement a flow the platform expects — a failure that produces no error, just an agent that does nothing.
+- An agent CLI releases on its own cadence and must be upgradable without a platform release.
 
 ## Design
 
 ```mermaid
 graph TB
     subgraph Pod
-        subgraph "Init Container (runs first)"
-            IC[agent-init<br/>image: agent.init_image<br/>copies binaries + config to /agyn-bin]
+        subgraph "Init containers (run first, in order)"
+            AD[agynd-cli-init<br/>from orchestrator config<br/>agynd → /agyn-bin]
+            AC[agyn-cli-init<br/>from orchestrator config<br/>agyn → /agyn-bin/cli]
+            AR[agent-runtime<br/>from environment<br/>agent CLI + config.json → /agyn-bin]
         end
-        subgraph "Main Container (user's dev image)"
+        subgraph "Main container (user's workspace image)"
             AGYND[/agyn-bin/agynd<br/>reads /agyn-bin/config.json<br/>spawns agent CLI]
         end
-        subgraph "Sidecars"
+        subgraph Sidecars
             MCP[MCP servers]
-            HOOK[Hooks]
         end
         VOL[emptyDir: agyn-bin]
     end
 
-    IC -->|writes to| VOL
+    AD -->|writes to| VOL
+    AC -->|writes to| VOL
+    AR -->|writes to| VOL
     VOL -->|mounted in| AGYND
 ```
 
+### Why the split
+
+`agynd` shipping with the platform is what makes the platform side of its contract unbreakable. When `agynd` travelled inside a user-selected image, an old image on a new platform produced exactly the failure that is hardest to diagnose: wire-compatible, semantically stale, and silent. Deprecated fields still deserialize; a flow `agynd` does not know to perform simply does not happen. No amount of version metadata on the image reliably prevents that, because the metadata has to be maintained by hand and the failure appears only when it is wrong.
+
+Shipping `agynd` with the platform removes the possibility rather than detecting it. The agent runtime image then holds nothing platform-coupled, so its versions can be pinned freely — its tags correspond to agent CLI versions, which is a choice a user can actually make.
+
+An agent CLI upgrade is a new agent runtime image, published without a platform release. An `agynd` change — including one adapting to a CLI's protocol change — ships with the platform. The residual coupling is `agynd`'s adapter against a CLI version a user pinned, which fails loudly at spawn, with `agynd` present to report it.
+
 ### Shared Volume Contract
 
-The init container and the main container share an `emptyDir` volume mounted at `/agyn-bin`. The init container writes:
+All three init containers write into an `emptyDir` mounted at `/agyn-bin`, which the main container also mounts:
 
 ```
 /agyn-bin/
-├── agynd          # daemon binary
+├── agynd          # daemon binary            (agynd-cli-init)
 ├── cli/
-│   └── agyn       # platform CLI binary (on PATH in agent subprocess)
-├── codex          # agent CLI binary (original name, e.g. codex, claude, agn)
-└── config.json    # runtime config for agynd
+│   └── agyn       # platform CLI binary      (agyn-cli-init)
+├── codex          # agent CLI binary         (agent runtime image)
+└── config.json    # runtime config for agynd (agent runtime image)
 ```
 
-| File | Description |
-|------|-------------|
-| `agynd` | The agent wrapper daemon. Static Go binary (`CGO_ENABLED=0`) |
-| `cli/agyn` | The platform CLI. Static Go binary (`CGO_ENABLED=0`). `agynd` prepends `/agyn-bin/cli` and `/agyn-bin` to `PATH` when spawning the agent subprocess, making `agyn` and the agent CLI binary available by name without an absolute path |
-| Agent CLI binary | The agent CLI under its original name (`codex`, `claude`, `agn`). Not renamed |
-| `config.json` | Runtime configuration that tells agynd which SDK to use and where to find the agent CLI binary |
+Init containers run in order and write disjoint paths, so the three images compose without coordination beyond the layout above. This is what allows each binary to ship in its own image.
 
-The agent CLI binary keeps its original name. This avoids an artificial rename and means that when someone execs into the container to debug, they see the real binary name.
+`agynd` prepends `/agyn-bin/cli` and `/agyn-bin` to `PATH` when spawning the agent subprocess, making `agyn` and the agent CLI available by name. The agent CLI binary keeps its original name — someone who execs into the container to debug sees the real one.
 
 ### config.json
+
+Written by the agent runtime image, read by `agynd` at startup:
 
 ```json
 {
@@ -72,157 +88,82 @@ The agent CLI binary keeps its original name. This avoids an artificial rename a
 ```
 
 | Field | Type | Values | Description |
-|-------|------|--------|-------------|
-| `sdk` | string | `codex`, `claude`, `agn` | Which SDK module agynd uses to communicate with the agent CLI |
+|---|---|---|---|
+| `sdk` | string | `codex`, `claude`, `agn`, … | Which SDK module `agynd` uses to communicate with the agent CLI |
 | `bin` | string | absolute path | Path to the agent CLI binary on the shared volume |
 
-The `sdk` field determines which SDK module agynd imports for subprocess management and protocol handling. Each SDK module knows how to spawn its agent CLI — the arguments, wire protocol, and message framing are encapsulated in the SDK. See [agynd — Agent Communication Protocol](agynd-cli.md#agent-communication-protocol) for protocol details per agent type.
+The image describes itself. The [Agents Orchestrator](agents-orchestrator.md) sets no binary paths, no SDK types, and no agent CLI arguments — it treats the agent runtime image as an opaque reference to something the catalog resolves, exactly as it treats the workspace image.
 
-The `bin` field tells the SDK module where the agent CLI binary is. The SDK module uses this path when spawning the subprocess (e.g., `codex-sdk-go` spawns `<bin> app-server`, `claude-sdk-go` spawns `<bin> --output-format stream-json --input-format stream-json --verbose`).
+Keeping this file in the image rather than moving it onto the catalog record means an image cannot be mislabelled by whoever registered it: what runs is decided by what is actually inside. The cost is that the catalog does not know which agent CLI a given `agent_runtime` image provides, and conveys it only through the name and description its registrar chose.
 
-### Init Images
+## Platform Binary Images
 
-One init image per supported agent type, each in its own repository:
+One image per binary, each published by the repository that owns it:
 
-| Image | Repository | Contents |
-|-------|------------|----------|
-| `ghcr.io/agynio/agent-init-codex:<version>` | `agynio/agent-init-codex` | `agynd` + `codex` (static musl binary) + `config.json` with `sdk: codex` |
-| `ghcr.io/agynio/agent-init-claude:<version>` | `agynio/agent-init-claude` | `agynd` + `claude` (native `linux-x64-musl` binary) + `libgcc`/`libstdc++` + `config.json` with `sdk: claude` |
-| `ghcr.io/agynio/agent-init-agn:<version>` | `agynio/agent-init-agn` | `agynd` + `agn` (static Go binary) + `config.json` with `sdk: agn` |
+| Image | Published by | Contents |
+|---|---|---|
+| `ghcr.io/agynio/agynd-cli-init:<platform-version>` | `agynio/agynd-cli` | `agynd`, statically linked (`CGO_ENABLED=0`) |
+| `ghcr.io/agynio/agyn-cli-init:<platform-version>` | `agynio/agyn-cli` | `agyn`, statically linked |
 
-#### Repository Structure
+Splitting them is a release decision. A single combined image cannot be built by either binary's repository, since neither owns both — it needs a third repository whose only content is a Dockerfile and a version-pin file, and every bump to either binary becomes a pull request there. One image per repository makes a release *build the binary, build the image, push*, with nothing to coordinate.
 
-Each init image lives in its own repository. This is necessary because the release cadences of `agynd` and each agent CLI are independent — bumping Codex should not force a rebuild of the Claude or agn init images.
+They are pinned together by the chart to the platform version, so splitting the packaging does not let them drift; what coupled them was never the versioning.
 
-Each repo is minimal — a Dockerfile, a config file, a version pin file, and a CI workflow:
+The `-init` suffix records how the image is delivered: its entire job is to copy content into a shared volume. An image from the same repository that later runs as something other than an init container takes a different suffix rather than overloading these.
 
-```
-agynio/agent-init-codex/
-├── Dockerfile
-├── config.json          # { "sdk": "codex", "bin": "/agyn-bin/codex" }
-├── versions.env         # AGYND_VERSION=1.2.3  CODEX_VERSION=0.115.0
-└── .github/workflows/
-    └── release.yml
-```
+The Orchestrator reads both references from configuration. There is no per-agent, per-environment, or per-organization override: an agent's behaviour is configured through the agent, and the platform's own binaries are not a configuration surface.
 
-The `versions.env` file pins all dependency versions explicitly:
+Both are injected into **every** workload, including [sandboxes](../product/sandboxes/sandboxes.md) whose environment names no agent runtime image — which is what makes `agyn` available inside a plain sandbox.
 
-```bash
-AGYND_VERSION=1.2.3
-AGYN_VERSION=0.4.1
-CODEX_VERSION=0.115.0
-```
+## Agent Runtime Images
 
-Updating a version = edit `versions.env`, tag, release. Nothing else changes.
+One image per agent CLI, each holding a binary and a `config.json`:
 
-#### Release Triggers
+| Image | Contents |
+|---|---|
+| `ghcr.io/agynio/agyn-runtime-codex:<codex-version>` | `codex` (static musl binary) + `config.json` with `sdk: codex` |
+| `ghcr.io/agynio/agyn-runtime-claude:<claude-version>` | `claude` (native `linux-x64-musl` binary) + `libgcc`/`libstdc++` + `config.json` with `sdk: claude` |
+| `ghcr.io/agynio/agyn-runtime-agn:<agn-version>` | `agn` (static Go binary) + `config.json` with `sdk: agn` |
 
-| Trigger | What gets rebuilt |
-|---------|-------------------|
-| Codex CLI version bump | `agent-init-codex` only |
-| Claude Code CLI version bump | `agent-init-claude` only |
-| agn CLI version bump | `agent-init-agn` only |
-| agynd version bump | All three init image repos |
-| agyn CLI version bump | All three init image repos |
+Each lives in its own repository, so bumping one CLI rebuilds nothing else. A repository is a Dockerfile, a `config.json`, a version pin, and a release workflow; it pins only its own CLI version, since `agynd` and `agyn` are no longer among its contents.
 
-The agynd and agyn bumps across three repos can be automated — a workflow in each respective CLI repo that opens PRs in all three init image repos when a new version is released.
+Tags correspond to agent CLI versions, which is what makes them meaningful in a [version picker](../product/images/images.md#selecting-a-version). Sizes are modest for the same reason — the platform binaries that dominated these images are elsewhere.
 
-#### Dockerfile
+All binaries are statically linked and run on any Linux base image. The Claude Code CLI's musl variant depends on `libgcc` and `libstdc++`, which its image bundles alongside the binary.
 
-All init image repos follow the same Dockerfile pattern. The agynd binary is pulled as a pre-built artifact from `agynio/agynd-cli` releases. The agent CLI binary is pulled from its upstream release.
+## Binary Delivery
 
-Example for `agent-init-codex`:
+The init containers copy their contents into the `emptyDir`. The copy happens on every Pod start, not once per node, so a large agent CLI is copied again on each cold start and the `emptyDir` occupies node storage for the life of the Pod.
 
-```dockerfile
-# syntax=docker/dockerfile:1
-FROM alpine:3.21
-
-ARG AGYND_VERSION
-ARG AGYN_VERSION
-ARG CODEX_VERSION
-ARG TARGETARCH
-
-RUN mkdir -p /tools/cli
-
-# Download agynd from agynio/agynd-cli releases
-RUN apk add --no-cache curl && \
-    curl -fsSL "https://github.com/agynio/agynd-cli/releases/download/v${AGYND_VERSION}/agynd-linux-${TARGETARCH}" \
-      -o /tools/agynd && \
-    chmod +x /tools/agynd
-
-# Download agyn platform CLI from agynio/agyn-cli releases (placed in cli/ subdirectory)
-RUN curl -fsSL "https://github.com/agynio/agyn-cli/releases/download/v${AGYN_VERSION}/agyn-linux-${TARGETARCH}" \
-      -o /tools/cli/agyn && \
-    chmod +x /tools/cli/agyn
-
-# Download Codex CLI from upstream releases
-RUN case "${TARGETARCH}" in \
-      amd64) ARCH="x86_64" ;; \
-      arm64) ARCH="aarch64" ;; \
-      *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac && \
-    curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${ARCH}-unknown-linux-musl.tar.gz" \
-      | tar -xz -C /tools/ && \
-    mv "/tools/codex-${ARCH}-unknown-linux-musl" /tools/codex && \
-    chmod +x /tools/codex
-
-COPY config.json /tools/config.json
-
-ENTRYPOINT ["cp", "-a", "/tools/.", "/agyn-bin/"]
-```
-
-The `ENTRYPOINT` copies all files from `/tools/` to `/agyn-bin/` (the shared volume mount point). This is the init container's only job.
-
-#### Binary Compatibility
-
-All binaries are statically linked and run on any Linux base image:
-
-| Binary | Build | Static |
-|--------|-------|--------|
-| `agynd` | Go, `CGO_ENABLED=0` | Yes |
-| Codex CLI | Rust, musl target (`codex-x86_64-unknown-linux-musl`) | Yes |
-| Claude Code CLI | Native binary, `linux-x64-musl` variant from Anthropic distribution. Requires `libgcc` and `libstdc++` on Alpine — the init image bundles these alongside the binary | Yes (musl variant; depends on `libgcc`/`libstdc++`) |
-| agn CLI | Go, `CGO_ENABLED=0` | Yes |
-
-#### CI
-
-Each init image repo has its own CI workflow following the platform [CI/CD conventions](operations/ci-cd.md):
-
-- **Trigger:** Push of a `v*.*.*` tag.
-- **Platforms:** `linux/amd64`, `linux/arm64`.
-- **Tags:** `sha-<short>`, `<semver>`, `latest`.
-- **Build args:** `AGYND_VERSION`, `AGYN_VERSION`, and agent CLI version read from `versions.env`.
-
-#### Image Size
-
-| Component | Size (approximate) |
-|-----------|--------------------|
-| `agynd` | ~15 MB |
-| `agyn` | ~10 MB |
-| Codex CLI (musl) | ~30 MB |
-| Claude Code CLI (musl) | ~225 MB |
-| agn CLI | ~15 MB |
-| Alpine base | ~5 MB |
-
-Codex and agn init images are ~60–80 MB compressed; the Claude init image is ~235 MB compressed. Pulled once per node via the Kubernetes image cache.
+A runner may satisfy the same contract by mounting the image contents read-only instead of copying them, where its cluster supports doing so. That is a [runner](runner.md)-side choice: the platform declares which images must be available at which paths, and the runner decides how. Mounting read-only additionally prevents anything in the Pod from replacing `agynd` or the agent CLI while the workload runs, which a writable `emptyDir` does not.
 
 ## Startup Sequence
 
 ```mermaid
 sequenceDiagram
     participant K as Kubernetes
-    participant IC as Init Container
+    participant AD as agynd-cli-init
+    participant AC as agyn-cli-init
+    participant AR as agent-runtime init
     participant ZS as Ziti Sidecar
-    participant MC as Main Container (user image)
+    participant MC as Main Container
     participant GW as Gateway
 
-    K->>IC: Start init container
-    IC->>IC: cp /tools/* → /agyn-bin/
-    IC-->>K: Exit 0
+    K->>AD: Start agynd-cli-init
+    AD->>AD: cp agynd → /agyn-bin
+    AD-->>K: Exit 0
+
+    K->>AC: Start agyn-cli-init
+    AC->>AC: cp agyn → /agyn-bin/cli
+    AC-->>K: Exit 0
+
+    K->>AR: Start agent runtime init container
+    AR->>AR: cp agent CLI, config.json → /agyn-bin
+    AR-->>K: Exit 0
 
     K->>ZS: Start Ziti sidecar container
     ZS->>ZS: Enroll OpenZiti identity (JWT)
-    Note over ZS: Sidecar resolves gateway.ziti/llm-proxy.ziti and intercepts traffic (DNS + TPROXY)
+    Note over ZS: Resolves gateway.ziti / llm-proxy.ziti, intercepts via DNS + TPROXY
 
     K->>MC: Start main container
     Note over MC: command: /agyn-bin/agynd
@@ -238,93 +179,17 @@ sequenceDiagram
     MC->>MC: Begin message sync loop
 ```
 
-## Changes Required
+Two workloads deviate from this sequence:
 
-### Agent Proto
+- **A workspace-only environment** (no agent runtime image) runs the two platform init containers alone. No agent CLI and no `config.json` are present.
+- **A [sandbox](../product/sandboxes/sandboxes.md)** runs a long-lived holder process as its main container rather than `agynd`, whether or not its environment names an agent runtime image. When it does, the agent CLI is on `PATH` for a person to drive by hand; `agynd` is present but not started.
 
-Add `init_image` to the `Agent` message in `agynio/api`:
+## Environment Variable Contract
 
-```protobuf
-message Agent {
-  EntityMeta meta = 1;
-  string name = 2;
-  string role = 3;
-  string model = 4;
-  string description = 5;
-  string configuration = 6;
-  string image = 7;
-  ComputeResources resources = 8;
-  string init_image = 9;  // Agent init image containing agynd + agent CLI
-}
-```
-
-Add `init_image` (field 9) to `CreateAgentRequest` and `UpdateAgentRequest` (optional field 9).
-
-| Field | Purpose | Example |
-|-------|---------|---------|
-| `image` | User's dev container. The main container in the Pod | `ghcr.io/my-org/my-devcontainer:latest` |
-| `init_image` | Platform init image. Contains `agynd` + agent CLI. Runs as init container | `ghcr.io/agynio/agent-init-codex:v1.2.3` |
-
-The Agents service stores `init_image` as an opaque string without validation — same treatment as `image`.
-
-### Runner Proto
-
-Add `init_containers` to `StartWorkloadRequest` in `agynio/api`:
-
-```protobuf
-message StartWorkloadRequest {
-  ContainerSpec main = 1;
-  repeated ContainerSpec sidecars = 2;
-  repeated VolumeSpec volumes = 3;
-  repeated ContainerSpec init_containers = 4;
-  map<string, string> additional_properties = 100;
-}
-```
-
-`init_containers` uses the existing `ContainerSpec` — image, name, cmd, env, mounts. The runner maps them to Kubernetes `pod.Spec.InitContainers`.
-
-### k8s-runner
-
-In `StartWorkload`, build init containers from `req.InitContainers` using the existing `buildContainer` function and place them in `pod.Spec.InitContainers`:
-
-```go
-pod := &corev1.Pod{
-    // ...
-    Spec: corev1.PodSpec{
-        RestartPolicy:  corev1.RestartPolicyNever,
-        InitContainers: initContainers,
-        Containers:     containers,
-        Volumes:        volumes,
-    },
-}
-```
-
-No new types or abstractions. The existing `buildContainer` function handles image, name, cmd, env, and volume mounts — it works for init containers identically.
-
-### Agents Orchestrator
-
-The assembler changes:
-
-1. **Read `init_image`** from the agent definition. Fall back to `DEFAULT_INIT_IMAGE` from orchestrator config if empty.
-2. **Add the `agyn-bin` ephemeral volume** to the workload spec.
-3. **Build the init container** with the init image, mounting `agyn-bin` at `/agyn-bin`.
-4. **Set the main container command** to `/agyn-bin/agynd`.
-5. **Mount `agyn-bin`** in the main container at `/agyn-bin`.
-6. **Replace environment variables:** single `GATEWAY_ADDRESS` instead of `THREADS_ADDRESS` + `NOTIFICATIONS_ADDRESS`. Remove `TEAMS_ADDRESS`.
-7. **Pass `init_containers`** in the `StartWorkloadRequest`.
-
-The orchestrator does not set any binary paths, SDK types, or agent CLI arguments. It treats `init_image` as an opaque image reference.
-
-#### Config Change
-
-Replace `DEFAULT_AGENT_IMAGE` (`DefaultAgentImage`) with `DEFAULT_INIT_IMAGE` (`DefaultInitImage`).
-
-#### Environment Variable Contract
-
-What the orchestrator passes to the main container:
+What the Orchestrator passes to the main container:
 
 | Env Var | Source | Description |
-|---------|--------|-------------|
+|---|---|---|
 | `AGENT_ID` | Agent resource | Agent class UUID |
 | `AGENT_NAME` | Agent resource | Agent name |
 | `AGENT_ROLE` | Agent resource | Agent role label |
@@ -333,28 +198,9 @@ What the orchestrator passes to the main container:
 | `AGENT_INSTANCE_ID` | Reconciler | [Agent instance](agent-instances.md) UUID this workload serves |
 | `WORKLOAD_ID` | Reconciler | Workload UUID for activity keepalives and span attribution |
 | `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.ziti`) |
-| `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs (e.g., `filesystem:8100,github:8101`). See [MCP — Port Allocation](mcp.md#port-allocation) |
+| `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs. See [MCP — Port Allocation](mcp.md#port-allocation) |
 
-**Removed:** `THREADS_ADDRESS`, `NOTIFICATIONS_ADDRESS` (replaced by `GATEWAY_ADDRESS`).
-
-### agynd
-
-1. **Read config:** On startup, read `/agyn-bin/config.json` to determine the SDK type and agent CLI binary path.
-2. **Single Gateway connection:** Replace three separate gRPC connections (`ThreadsAddress`, `NotificationsAddress`, `TeamsAddress`) with a single connection to `GATEWAY_ADDRESS`. All service calls (Threads, Notifications, Agents) go through the Gateway.
-3. **Rename teams → agents:** Import `agynio/api/agents/v1` (via Gateway). Fetch agent config via `GetAgent`, `ListSkills`, `ListInitScripts`, `ListMCPs` at startup. ENVs are not fetched — they are already present in the container environment (injected by the Orchestrator).
-4. **Agent CLI path:** Read from `config.json` `bin` field. The SDK module uses this path to spawn the agent CLI subprocess.
-5. **SDK dispatch:** Based on `sdk` field from `config.json`, select the SDK module (`codex-sdk-go`, `claude-sdk-go`, `agn-sdk-go`) that manages the agent CLI subprocess.
-
-### Architecture Docs
-
-| Document | Update |
-|----------|--------|
-| [Resource Definitions](resource-definitions.md) | Add `init_image` field to Agent table |
-| [Runner](runner.md) | Document init containers in workload model |
-| [k8s-runner](k8s-runner.md) | Add init container mapping to Pod construction section |
-| [agynd-cli](agynd-cli.md) | Update config, single Gateway connection, `/agyn-bin/config.json` |
-| [Agents Orchestrator](agents-orchestrator.md) | Update assembler description, env var contract, `DEFAULT_INIT_IMAGE` |
-| [Open Questions](../open-questions.md) | Resolve "agynd Configuration Strategies per Agent" — strategy is determined by the init image's `config.json` |
+Nothing identifies the agent CLI. `agynd` reads that from `config.json`.
 
 ## Pod Structure
 
@@ -366,18 +212,33 @@ metadata:
   labels:
     agyn.dev/managed-by: agents-orchestrator
     agyn.dev/agent-id: <agent-uuid>
-    agyn.dev/thread-id: <thread-uuid>
 spec:
   restartPolicy: Never
+  automountServiceAccountToken: false
   dnsPolicy: None
   dnsConfig:
     nameservers:
       - 127.0.0.1          # Ziti sidecar DNS
       - <cluster-dns-ip>   # CoreDNS fallback
 
+  imagePullSecrets:
+    - name: workload-<uuid>-pull          # image proxy credential for this workload
+
   initContainers:
-    - name: agent-init
-      image: ghcr.io/agynio/agent-init-codex:v1.2.3  # from agent.init_image
+    - name: agynd-cli-init
+      image: ghcr.io/agynio/agynd-cli-init:<platform-version>   # chart-pinned, not proxied
+      volumeMounts:
+        - name: agyn-bin
+          mountPath: /agyn-bin
+
+    - name: agyn-cli-init
+      image: ghcr.io/agynio/agyn-cli-init:<platform-version>    # chart-pinned, not proxied
+      volumeMounts:
+        - name: agyn-bin
+          mountPath: /agyn-bin
+
+    - name: agent-runtime
+      image: <proxy-host>/<org>/<image-name>:<tag>   # from environment.agent_runtime_image
       volumeMounts:
         - name: agyn-bin
           mountPath: /agyn-bin
@@ -391,12 +252,10 @@ spec:
       env:
         - name: ZITI_ENROLLMENT_JWT
           value: "<jwt>"
-        - name: ZITI_IDENTITY_BASENAME
-          value: "/var/lib/ziti/identity/agent"
 
   containers:
     - name: agent-<short-id>
-      image: ghcr.io/my-org/my-devcontainer:latest     # from agent.image
+      image: <proxy-host>/<org>/<image-name>:<tag>   # from environment.workspace_image
       command: ["/agyn-bin/agynd"]
       env:
         - name: AGENT_ID
@@ -415,8 +274,8 @@ spec:
           mountPath: /agyn-bin
         # ... user volumes
 
-    - name: mcp-<short-id>                              # MCP sidecars (existing pattern)
-      image: ghcr.io/agynio/mcp-filesystem:latest
+    - name: mcp-<short-id>
+      image: <proxy-host>/<org>/<image-name>:<tag>   # from mcp.image
       # ... (only receives its own MCP ENVs — no agent secrets)
 
   volumes:
@@ -425,19 +284,14 @@ spec:
     # ... user volumes
 ```
 
-## Summary of Changes
+Catalog images — the workspace image, the agent runtime image, and each MCP's — are [proxy](image-proxy.md) references. Platform containers are not: `agynd-cli-init`, `agyn-cli-init` and the Ziti sidecar are chart-pinned and pulled directly from a public registry, because the proxy is itself a platform component and cannot serve the containers a workload needs before it is reachable. No **user-configured** image reference reaches a workload as an upstream registry address.
 
-| Component | Repository | Change |
-|-----------|------------|--------|
-| **Agents proto** | `agynio/api` | Add `init_image` field to `Agent`, `CreateAgentRequest`, `UpdateAgentRequest` |
-| **Runner proto** | `agynio/api` | Add `repeated ContainerSpec init_containers` to `StartWorkloadRequest` |
-| **Agents service** | `agynio/agents` | Store and return `init_image` (opaque string) |
-| **k8s-runner** | `agynio/k8s-runner` | Map `init_containers` to `pod.Spec.InitContainers` using existing `buildContainer` |
-| **Orchestrator** | `agynio/agents-orchestrator` | Build init container from `agent.init_image`, add `agyn-bin` volume, set main container command to `/agyn-bin/agynd`, replace `THREADS_ADDRESS` + `NOTIFICATIONS_ADDRESS` with `GATEWAY_ADDRESS` |
-| **Orchestrator config** | `agynio/agents-orchestrator` | Replace `DEFAULT_AGENT_IMAGE` with `DEFAULT_INIT_IMAGE` |
-| **agynd** | `agynio/agynd-cli` | Read `/agyn-bin/config.json` for SDK type and binary path, single `GATEWAY_ADDRESS`, rename teams → agents. Publish agynd binary as a release artifact for init image repos to consume |
-| **agyn** | `agynio/agyn-cli` | Platform CLI available to agents for thread commands and other platform operations. Publish static binary as a release artifact for init image repos to consume |
-| **Init image: Codex** | `agynio/agent-init-codex` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + Codex versions |
-| **Init image: Claude** | `agynio/agent-init-claude` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + Claude versions |
-| **Init image: agn** | `agynio/agent-init-agn` (new) | Dockerfile + `config.json` + `versions.env` pinning agynd + agyn + agn versions |
-| **Architecture docs** | `agynio/architecture` | This document + updates to resource-definitions, runner, k8s-runner, agynd-cli, agents-orchestrator, open-questions |
+## Related Architecture
+
+- [Images (product)](../product/images/images.md)
+- [Image Proxy](image-proxy.md)
+- [Flavors and Environments](../product/environments/environments.md)
+- [Agents Orchestrator](agents-orchestrator.md)
+- [agynd](agynd-cli.md)
+- [agyn CLI](agyn-cli.md)
+- [k8s-runner](k8s-runner.md)

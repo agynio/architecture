@@ -125,7 +125,7 @@ graph TB
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
 | **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans. Captures full LLM call context for observability |
-| **[Agents](agents-service.md)** | Management of agent resources: agents, volumes, MCP servers, skills, hooks, etc. |
+| **[Agents](agents-service.md)** | Management of agent resources: agents, environments, sandboxes, volumes, MCP servers, skills, etc. |
 | **[Runners](runners.md)** | Manages runner registrations and workload runtime state. Central registry of runners (cluster-scoped and org-scoped) and running workloads |
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |

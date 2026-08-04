@@ -57,7 +57,7 @@ The Console displays:
 
 | Gateway Service | Methods | Authorization | Console Section |
 |----------------|---------|---------------|-----------------|
-| `AgentsGateway` | All CRUD for agents and sub-resources | Org owner or cluster admin | Agents, MCPs, Skills, Hooks, ENVs, Init Scripts, Volume Attachments, Volumes |
+| `AgentsGateway` | All CRUD for agents and sub-resources | Org owner or cluster admin | Agents, MCPs, Skills, ENVs, Init Scripts, Volume Attachments, Volumes |
 | `AgentsGateway` | `ListInstances`, `GetInstance`, `PauseInstance`, `ResumeInstance` | Org owner or cluster admin | Instances (Operations) |
 | `ThreadsGateway` | `ListOrganizationThreads`, `GetMessages` | `can_view_threads` on the organization (org owner or cluster admin) | Threads |
 | `UsersGateway` | `GetMe`, `CreateUser`, `GetUser`, `GetUserByOIDCSubject`, `ListUsers`, `UpdateUser`, `DeleteUser`, `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | `GetMe`: any authenticated user. Cluster admin (user CRUD), self (API tokens) | Users |
@@ -65,6 +65,7 @@ The Console displays:
 | `RunnersGateway` | `RegisterRunner`, `GetRunner`, `ListRunners`, `UpdateRunner`, `DeleteRunner`, `ListWorkloads`, `ListWorkloadsByAgentInstance`, `GetWorkload`, `StreamWorkloadLogs`, `ListVolumes`, `ListVolumesByAgentInstance`, `GetVolume` | Runner CRUD: cluster admin (cluster-scoped) or org owner (org-scoped). Workload/volume read and logs: `can_view_workloads` / `can_view_volumes` on the organization (org owner or cluster admin). Instance-scoped workload and storage APIs follow [Authorization](authz.md#runners-service); Thread Detail resolves a thread's agent-instance participants and queries per instance | Runners, Workloads (workload list, detail, and container logs), Provisioned Storage, Threads, Instances |
 | `LLMGateway` | `CreateProvider`, `GetProvider`, `ListProviders`, `UpdateProvider`, `DeleteProvider`, `CreateModel`, `GetModel`, `ListModels`, `UpdateModel`, `DeleteModel` | Org owner or cluster admin | LLM Providers, Models |
 | `SecretsGateway` | `CreateSecretProvider`, `GetSecretProvider`, `ListSecretProviders`, `UpdateSecretProvider`, `DeleteSecretProvider`, `CreateSecret`, `GetSecret`, `ListSecrets`, `UpdateSecret`, `DeleteSecret` | Org owner or cluster admin | Secret Providers, Secrets |
+| `ImagesGateway` | `CreateImage`, `GetImage`, `ListImages`, `UpdateImage`, `DeleteImage`, `ListVersions`, `RefreshImage` | Write: org owner or cluster admin. Read: org member, or any authenticated identity for `public` images | Images, and the version pickers in Environments and MCPs |
 | `AppsGateway` | `CreateApp`, `GetApp`, `GetAppBySlug`, `ListApps`, `UpdateApp`, `DeleteApp`, `InstallApp`, `GetInstallation`, `GetInstallationBySlug`, `ListInstallations`, `UpdateInstallation`, `UninstallApp` | Org owner or cluster admin | Apps (Published Apps, Installed Apps) |
 | `UsersGateway` | `CreateDevice`, `ListDevices`, `DeleteDevice` | Any authenticated user (own devices) | Devices (User Menu) |
 | `UsersGateway` | `GetCLILoginRequest`, `ApproveCLILogin`, `DenyCLILogin` | Any authenticated user (approves for themselves) | CLI Login approval (`/cli-login`) |

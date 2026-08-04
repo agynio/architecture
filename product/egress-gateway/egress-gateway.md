@@ -34,7 +34,7 @@ This is **default-allow at the egress layer.** Rules are the units that opt dest
 
 ### Scope of interception
 
-Egress rules apply to outbound HTTP/HTTPS from **any container in the agent's pod** — the agent itself, MCP sidecars, and hooks. They share the pod's network namespace and therefore share the Ziti sidecar's interception. Operators writing rules for an agent should expect MCP and hook outbound calls to be intercepted the same way the agent's are. There is no per-container scoping in v1.
+Egress rules apply to outbound HTTP/HTTPS from **any container in the agent's pod** — the agent itself and its MCP sidecars. They share the pod's network namespace and therefore share the Ziti sidecar's interception. Operators writing rules for an agent should expect MCP outbound calls to be intercepted the same way the agent's are. There is no per-container scoping in v1.
 
 ### What is never intercepted
 

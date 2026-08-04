@@ -16,7 +16,7 @@ The Console is the platform's management interface for organizations, users, age
 ### Organization Owner
 
 - As an organization owner, I want to see a summary of my organization so I can understand its current state at a glance.
-- As an organization owner, I want to create and configure agents with models, tools, hooks, and environment variables so agents can perform work.
+- As an organization owner, I want to create and configure agents with models, tools, and environment variables so agents can perform work.
 - As an organization owner, I want to set each agent's availability and assign per-agent roles to specific identities so I can control who configures and chats with which agents.
 - As an organization owner, I want to manage LLM providers and models so agents have access to language models.
 - As an organization owner, I want to manage secret providers and secrets so agents can access sensitive credentials.
@@ -85,7 +85,7 @@ The switcher dropdown lists:
 
 - **Organizations** — all organizations where the user is an owner, ordered alphabetically. Cluster admins see every organization on the platform in this list (not only ones they own), since their `admin from cluster` relation grants organization read permissions everywhere. Selecting an organization loads its sections in the sidebar.
 - **Cluster Administration** — visible only to cluster admins. Selecting it loads cluster-level sections in the sidebar.
-- **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow. On success, the new organization appears in the list and the Console switches to it.
+- **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow: display name and [slug](../../architecture/organizations.md#slug) (cluster-wide unique, suggested from the name). On success, the new organization appears in the list and the Console switches to it.
 
 The currently selected context is displayed in the top bar. On load, the Console selects the last-used context (persisted in local storage). If no previous context exists, the Console selects the first organization alphabetically, or Cluster Administration if the user has no organizations but is a cluster admin.
 
@@ -142,9 +142,12 @@ The groups follow the platform's own model: the organization itself, the actors 
 
 | Section | Description |
 |---------|-------------|
-| Environments | Runtime definitions — runner, flavor, image (see [Environments](../environments/environments.md)) |
+| Images | The organization's image catalog (see [Images](#images)) |
+| Environments | Runtime definitions — runner, flavor, images (see [Environments](../environments/environments.md)) |
 | Volumes | Volume declarations (see [Volumes](#volumes)) |
 | Runners | Org-scoped runner management (see [Runners](#runners)) |
+
+Images come first because environments are assembled from them: the group reads as what runs, how it is composed, what it stores, and where it lands.
 
 **Networking** — what work can reach, inbound and outbound. Private Resources and Egress Rules are adjacent deliberately: they are the two sides of one per-destination decision (see [EgressRule interaction](../private-networks/private-networks.md#egressrule-interaction)).
 
@@ -167,7 +170,8 @@ The groups follow the platform's own model: the organization itself, the actors 
 |---------|-------------|
 | Secrets | Secret CRUD (see [Secret Providers and Secrets](#secret-providers-and-secrets)) |
 | Secret Providers | Secret provider CRUD (see [Secret Providers and Secrets](#secret-providers-and-secrets)) |
-| Image Pull Secrets | Image pull secret CRUD (see [Image Pull Secrets](#image-pull-secrets)) |
+
+Registry credentials are not here. They are a property of an [image](#images) and are edited on it — a credential that exists only to read one repository is an ingredient of that image, not a standalone thing to attach.
 
 **Operations** — what actually ran. Ordered down the runtime hierarchy — thread → instance → workload — then storage and consumption.
 
@@ -281,22 +285,34 @@ Groups are also reachable as an inline "Create group" affordance in the [private
 
 **Agent detail** — full agent configuration with inline sub-resource management:
 
-- **Configuration** — name, model (selector from organization's models), image, init image, idle timeout, compute resources, runner labels, availability (selector: `internal` or `private` — the create form prefills `internal`), agent behavioral configuration (JSON editor). The API has no default for availability — the create form always submits an explicit value.
+- **Configuration** — name, model (selector from organization's models), environment (selector; required — only environments with an agent runtime image are offered), idle timeout, availability (selector: `internal` or `private` — the create form prefills `internal`), agent behavioral configuration (JSON editor). The API has no default for availability — the create form always submits an explicit value. Images and compute come from the environment and are shown read-only with a link to it.
 - **Roles** — list of identities with a role on this agent. Columns: identity (resolved name), role (`owner` / `maintainer` / `participant`). Actions: Add role (search the organization's members by name or `@nickname`, pick a role), Change role (inline), Remove role. The agent's creator is automatically granted `owner` at creation. Role assignment is restricted to identities that are members of the agent's organization — the search returns only org members. Organization owners hold owner-level capabilities on every agent and do not need an explicit role.
-- **MCPs** — list of MCP server definitions. Each MCP shows its image, command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
+- **MCPs** — list of MCP server definitions. Each MCP shows its image (name and tag, from the [image catalog](#images)), command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Delete.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
-- **Hooks** — list of event-driven functions. Each hook shows its event trigger, entrypoint, image, compute resources, and its own ENVs and init scripts. Each hook has a Manage menu with: Edit, Environment Variables, Init Scripts, Image Pull Secrets, Delete.
 - **ENVs** — environment variables attached directly to the agent. Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
 - **Init Scripts** — shell scripts attached directly to the agent.
 - **Volume Attachments** — volumes mounted on the agent container. Select from organization's volumes.
-- **Image Pull Secrets** — image pull secrets attached to the agent container. Select from organization's image pull secrets.
 - **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their domain pattern and effect summary, each with a Detach button. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
+
+### Images
+
+The organization's [image catalog](../images/images.md) — the images environments and MCPs are built from. See [Images](../images/images.md) for the product behavior.
+
+**Image list** — table of images available to the organization: its own, plus every `public` image on the platform. Columns: name, type (`workspace`, `agent runtime`, or `mcp`), owning organization, visibility, latest version, created date. Images owned by another organization are marked and are read-only. Default sort: creation time, newest first.
+
+**Image detail** — name, type, repository, visibility, description, credential (username; the password is write-only), and the discovered version list. Versions show tag, pushed date, and description; a stale image shows when discovery last succeeded. Actions: update name/description/credential/visibility/tag filter, refresh versions, delete. Repository and type are shown but cannot be changed.
+
+**Register image** — name (required), type (required), repository (required), visibility (required), description, tag filter, and optionally a username and password. The repository is read before the record is stored, so a wrong address or credential fails here rather than at workload start.
+
+**Version picker** — used wherever an image is selected (environment create/edit, MCP create/edit). Filters by the type the slot requires, lists semver tags newest-first with the newest preselected, hides other tags behind **show all tags**, and accepts a typed tag for anyone who knows exactly what they want. Each row shows its pushed date and description.
+
+**Delete image** — requires confirmation, and warns that environments and MCPs referencing it will become unschedulable. It is not blocked by references; see [Images Service — Deletion](../../architecture/images-service.md#deletion).
 
 ### Volumes
 
 Organization-level volume *declarations*, owned by the [Agents service](../../architecture/agents-service.md). A declaration is what the operator authors; the volume actually provisioned on a runner is a separate resource shown under [Provisioned Storage](#provisioned-storage).
 
-**Volume list** — table of volumes in the organization. Columns: name, size, attachment target (agent, MCP, or hook — or "unattached"), created date. Default sort: creation time, newest first.
+**Volume list** — table of volumes in the organization. Columns: name, size, attachment target (agent or MCP — or "unattached"), created date. Default sort: creation time, newest first.
 
 **Volume detail** — name, size, mount path. Shows current attachment (if any) with a link to the parent resource.
 
@@ -379,23 +395,6 @@ Apps created and owned by this organization. These apps can be installed by othe
 **Secret list** — table of secrets. Columns: name, provider name, created date.
 
 **Secret detail** — provider reference, remote name. Shows which ENVs reference this secret.
-
-### Image Pull Secrets
-
-Registry credentials for pulling container images from private registries. Attached to agents, MCPs, and hooks via image pull secret attachments.
-
-**Image pull secret list** — table of image pull secrets in the organization. Columns: registry, username, description, created date. Default sort: creation time, newest first.
-
-**Create image pull secret** — registry (required), username (required), description (optional), password/token source: inline value or remote provider reference (provider selector + remote reference).
-
-**Delete image pull secret** — requires confirmation. Detaches from all agents, MCPs, and hooks.
-
-#### MCP and Hook Image Pull Secret Attachments
-
-Image pull secrets are attached to MCPs and hooks via the Manage menu on each row in the agent detail page. Selecting "Image Pull Secrets" opens a dialog showing:
-
-- A select dropdown listing available org image pull secrets (excluding already-attached ones) with an inline "Attach" button — no nested dialog.
-- A list of currently attached secrets (registry + username) each with a "Detach" button.
 
 ### Private Networks
 
@@ -583,12 +582,12 @@ Real-time view of persistent volumes provisioned on runners across the organizat
 | Name | Volume name (link to volume detail) |
 | Size | Provisioned size |
 | Used | Current usage |
-| Attached to | Resources holding the volume (agent, MCP, or hook — or "unattached"). Rendered by name. If the volume is mounted by more than one container, the column shows the primary attachment's name followed by `+N more`; the volume detail lists every attachment |
+| Attached to | Resources holding the volume (agent or MCP — or "unattached"). Rendered by name. If the volume is mounted by more than one container, the column shows the primary attachment's name followed by `+N more`; the volume detail lists every attachment |
 | Status | Volume status (`provisioning`, `active`, `deprovisioning`, `deleted`, `failed`) |
 
 Default sort: name. Sortable columns: Name, Size, Status, Created.
 
-**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `hook`, `unattached`). The Attached-to-kind filter returns volumes with at least one attachment of the selected kind.
+**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `unattached`). The Attached-to-kind filter returns volumes with at least one attachment of the selected kind.
 
 **Search** — substring match on volume name, case-insensitive.
 

@@ -133,7 +133,7 @@ sequenceDiagram
 
 ## Resource Definition
 
-MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource specifies the container image, startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and volumes are attached via their respective sub-resources.
+MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource references an [Image](resource-definitions.md#image) and a tag, a startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and volumes are attached via their respective sub-resources.
 
 ## Open Questions
 

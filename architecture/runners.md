@@ -237,7 +237,7 @@ Same sort/filter/pagination envelope as `ListWorkloads`. Filters:
 | `organization_id` | string (UUID) | Yes | Authorization scope. Caller must hold `can_view_volumes` on this organization |
 | `filter.status_in` | list<Volume.Status> | No | Return only volumes in these statuses |
 | `filter.runner_id_in` | list<string (UUID)> | No | Return only volumes provisioned on these runners |
-| `filter.attached_to_kind_in` | list<enum> | No | `agent`, `mcp`, `hook`, or `unattached` |
+| `filter.attached_to_kind_in` | list<enum> | No | `agent`, `mcp`, or `unattached` |
 | `filter.owner_kind_in` | list<enum> | No | Return only volumes owned by these owner kinds (`agent_instance`, `sandbox`) |
 | `filter.owner_id_in` | list<string (UUID)> | No | Return only volumes for these agent instance or sandbox owners (OR across ids) |
 | `filter.pending_sample` | bool | No | Metering sampler only. Not exposed through the Gateway |
@@ -250,7 +250,7 @@ Response items include the [Volume Resource](#volume-resource) fields plus:
 |-------|------|-------------|
 | `volume_name` | string, nullable | Current name of the [Agents service Volume](resource-definitions.md#volume) at `volume_id`. NULL for sandbox workspace volumes because they are runtime-only and have no Agents service Volume definition |
 | `owner_name` | string, nullable | Display name for the runtime owner when available, such as the sandbox name for `owner_kind=sandbox` |
-| `attachments` | list<Attachment> | All containers currently mounting this provisioned volume — multiple if a single PVC is mounted by agent + MCP + hook in the same pod. Each `Attachment` has `kind` (`agent` / `mcp` / `hook`), `id`, and `name`. Empty when unattached |
+| `attachments` | list<Attachment> | All containers currently mounting this provisioned volume — multiple if a single PVC is mounted by agent + MCP in the same pod. Each `Attachment` has `kind` (`agent` / `mcp`), `id`, and `name`. Empty when unattached |
 
 The Runners service resolves `volume_name`, `owner_name`, and each attachment's `name` via batch lookups against the [Agents service](agents-service.md) when assembling the response. `volume_id`, `owner_kind`, `owner_id`, and each `attachments[].id` remain in the response for stable linking.
 

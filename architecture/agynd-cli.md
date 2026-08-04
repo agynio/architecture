@@ -61,7 +61,7 @@ All user-defined environment variables — both plain-text values and resolved s
 
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
 
-The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the init image's `config.json` specifies which SDK module `agynd` uses.
+The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the agent runtime image's `config.json` specifies which SDK module `agynd` uses. `agynd` itself ships with the platform and is injected by the `agynd-cli-init` container, so every workload runs the build matching the platform it is talking to.
 
 #### LLM Endpoint Configuration
 

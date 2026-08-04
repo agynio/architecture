@@ -2,7 +2,7 @@
 
 Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor) and [Storage Classes](#storage-class), which are reported by runners and stored in the [Runners](runners.md#runner-catalog) service as part of the runner's catalog. Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor) and [Storage Classes](#storage-class), which are reported by runners and stored in the [Runners](runners.md#runner-catalog) service as part of the runner's catalog, and [Images](#image) and [Image Versions](#image-version), which are owned by the [Images](images-service.md) service. Agents, Environments, Sandboxes, Volumes, and Images are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 All resources share a common envelope:
 
@@ -25,33 +25,26 @@ erDiagram
     Agent }o--|| Environment : "environment_id"
     Sandbox }o--|| Environment : "environment_id"
     Environment }o--|| Runner : "runner_id"
+    Environment }o--|| Image : "workspace_image_id"
+    Environment }o--o| Image : "agent_runtime_image_id"
+    MCP }o--|| Image : "image_id"
+    Image ||--o{ ImageVersion : "discovered"
     Flavor }o--|| Runner : "reported catalog entry"
     StorageClass }o--|| Runner : "reported catalog entry"
 
     Environment ||--o{ ENV : "environment_id"
-    Environment ||--o{ ImagePullSecretAttachment : "environment_id"
 
     Agent ||--o{ MCP : "agent_id"
     Agent ||--o{ Skill : "agent_id"
-    Agent ||--o{ Hook : "agent_id"
     Agent ||--o{ ENV : "agent_id"
     Agent ||--o{ InitScript : "agent_id"
     Agent ||--o{ VolumeAttachment : "agent_id"
-    Agent ||--o{ ImagePullSecretAttachment : "agent_id"
 
     Volume ||--o{ VolumeAttachment : "volume_id"
-
-    ImagePullSecret ||--o{ ImagePullSecretAttachment : "image_pull_secret_id"
 
     MCP ||--o{ ENV : "mcp_id"
     MCP ||--o{ InitScript : "mcp_id"
     MCP ||--o{ VolumeAttachment : "mcp_id"
-    MCP ||--o{ ImagePullSecretAttachment : "mcp_id"
-
-    Hook ||--o{ ENV : "hook_id"
-    Hook ||--o{ InitScript : "hook_id"
-    Hook ||--o{ VolumeAttachment : "hook_id"
-    Hook ||--o{ ImagePullSecretAttachment : "hook_id"
 
     Secret ||--o{ ENV : "secret_id"
 ```
@@ -69,8 +62,7 @@ An agent definition that determines how an agent workload behaves when processin
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
-| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the container image, the runner, and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources. See [Runner Selection](runners.md#runner-selection) |
-| `init_image` | string | | Platform init image reference (e.g., `ghcr.io/agynio/agent-init-codex:v1.0.0`). Contains agynd + agent CLI. Runs as init container |
+| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the workspace image, the agent runtime image, the runner, and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources. Must name an environment that has an agent runtime image; an agent has no agent CLI otherwise. See [Runner Selection](runners.md#runner-selection) |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
 | `instance_idle_ttl` | duration string | `"720h"` (30 days) | How long an [agent instance](agent-instances.md) can go without new inbox items before the Agents service transitions it `active → paused`. Distinct from `idle_timeout`, which stops workloads (seconds-to-minutes scale); this pauses the instance itself (days scale). Format: Go-style duration; minimum `1h`. Read live — changing the value applies to all existing instances of the class on the next [idle GC](agents-service.md#idle-gc) tick |
 | `default_thread` | enum | `origin` | `origin` or `none`. Whether an instance created from a thread takes that thread as its [`default_thread_id`](agent-instances.md#default-thread). `origin` — the joining thread is assigned automatically, so every instance has a fallback destination. `none` — instances start with no default; every send names its thread, and `final_message` has nowhere to post. Governs the automatic path only — `agyn agents instantiate --default-thread` and [`SetInstanceDefaultThread`](agents-service.md#agent-instance-api) are deliberate acts and still apply. See [Agent Instances — Default thread](agent-instances.md#default-thread) |
@@ -113,18 +105,61 @@ Visibility and lifecycle follow the same rules as flavors. Already-provisioned v
 
 ---
 
+## Image
+
+An organization-scoped record naming an upstream container repository and the credential to read it. The only resource in the platform that holds a registry address. Managed by the [Images](images-service.md) service. See [Images](../product/images/images.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | Image name. Unique within the organization. Max 64 chars, pattern: `^[a-z0-9-]+$` |
+| `type` | enum | | `workspace`, `agent_runtime`, or `mcp`. Which slot in a workload the image is built for. Immutable |
+| `repository` | string | | Upstream repository (e.g., `ghcr.io/agynio/devcontainer-go`). Immutable — changing it would silently redefine every environment referencing the record |
+| `username` | string | `null` | Registry username. `null` for anonymously readable repositories |
+| `secret_id` | string (UUID) | `null` | Reference to a [Secret](providers.md#secret) holding the registry password |
+| `visibility` | enum | | `public` or `internal`. `internal` is readable by the owning organization; `public` by any authenticated identity. Same values and meanings as [App visibility](apps.md#visibility) |
+| `tag_filter` | string | `null` | Optional pattern limiting which tags appear in pickers |
+| `stale_since` | timestamp \| null | `null` | Set when discovery cannot reach the repository. Stored versions continue to be served |
+
+Deleting an image is permitted regardless of references — see [Images Service — Deletion](images-service.md#deletion).
+
+---
+
+## Image Version
+
+A tag observed in an [Image](#image)'s upstream repository. **Discovered, never authored**: there is no create, update, or delete API. Owned by the [Images](images-service.md) service.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `image_id` | string (UUID) | | Owning image |
+| `tag` | string | | The tag as it appears upstream |
+| `pushed_at` | timestamp | | Read from the upstream manifest |
+| `description` | string | `null` | The image's `org.opencontainers.image.description`, when declared |
+| `state` | enum | `present` | `present` or `gone`. A tag no longer listed upstream is marked `gone` rather than deleted, so references to it can be reported instead of dangling |
+| `discovered_at` | timestamp | | First time the platform observed this tag |
+
+Digests are not recorded. A reference names a tag and the tag is resolved at each workload start, so repointing a tag upstream changes what runs — see [Images — Versions Are Discovered](../product/images/images.md#versions-are-discovered).
+
+---
+
 ## Environment
 
-An organization-scoped runtime definition: a runner, a flavor name on that runner, and one container image. Agents and [Sandboxes](#sandbox) run in environments. Managed by the [Agents](agents-service.md) service. See [Flavors and Environments](../product/environments/environments.md).
+An organization-scoped runtime definition: a runner, a flavor name on that runner, and the images a workload runs. Agents and [Sandboxes](#sandbox) run in environments. Managed by the [Agents](agents-service.md) service. See [Flavors and Environments](../product/environments/environments.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | | Environment name. Unique within the organization. Max 64 chars, pattern: `^[a-z0-9-]+$` |
 | `runner_id` | string (UUID) | | Reference to the [Runner](runners.md#runner-resource) workloads run on. The runner must be visible to the organization (cluster-scoped, or org-scoped to the same org) — validated on create/update. Fully determines placement |
 | `flavor` | string | `null` | Name of a [Flavor](#flavor) in the runner's catalog. Late-bound: not validated on create/update (Console and CLI warn when the name is not currently reported); resolved at workload start, and unresolvable names leave the environment unschedulable. `null` resolves to the runner's `default` flavor at each workload start |
-| `image` | string | | Container image for the main container (e.g., `ghcr.io/agynio/agent:latest`) |
+| `workspace_image_id` | string (UUID) | | Reference to an [Image](#image) of type `workspace`. Runs as the workload's main container |
+| `workspace_image_tag` | string | | Tag within that image. Validated against the image's discovered [versions](#image-version) on write; resolved again at each workload start |
+| `agent_runtime_image_id` | string (UUID) | `null` | Reference to an [Image](#image) of type `agent_runtime`. Runs as an init container and supplies the agent CLI. `null` means a workspace-only environment — usable by [sandboxes](#sandbox), rejected by `CreateAgent` |
+| `agent_runtime_image_tag` | string | `null` | Tag within that image. Same validation and resolution as the workspace tag |
 
-Environments are an attachment target: [ENV](#env) variables, [ImagePullSecretAttachments](#image-pull-secret-attachment), and [EgressRuleAttachments](#egress-rule-attachment) may target an environment, applying to every workload (agent or sandbox) running it. An environment referenced by any agent or sandbox cannot be deleted.
+Environments hold no registry addresses. Both references resolve through the [Images](images-service.md) service, and the [Agents Orchestrator](agents-orchestrator.md) rewrites them to [image proxy](image-proxy.md) references at workload assembly.
+
+Environments are an attachment target: [ENV](#env) variables and [EgressRuleAttachments](#egress-rule-attachment) may target an environment, applying to every workload (agent or sandbox) running it. An environment referenced by any agent or sandbox cannot be deleted.
+
+An environment naming an image that was deleted, whose tag is `gone` upstream, or whose visibility no longer reaches the organization becomes **unschedulable and is flagged** — the same treatment as an unresolvable flavor name.
 
 ---
 
@@ -164,38 +199,17 @@ A volume definition. Volumes exist independently of agents. A volume is mounted 
 
 ## Volume Attachment
 
-A relationship between a [Volume](#volume) and a target container — an [Agent](#agent), [MCP](#mcp), or [Hook](#hook). Volumes are reusable infrastructure that may outlive any single agent and can be remounted when a resource is replaced.
+A relationship between a [Volume](#volume) and a target container — an [Agent](#agent) or [MCP](#mcp). Volumes are reusable infrastructure that may outlive any single agent and can be remounted when a resource is replaced.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique identifier |
 | `volume_id` | string (UUID) | Reference to a Volume resource |
-| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
-| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
-| `hook_id` | string (UUID) | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` |
+| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` |
 | `created_at` | timestamp | Creation time |
 
-Exactly one of `agent_id`, `mcp_id`, or `hook_id` is set. Volume attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same volume_id + target) are rejected.
-
----
-
-## Image Pull Secret Attachment
-
-A relationship between an [Image Pull Secret](providers.md#image-pull-secret) and a target — an [Agent](#agent), [MCP](#mcp), [Hook](#hook), or [Environment](#environment). Image pull secrets are org-scoped resources managed by the [Secrets](secrets.md) service. The attachment lives in the [Agents](agents-service.md) service.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string (UUID) | Unique identifier |
-| `image_pull_secret_id` | string (UUID) | Reference to an Image Pull Secret resource in the Secrets service |
-| `agent_id` | string (UUID) | Target agent. Mutually exclusive with the other targets |
-| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with the other targets |
-| `hook_id` | string (UUID) | Target hook. Mutually exclusive with the other targets |
-| `environment_id` | string (UUID) | Target environment — credentials for pulling the environment's image. Mutually exclusive with the other targets |
-| `created_at` | timestamp | Creation time |
-
-Exactly one of `agent_id`, `mcp_id`, `hook_id`, or `environment_id` is set. Image pull secret attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same image_pull_secret_id + target) are rejected.
-
-At workload assembly time, the [Agents Orchestrator](agents-orchestrator.md) collects all image pull secret attachments across the environment, the agent, and its MCPs and hooks. If two attachments reference image pull secrets with the same `registry` hostname but different credentials, the orchestrator rejects the workload with an error.
+Exactly one of `agent_id` or `mcp_id` is set. Volume attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same volume_id + target) are rejected.
 
 ---
 
@@ -207,11 +221,12 @@ An MCP (Model Context Protocol) server definition. Runs as a sidecar container i
 |-------|------|---------|-------------|
 | `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this MCP server belongs to |
 | `name` | string | | MCP server name. Unique within agent. Max 63 characters, pattern: `^[a-z][a-z0-9_]{0,62}$`. Used as the server key in agent CLI MCP configuration and as the tool namespace prefix |
-| `image` | string | | Container image for the MCP sidecar (e.g., `ghcr.io/agynio/mcp-filesystem:latest`) |
+| `image_id` | string (UUID) | | Reference to an [Image](#image) of type `mcp` or `workspace`. A purpose-built MCP server image and a devcontainer are both legitimate ways to host one |
+| `image_tag` | string | | Tag within that image. Validated against discovered [versions](#image-version) on write; resolved again at each workload start |
 | `command` | string | | Startup command executed inside the container |
 | `resources` | object | | Compute resources for the sidecar container (see [Compute Resources](#compute-resources)) |
 
-Environment variables, initialization scripts, volumes, and image pull secrets for an MCP server are [ENV](#env), [InitScript](#initscript), [VolumeAttachment](#volume-attachment), and [ImagePullSecretAttachment](#image-pull-secret-attachment) resources that reference this MCP by `mcp_id`.
+Environment variables, initialization scripts, and volumes for an MCP server are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this MCP by `mcp_id`.
 
 ---
 
@@ -237,51 +252,33 @@ Different runners may implement the same capability name differently depending o
 
 ---
 
-## Hook
-
-An event-driven function that runs in response to agent lifecycle events. Hooks run as sidecar containers inside the agent pod, sharing the network namespace. The platform triggers them when the specified event occurs.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this hook belongs to |
-| `event` | string | | Lifecycle event that triggers this hook. Event names are agent implementation-specific |
-| `function` | string | | Entrypoint command executed inside the container |
-| `image` | string | | Container image for the hook execution environment |
-| `resources` | object | | Compute resources for the hook container (see [Compute Resources](#compute-resources)) |
-
-Environment variables, initialization scripts, volumes, and image pull secrets for a hook are [ENV](#env), [InitScript](#initscript), [VolumeAttachment](#volume-attachment), and [ImagePullSecretAttachment](#image-pull-secret-attachment) resources that reference this hook by `hook_id`.
-
----
-
 ## ENV
 
-An environment variable injected into a container. Each ENV belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), a [Hook](#hook), or an [Environment](#environment) — identified by the corresponding foreign key.
+An environment variable injected into a container. Each ENV belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or an [Environment](#environment) — identified by the corresponding foreign key.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `agent_id` | string (UUID) | | Target agent. Mutually exclusive with the other targets |
 | `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with the other targets |
-| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with the other targets |
 | `environment_id` | string (UUID) | | Target environment. Injected into the main container of every workload (agent or sandbox) running the environment. Mutually exclusive with the other targets |
 | `name` | string | | Environment variable name (e.g., `"API_KEY"`) |
 | `value` | string | | Plain-text value. Mutually exclusive with `secret_id` |
 | `secret_id` | string (UUID) | | Reference to a [Secret](providers.md#secret) resource. Mutually exclusive with `value` |
 
-Exactly one of `agent_id`, `mcp_id`, `hook_id`, or `environment_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container. When an agent-level and an environment-level ENV share the same `name`, the agent-level value wins.
+Exactly one of `agent_id`, `mcp_id`, or `environment_id` is set (the target). Exactly one of `value` or `secret_id` is set (the source). When `secret_id` is set, the platform resolves the secret value at runtime before injecting it into the container. When an agent-level and an environment-level ENV share the same `name`, the agent-level value wins.
 
 ---
 
 ## InitScript
 
-A named shell script executed by [`agynd`](agynd-cli.md) during container initialization, before the agent CLI is spawned. Each InitScript belongs to exactly one target — an [Agent](#agent), an [MCP](#mcp), or a [Hook](#hook).
+A named shell script executed by [`agynd`](agynd-cli.md) during container initialization, before the agent CLI is spawned. Each InitScript belongs to exactly one target — an [Agent](#agent) or an [MCP](#mcp).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | string (UUID) | | Unique identifier |
 | `name` | string | | Human-readable name for visibility in logs and the Console |
-| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` and `hook_id` |
-| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` and `hook_id` |
-| `hook_id` | string (UUID) | | Target hook. Mutually exclusive with `agent_id` and `mcp_id` |
+| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` |
+| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` |
 | `script` | string | | Shell script content |
 
 When multiple init scripts target the same resource, they execute in creation order. Each script runs in its own shell invocation using the container's default shell. If a script exits with a non-zero code, the failure is printed to stderr and execution continues with the next script.
@@ -291,12 +288,6 @@ When multiple init scripts target the same resource, they execute in creation or
 ## Secret
 
 A sensitive value with local or remote storage. Managed by the [Secrets](secrets.md) service. Referenced by [ENV](#env) resources via `secret_id`. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
-
----
-
-## Image Pull Secret
-
-Registry credentials for pulling container images from private registries. Managed by the [Secrets](secrets.md) service. Attached to agents, MCPs, and hooks via [ImagePullSecretAttachment](#image-pull-secret-attachment). See [Providers, Models, and Secrets](providers.md#image-pull-secret) for the resource definition.
 
 ---
 
@@ -490,7 +481,7 @@ Memberships are immutable — create and delete only. Unique on `(group_id, memb
 
 ## Compute Resources
 
-Kubernetes-style container resource requests and limits. Used by [Flavor](#flavor), [MCP](#mcp), and [Hook](#hook). Agents no longer carry compute resources directly — they come from the agent's [Environment](#environment) via its flavor.
+Kubernetes-style container resource requests and limits. Used by [Flavor](#flavor) and [MCP](#mcp). Agents no longer carry compute resources directly — they come from the agent's [Environment](#environment) via its flavor.
 
 | Field | Type | Description |
 |-------|------|-------------|

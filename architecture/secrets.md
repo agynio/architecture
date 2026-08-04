@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Secrets service manages secret providers, secrets, and image pull secrets as internal resources. It provides CRUD operations for all three and a resolution endpoint that retrieves the actual secret value — either from the local encrypted store or from an external provider.
+The Secrets service manages secret providers and secrets as internal resources. It provides CRUD operations for both and a resolution endpoint that retrieves the actual secret value — either from the local encrypted store or from an external provider.
 
 ## Responsibilities
 
@@ -10,10 +10,8 @@ The Secrets service manages secret providers, secrets, and image pull secrets as
 |---------------|-------------|
 | **Secret Provider CRUD** | Create, read, update, delete secret provider resources |
 | **Secret CRUD** | Create, read, update, delete secret resources. Delete is rejected if the secret is referenced by an active [EgressRule.effect.inject](resource-definitions.md#egress-rule) |
-| **Image Pull Secret CRUD** | Create, read, update, delete image pull secret resources |
 | **Secret Resolution** | Resolve a secret ID to its actual value (local decryption or remote fetch) |
 | **Secret Existence Check** | `ResolveSecretExists(secret_id)` — verify a secret exists, used to validate a `secret_id` reference before it is persisted |
-| **Image Pull Secret Resolution** | Resolve an image pull secret ID to registry, username, and password (local decryption or remote fetch for the password) |
 
 ## Classification
 
@@ -21,12 +19,12 @@ The Secrets service is a **data plane** service — it is called at runtime to r
 
 ## Value Storage Model
 
-Secrets and image pull secrets use the same dual storage model for sensitive values:
+Secrets use a dual storage model for sensitive values:
 
 - **Local:** The value is stored directly in the Secrets service database, encrypted at rest. The encryption key is a symmetric key stored in a Kubernetes Secret and mounted into the Secrets service pod at startup.
 - **Remote:** The value is a reference to an external secret provider (e.g., Vault). The Secrets service resolves the value from the provider at runtime.
 
-See [Providers, Models, and Secrets — Secret](providers.md#secret) and [Providers, Models, and Secrets — Image Pull Secret](providers.md#image-pull-secret) for resource definitions.
+See [Providers, Models, and Secrets — Secret](providers.md#secret) for the resource definition. Registry credentials are ordinary secrets referenced by an [Image](resource-definitions.md#image); the Secrets service has no separate image pull secret resource.
 
 ### Encryption Key
 
@@ -57,41 +55,16 @@ sequenceDiagram
 
 For remote Vault secrets, `value_reference` is a composite key (`<mount>/<path>/<key>`). The service parses it and calls the Vault KV v2 API to read the specific key.
 
-## Image Pull Secret Resolution
-
-Given an image pull secret ID, the service resolves the full credential:
-
-```mermaid
-sequenceDiagram
-    participant C as Caller
-    participant S as Secrets Service
-    participant P as Secret Provider<br/>(external)
-
-    C->>S: Resolve image pull secret (ID)
-    S->>S: Look up image pull secret
-    S->>S: Read registry + username (plain text)
-    alt Local storage (value is set)
-        S->>S: Decrypt password value
-    else Remote storage (value_provider_id + value_reference)
-        S->>S: Look up secret provider config
-        S->>P: Fetch password value (value_reference)
-        P-->>S: Password value
-    end
-    S-->>C: registry, username, password
-```
-
-The caller receives the full credential triple needed to construct a Docker registry authentication entry.
-
 ## Authorization
 
 All secret resources are org-scoped. Resolution calls are split between an internal path (trusted) and the Gateway-exposed path (authorized).
 
 | Operation | Check |
 |-----------|-------|
-| Create, Update, Delete (providers, secrets, image pull secrets) | `owner` on `organization:<org_id>` |
-| Get, List (providers, secrets, image pull secrets) | `member` on `organization:<org_id>` |
+| Create, Update, Delete (providers, secrets) | `owner` on `organization:<org_id>` |
+| Get, List (providers, secrets) | `member` on `organization:<org_id>` |
 | `ResolveSecretValue` (via Gateway) | `admin` on `cluster:global` |
-| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only — via Istio, no OpenFGA check |
+| `ResolveSecretValue` (internal) | Internal only — via Istio, no OpenFGA check |
 | `ResolveSecretExists` (internal) | Internal only — via Istio, no OpenFGA check |
 
 ### Referential Integrity with EgressRules
@@ -109,7 +82,3 @@ CRUD operations for secret provider resources. See [Providers, Models, and Secre
 ## Secret Management
 
 CRUD operations for secret resources. See [Providers, Models, and Secrets](providers.md#secret) for the resource definition.
-
-## Image Pull Secret Management
-
-CRUD operations for image pull secret resources. See [Providers, Models, and Secrets](providers.md#image-pull-secret) for the resource definition.

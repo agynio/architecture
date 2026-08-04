@@ -12,9 +12,23 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 |-------|------|-------------|
 | `id` | string (UUID) | Unique organization identifier |
 | `name` | string | Display name |
+| `slug` | string | Cluster-wide unique short name. Max 64 chars, pattern: `^[a-z0-9-]+$`. See [Slug](#slug) |
 | `sandbox_default_idle_timeout` | duration string | Default idle timeout snapshotted onto newly created sandboxes. Platform-bounded; default `30m` |
 | `sandbox_default_ttl` | duration string | Default hard lifetime snapshotted onto newly created sandboxes. Platform-bounded; default `72h`, maximum `336h` |
 | `created_at` | timestamp | Creation time |
+
+## Slug
+
+Organizations carry a **cluster-wide unique** slug alongside their display name. Uniqueness is cluster-wide rather than per-anything, because the slug appears in identifiers that must resolve without an organization already in context:
+
+| Consumer | Use |
+|---|---|
+| [Apps](apps.md#identification) | An app's globally unique address is `{org-slug}/{app-slug}` |
+| [Image Proxy](image-proxy.md#reference-rewriting) | An image reference is `<proxy-host>/<org-slug>/<image-name>:<tag>` |
+
+The slug is mutable — renaming an organization is a legitimate operation — but a rename is visible: app addresses change, and image references change, which costs a one-time container-image cache miss per node since references are re-resolved at every workload start. Nothing breaks, because neither consumer stores a resolved reference.
+
+Because slugs are cluster-wide and reusable, a released slug can be claimed by another organization. Anything that stored an app address as text rather than an ID would then resolve somewhere else. Addresses are for humans and CLI input; stored references use IDs.
 
 ## Sandbox Settings
 
@@ -184,7 +198,8 @@ Org-scoped resources belong to an organization. They have an `organization_id` f
 | Service | Resources | Notes |
 |---------|-----------|-------|
 | [Agents](agents-service.md) | Agents, Environments, Sandboxes, Volumes | Direct `organization_id` on the resource |
-| [Agents](agents-service.md) | MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent, MCP, or hook). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
+| [Images](images-service.md) | Images | Direct `organization_id`. `public` images are additionally readable by every organization — see [Images Service — Visibility](images-service.md#visibility) |
+| [Agents](agents-service.md) | MCPs, Skills, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent or MCP). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
 | [LLM](llm.md) | LLM Providers, Models | `organization_id` on the resource |
 | [Secrets](secrets.md) | Secret Providers, Secrets | `organization_id` on the resource |
 | [Chat](chat.md) | Chats | `organization_id` for listing chats within an organization. The underlying [thread](threads.md) is independent |

@@ -18,7 +18,7 @@ This document describes the **Egress Gateway** data-plane service. The control-p
 | Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by the workload-namespace NetworkPolicy installed with the [k8s-runner](k8s-runner.md#workload-egress-networkpolicy) | Cluster network policy |
 | Pod-local (`localhost`, MCP sidecars on loopback) | Never leaves the pod | — |
 
-Egress rules apply to traffic from any container in the agent's pod (agent, MCP sidecars, hooks) because they share the pod network namespace. There is no per-container scoping in v1.
+Egress rules apply to traffic from any container in the agent's pod (agent, MCP sidecars) because they share the pod network namespace. There is no per-container scoping in v1.
 
 ## Responsibilities
 
@@ -283,7 +283,7 @@ At workload assembly:
    }
    ```
 
-3. It sets the standard CA-trust env vars on every container (agent, MCP sidecars, hooks):
+3. It sets the standard CA-trust env vars on every container (agent, MCP sidecars):
 
    ```
    SSL_CERT_FILE=/etc/agyn/egress-ca/ca.crt
@@ -293,7 +293,7 @@ At workload assembly:
    SSL_CERT_DIR=/etc/agyn/egress-ca
    ```
 
-4. The runner materializes `inline_files` into per-pod Kubernetes primitives (Secret + projected volume) and mounts them read-only at the requested paths in each container the orchestrator lists (agent, MCP sidecars, hooks) — per-container, not pod-wide.
+4. The runner materializes `inline_files` into per-pod Kubernetes primitives (Secret + projected volume) and mounts them read-only at the requested paths in each container the orchestrator lists (agent, MCP sidecars) — per-container, not pod-wide.
 
 The env vars cover `curl`, Python (`requests`, `httpx`, `urllib3`), Node (`https`, `undici`, `fetch`), Go (`net/http`), and Ruby (`Net::HTTP`). They do **not** cover Java (which uses `cacerts`), .NET (per-runtime trust store), or tools that hardcode CA paths. Users whose agents need those clients install the CA into the appropriate path in their container image — see [Product — Egress Gateway — TLS interception](../product/egress-gateway/egress-gateway.md#tls-interception).
 

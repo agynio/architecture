@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A sandbox is an engineer-launched workload. Until now, workloads existed only when the [Agents Orchestrator](../../architecture/agents-orchestrator.md) started them for agent instances with unprocessed inbox items. Sandboxes let a person start a workload deliberately, get an interactive shell in it, and use it as a working environment with the platform's existing machinery — the [environment](../environments/environments.md)'s image and flavor, injected secrets, and egress network policy.
+A sandbox is an engineer-launched workload. Until now, workloads existed only when the [Agents Orchestrator](../../architecture/agents-orchestrator.md) started them for agent instances with unprocessed inbox items. Sandboxes let a person start a workload deliberately, get an interactive shell in it, and use it as a working environment with the platform's existing machinery — the [environment](../environments/environments.md)'s images and flavor, injected secrets, and egress network policy.
 
 The primary use case is running agents in "manual mode": an engineer gets the same image, credentials, and network posture an agent workload would get, but drives it by hand — debugging tools, trying prompts, inspecting what an agent can and cannot reach. The API is designed so automations can start sandboxes later; v1 targets humans.
 
@@ -60,8 +60,9 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 
 A sandbox workload is assembled the same way an agent workload is, minus the agent loop:
 
-- **Image and size** come from the environment (image + flavor). Placement is on the environment's runner — see [Placement](../environments/environments.md#placement).
-- **The platform init image runs first**, so the `agyn` CLI is available inside the sandbox. The main container runs a long-lived sandbox holder process instead of the agent inbox loop. Session activity for idle tracking is reported by the [Terminal Proxy](../../architecture/terminal-proxy.md#sandbox-activity-reporting), not from inside the container.
+- **Image and size** come from the environment (workspace image + flavor). Placement is on the environment's runner — see [Placement](../environments/environments.md#placement).
+- **The platform's binary init containers run first**, so `agynd` and the `agyn` CLI are available inside the sandbox. The main container runs a long-lived sandbox holder process instead of the agent inbox loop. Session activity for idle tracking is reported by the [Terminal Proxy](../../architecture/terminal-proxy.md#sandbox-activity-reporting), not from inside the container.
+- **The environment's agent runtime image, when it has one**, runs as a further init container, so the agent CLI it carries is on `PATH` inside the sandbox. This is what makes a sandbox a place to drive an agent by hand rather than an empty shell. The agent loop itself does not run — see [Future](#future).
 - **Environment variables and secrets** attached to the environment are injected at workload assembly, exactly as for agents. Secret values are resolved by the orchestrator; they are never fetchable through the API from inside the sandbox.
 - **Egress rules** attached to the environment apply: matched destinations route through the [Egress Gateway](../egress-gateway/egress-gateway.md) with the same allow/deny/inject behavior an agent observes.
 - **Workspace volume**: a persistent volume mounted at `/workspace`, created with the sandbox and deleted with it. It survives idle stops and reconnects. Size is a platform default (`10Gi`, deployment-configurable) and the storage class is the runner's default — storage is not part of the flavor. It is a runtime-only volume owned by the sandbox, not a user-managed [Volume](../../architecture/resource-definitions.md#volume) resource.
@@ -104,8 +105,8 @@ Because environment-attached secrets and egress credentials are reachable from i
 ## Constraints
 
 - A sandbox runs exactly one environment, fixed at creation. To use a different environment, start a new sandbox.
-- No MCP sidecars, hooks, or additional volumes in v1 — a sandbox is the environment's main container plus platform sidecars.
-- The environment's image must provide a shell for sessions to be useful; the platform does not inject one.
+- No MCP sidecars or additional volumes in v1 — a sandbox is the environment's main container, its init containers, and platform sidecars.
+- The environment's workspace image must provide a shell for sessions to be useful; the platform does not inject one.
 - Shell access requires the Terminal Proxy path; there is no direct network path from the engineer's machine to the workload other than platform-mediated ones (terminal, port exposure).
 
 ## Future

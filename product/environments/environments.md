@@ -6,7 +6,7 @@ Flavors and environments separate "where and how big a workload runs" from "what
 
 - **Flavor** — a named compute size (CPU/memory) offered by a specific runner, declared in the runner's own configuration and reported by the runner to the platform. Flavors replace free-form per-agent CPU/memory configuration with a curated menu, the way cloud providers offer instance types.
 - **Storage class** — a named storage tier offered by a specific runner, declared and reported the same way. Persistent [volumes](../../architecture/resource-definitions.md#volume) pick a class the way workloads pick a flavor.
-- **Environment** — an organization-level runtime definition: a runner, a flavor on that runner, and a container image. Environments are the unit both [agents](../../architecture/resource-definitions.md#agent) and [sandboxes](../sandboxes/sandboxes.md) run in, and a shared attachment target for egress rules, environment variables, and image pull secrets.
+- **Environment** — an organization-level runtime definition: a runner, a flavor on that runner, and the [images](../images/images.md) a workload runs — a workspace image and, optionally, an agent runtime image. Environments are the unit both [agents](../../architecture/resource-definitions.md#agent) and [sandboxes](../sandboxes/sandboxes.md) run in, and a shared attachment target for egress rules and environment variables.
 
 Before this feature, every agent carried its own inline `image`, `resources`, and `runner_labels`. That put capacity decisions in the hands of every agent author, made sizes inconsistent across an organization, and left nothing for a non-agent workload (a sandbox) to run as.
 
@@ -26,7 +26,7 @@ Before this feature, every agent carried its own inline `image`, `resources`, an
 | **Runner catalog** | The set of flavors, storage classes, and capabilities a runner offers. Declared in the runner's deployment configuration and reported by the runner; not managed through platform APIs. |
 | **Flavor** | A named compute size (requests/limits for CPU and memory) belonging to one runner's catalog. |
 | **Storage class** | A named storage tier belonging to one runner's catalog. What backs it is the runner's concern. |
-| **Environment** | An organization-scoped runtime definition: a runner + a flavor name + one container image. Referenced by agents and sandboxes. Egress rules, ENV variables, and image pull secrets can be attached to it. |
+| **Environment** | An organization-scoped runtime definition: a runner + a flavor name + a workspace image and, optionally, an agent runtime image. Referenced by agents and sandboxes. Egress rules and ENV variables can be attached to it. |
 
 ## The Runner Catalog
 
@@ -62,9 +62,18 @@ An environment is an org-scoped resource managed by organization owners:
 | `name` | Unique within the organization |
 | `runner` | The runner workloads run on. Must be visible to the organization — validated at create/update |
 | `flavor` | Name of a flavor in that runner's catalog. Not validated at create/update — resolved at every workload start. Empty means the runner's default flavor |
-| `image` | Container image for the main container |
+| `workspace image` | An [image](../images/images.md) of type `workspace`, plus a tag. Runs as the main container |
+| `agent runtime image` | Optionally, an image of type `agent_runtime`, plus a tag. Runs as an init container and supplies the agent CLI |
 
-The platform init image is not part of the environment — it remains a platform concern.
+Both are selected from the [image catalog](../images/images.md) — an environment holds no registry addresses, and neither does anything downstream of it.
+
+### Why the agent runtime lives here
+
+The agent CLI an agent runs is a property of the environment, not of the agent. Two agents wanting different CLIs on the same workspace image therefore need two environments, and that duplication is accepted: it keeps a single answer to "what does a workload in this environment contain," which is what lets a [sandbox](../sandboxes/sandboxes.md) started against an environment carry the same tooling an agent there would.
+
+An environment may name **no** agent runtime image. That is a workspace-only environment — perfectly usable by sandboxes, and rejected by `CreateAgent`, which has no agent CLI to run without one.
+
+What is *not* in the environment is `agynd` and the [`agyn`](../../architecture/agyn-cli.md) CLI. Each ships with the platform in its own init image and is injected into every workload; they are not a configuration surface. See [Agent Init Container](../../architecture/agent-init.md).
 
 ### Attachments
 
@@ -72,7 +81,8 @@ Environments are an attachment target alongside agents:
 
 - **Egress rules** — a rule attachment targets an agent *or* an environment. Environment-attached rules apply to every workload running the environment — agent workloads and sandboxes alike. Effective rules for a workload are the union of its agent's attachments (if it has an agent) and its environment's attachments. This is how sandboxes get network policy: they have no agent identity to attach rules to.
 - **ENV variables** — an ENV resource (plain value or secret-backed) can target an environment. It is injected into the main container of every workload running that environment. On name collision, an agent-level ENV overrides the environment-level one.
-- **Image pull secrets** — an image pull secret attachment can target an environment, providing registry credentials for the environment's image.
+
+Registry credentials are not among them. They belong to the [image](../images/images.md), are held by the platform, and are never delivered to a workload or its cluster — see [Images — How Images Are Pulled](../images/images.md#how-images-are-pulled).
 
 Anything attached to an environment is, in effect, available to everyone who can run a workload in it — including engineers starting [sandboxes](../sandboxes/sandboxes.md). Environments are the intentional sharing boundary. Credentials that only a specific agent should hold belong in agent-level attachments, not environment-level ones.
 
@@ -88,10 +98,10 @@ Organizations that ran the same agent on different hardware tiers (e.g., staging
 
 ## Agent Changes
 
-- Agents reference an environment (`environment_id`) instead of carrying inline `image`, `resources`, and `runner_labels`. The orchestrator resolves environment → image + runner + flavor at workload spec assembly.
+- Agents reference an environment (`environment_id`) instead of carrying inline `image`, `resources`, and `runner_labels`. The orchestrator resolves environment → images + runner + flavor at workload spec assembly. An agent must name an environment that has an agent runtime image.
 - `runner_labels` are removed from the agent: placement intent now lives entirely in the environment. Agent `capabilities` remain — the environment's runner must advertise (report) every capability the agent requires, checked at workload start; Console and CLI warn at agent create/update when the runner's current report doesn't cover them.
 - Agent-level egress rule attachments, ENVs, and image pull secret attachments continue to work and compose with the environment's (union; agent-level ENV wins on name conflict).
-- MCP and Hook sidecars keep their own inline `image`/`resources` — adopting flavors for sidecars is out of scope.
+- MCP sidecars keep their own `resources` — adopting flavors for sidecars is out of scope. Their images come from the [catalog](../images/images.md) like everything else.
 
 ### Migration
 
@@ -103,7 +113,7 @@ Compute is metered per flavor. A workload emits `FLAVOR_SECONDS` dimensioned by 
 
 The flavor billed is the one recorded on the workload when it started, not the one its environment names now — repointing an environment or editing a catalog entry does not rewrite history.
 
-A workload with no flavor emits no compute record. That is an agent still carrying an inline image and resources rather than an environment, which is the deprecated shape this replaces.
+Every started workload carries a flavor, so there is no unmetered compute. Agents reference an environment and sandboxes run one, and a flavor name that does not resolve against the runner's catalog leaves the environment [unschedulable](#placement) rather than starting a workload without one.
 
 **Next phase:** storage moves the same way — dimensioned by `storage_class`/`runner_id` rather than raw `GB_SECONDS`.
 
@@ -117,20 +127,23 @@ A workload with no flavor emits no compute record. That is an agent still carryi
 | Flavor/class marked deprecated | Soft signal: pickers warn against new references. Existing references keep scheduling. |
 | Flavor/class removed from runner config | Gone from the catalog on the next report. Environments/volumes still naming it become unschedulable and are flagged. Renames are a removal plus an addition. |
 | Environment created | Available to agents and sandboxes in the organization — even if its flavor name isn't reported yet (it won't schedule until it is). |
-| Environment updated (image, runner, or flavor) | Applies to workloads started after the change. Running workloads are not restarted. |
+| Environment updated (images, runner, or flavor) | Applies to workloads started after the change. Running workloads are not restarted. |
 | Environment deleted | Fails while any agent or sandbox references it. |
 | Runner removed | Environments referencing it become unschedulable and are flagged. |
+| Referenced image deleted, tag gone upstream, or visibility narrowed | Environments naming it become unschedulable and are flagged — the same treatment as a removed flavor. See [Images — Lifecycle](../images/images.md#lifecycle). |
 
 ## Constraints
 
 - A flavor or storage class belongs to exactly one runner's catalog; there is no cross-runner identity. Two runners offering "the same" size are two flavors, and references are meaningful only relative to the referenced runner.
 - Catalog entries are referenced by name and resolved at workload start / volume provisioning — never by stored ID, never validated at resource create time.
-- An environment references exactly one runner, at most one flavor name, and one image. Multi-image environments and per-environment init images are out of scope.
+- An environment references exactly one runner, at most one flavor name, one workspace image, and at most one agent runtime image.
 - Running workloads never pick up catalog or environment changes in place — changes apply on next workload start. Provisioned volumes never change storage class.
-- MCP and Hook resources are unaffected by this feature.
+- MCP resources are unaffected by this feature.
 
 ## Related Architecture
 
+- [Images](../images/images.md)
+- [Agent Init Container](../../architecture/agent-init.md)
 - [Resource Definitions — Flavor](../../architecture/resource-definitions.md#flavor)
 - [Resource Definitions — Storage Class](../../architecture/resource-definitions.md#storage-class)
 - [Resource Definitions — Environment](../../architecture/resource-definitions.md#environment)

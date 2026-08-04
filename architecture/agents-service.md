@@ -6,7 +6,7 @@ The Agents service manages agent resources — the configuration entities that d
 
 This is a **control plane** service. It stores desired state; other services reconcile toward it.
 
-Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, Hooks, ENVs, InitScripts, Volume Attachments, Image Pull Secret Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Agents, Environments, Sandboxes, and Volumes are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources (MCPs, Skills, ENVs, InitScripts, Volume Attachments) inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 Agent nicknames are part of the agent resource. The Agents service stores the nickname and registers it with the [Identity](identity.md) service on create and update. Nickname uniqueness within the organization is enforced by the Identity service.
 
@@ -18,19 +18,17 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 
 | Resource | Description | CRUD |
 |----------|-------------|------|
-| **Agents** | Agent class definitions: identity, model, [environment](resource-definitions.md#environment) reference, init image, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
-| **Environments** | Runtime definitions: runner reference + [flavor](resource-definitions.md#flavor) name + container image. Referenced by agents and sandboxes; attachment target for ENVs, image pull secrets, and egress rules. Create/update validates that the runner is visible to the organization; the flavor name is not validated — it is late-bound against the runner's [reported catalog](runners.md#runner-catalog) at workload start. Delete is rejected while any agent or sandbox references the environment. See [Flavors and Environments](../product/environments/environments.md) | ✓ |
+| **Agents** | Agent class definitions: identity, model, [environment](resource-definitions.md#environment) reference, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
+| **Environments** | Runtime definitions: runner reference + [flavor](resource-definitions.md#flavor) name + a workspace [image](resource-definitions.md#image) and optional agent runtime image, each with a tag. Referenced by agents and sandboxes; attachment target for ENVs and egress rules. Create/update validates that the runner is visible to the organization and that each image reference resolves to a visible image of the required type with an existing tag; the flavor name is not validated — it is late-bound against the runner's [reported catalog](runners.md#runner-catalog) at workload start. Delete is rejected while any agent or sandbox references the environment. See [Flavors and Environments](../product/environments/environments.md) | ✓ |
 | **Sandboxes** | On-demand workloads started by users: name, environment reference, owner, status, idle timeout, TTL. Reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md) | Create, Get, List, Stop, Delete |
 | **Agent Instances** | Instantiations of a class with their own state and [inbox](agent-instances.md#inbox). See [Agent Instances](agent-instances.md) | Create, Get, List, Pause, Resume, Delete |
 | **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Volume definitions: persistence, mount path, size | ✓ |
-| **Volume Attachments** | Relationships between volumes and containers (agents, MCPs, hooks) | Create, Get, Delete, List |
-| **Image Pull Secret Attachments** | Relationships between [image pull secrets](providers.md#image-pull-secret) and targets (agents, MCPs, hooks, environments). The image pull secret resource itself is managed by the [Secrets](secrets.md) service | Create, Get, Delete, List |
-| **MCPs** | MCP server definitions: image, command, compute resources. Belong to an agent | ✓ |
+| **Volume Attachments** | Relationships between volumes and containers (agents, MCPs) | Create, Get, Delete, List |
+| **MCPs** | MCP server definitions: [image](resource-definitions.md#image) reference + tag, command, compute resources. Belong to an agent | ✓ |
 | **Skills** | Reusable prompt fragments: name, body. Belong to an agent | ✓ |
-| **Hooks** | Event-driven functions: event, entrypoint, image, compute resources. Belong to an agent | ✓ |
-| **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, hook, or environment | ✓ |
-| **InitScripts** | Shell scripts for container initialization. Belong to an agent, MCP, or hook | ✓ |
+| **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, or environment | ✓ |
+| **InitScripts** | Shell scripts for container initialization. Belong to an agent or MCP | ✓ |
 
 All list endpoints use cursor-based pagination.
 
@@ -159,7 +157,7 @@ The Agents service publishes events to the [Notifications](notifications.md) ser
 
 | Event | Room | Emitted when |
 |-------|------|--------------|
-| `agent.updated` | `agent:{class_id}` | The agent class is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, Hook, ENV, InitScript, Volume, Volume Attachment, Image Pull Secret Attachment) is created, updated, or deleted |
+| `agent.updated` | `agent:{class_id}` | The agent class is created, updated, or deleted, *or* any of its sub-resources (MCP, Skill, ENV, InitScript, Volume, Volume Attachment) is created, updated, or deleted |
 | `message.created` | `instance_inbox:{instance_id}` | A new [inbox item](agent-instances.md#inbox) is written for an instance (via `FanoutInboxItem` from Threads or `WriteInboxItem` from an app) |
 | `instance.updated` | `agent:{class_id}` | Instance state transitions (`active`, `paused`, `terminated`) or metadata changes on any instance of the class |
 | `sandbox.updated` | `sandbox_owner:{owner_id}` and `sandbox_org:{organization_id}` | Sandbox lifecycle or bookkeeping changes: create, status transition, stop, delete/terminate, `last_session_at` update, or workload association update |
@@ -178,8 +176,8 @@ Agent access is split into two layers: organization-level gates the creation and
 |-----------|-------|
 | `CreateAgent`, `CreateVolume` | `owner` on `organization:<org_id>` |
 | `ListAgents`, `GetAgent` (metadata) | `member` on `organization:<org_id>` — returns metadata fields only (`id`, `name`, `nickname`, `role`, `description`, `availability`, `created_at`, `updated_at`). Configuration fields are omitted unless the caller also satisfies `can_read_config` on the agent |
-| `GetAgent` (configuration), `ListMCPs`, `ListSkills`, `ListHooks`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, `ListImagePullSecretAttachments` and their `Get` counterparts | `can_read_config` on `agent:<agent_id>` (i.e., agent `owner` or `maintainer`, or org `owner`) |
-| `UpdateAgent` (configuration fields), Create/Update/Delete on any agent sub-resource (MCP, Skill, Hook, ENV, InitScript, Volume Attachment, Image Pull Secret Attachment) | `can_edit_config` on `agent:<agent_id>` |
+| `GetAgent` (configuration), `ListMCPs`, `ListSkills`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments` and their `Get` counterparts | `can_read_config` on `agent:<agent_id>` (i.e., agent `owner` or `maintainer`, or org `owner`) |
+| `UpdateAgent` (configuration fields), Create/Update/Delete on any agent sub-resource (MCP, Skill, ENV, InitScript, Volume Attachment) | `can_edit_config` on `agent:<agent_id>` |
 | `UpdateAgent` (`availability` field), `DeleteAgent` | `can_delete` on `agent:<agent_id>` (agent `owner` or org `owner`) |
 | `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>` (agent `owner` or org `owner`) |
 | `ListMyAgentRoles` | Self only — returns the caller's own role assignments |

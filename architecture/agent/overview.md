@@ -194,6 +194,6 @@ One container per agent instance while there is work to do. A single instance ca
 
 ## Configuration
 
-The agent resource definition (identity, model, image, compute resources, configuration) is documented in [Resource Definitions](../resource-definitions.md#agent). Sub-resources (MCP servers, volumes, skills, hooks, environment variables, init scripts) that compose the agent's runtime environment are documented alongside the agent in [Resource Definitions](../resource-definitions.md).
+The agent resource definition (identity, model, environment reference, configuration) is documented in [Resource Definitions](../resource-definitions.md#agent). Sub-resources (MCP servers, volumes, skills, environment variables, init scripts) that compose the agent's runtime environment are documented alongside the agent in [Resource Definitions](../resource-definitions.md).
 
 Agent implementation-specific behavioral configuration (system prompt, summarization, message buffering) is documented in [Agent Implementation](implementation.md#configuration).

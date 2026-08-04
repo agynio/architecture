@@ -60,7 +60,7 @@ The platform resolves: agent → model → LLM provider, then makes API calls us
 
 ## Secret Provider
 
-A secret provider represents a connection to an external secret management system. Secret providers are used by secrets and image pull secrets that use remote value storage. Currently only Vault is supported; the design allows adding other providers.
+A secret provider represents a connection to an external secret management system. Secret providers are used by secrets that use remote value storage. Currently only Vault is supported; the design allows adding other providers.
 
 ### Resource Definition
 
@@ -100,21 +100,7 @@ The format of `value_reference` is provider-specific. For Vault, it is a composi
 
 ---
 
-## Image Pull Secret
-
-An image pull secret stores registry credentials for pulling container images from private registries. Managed by the [Secrets](secrets.md) service. Referenced by [ImagePullSecretAttachment](resource-definitions.md#image-pull-secret-attachment) resources.
-
-### Resource Definition
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `registry` | string | Registry hostname (e.g., `ghcr.io`, `123456789.dkr.ecr.us-east-1.amazonaws.com`) |
-| `username` | string | Registry username (e.g., `_json_key`, `AWS`, `oauth2accesstoken`, a plain username) |
-| `value` | string | Direct password/token value, encrypted at rest. Mutually exclusive with `value_provider_id` + `value_reference` |
-| `value_provider_id` | string (UUID) | Reference to a Secret Provider. Mutually exclusive with `value`. Requires `value_reference` |
-| `value_reference` | string | Identifier of the password/token in the external provider. Required when `value_provider_id` is set |
-
-The `registry` and `username` fields are plain text. The password/token uses the same dual storage model as [Secret](#secret) — local (encrypted at rest) or remote (resolved from a provider at runtime).
+Registry credentials are not a resource here. A registry password is an ordinary [Secret](#secret) referenced by an [Image](resource-definitions.md#image), which is where the registry address lives; the [Image Proxy](image-proxy.md) is its only consumer and it is never delivered to a workload.
 
 ---
 
@@ -143,9 +129,9 @@ flowchart LR
     A[Create Secret<br/>value: plaintext] --> B[Reference secret in<br/>resource configs]
 ```
 
-### Image Pull Secret Setup
+### Registry Credential Setup
 
 ```mermaid
 flowchart LR
-    A[Create Image Pull Secret<br/>registry + username + value] --> B[Attach to agent, MCP, or hook<br/>via ImagePullSecretAttachment]
+    A[Create Secret<br/>registry password] --> B[Reference from an Image<br/>alongside repository + username]
 ```

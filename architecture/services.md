@@ -4,7 +4,9 @@ Central inventory of deployable long-running services in the platform. This list
 
 | Service | Repository | Architecture doc | Plane | Role |
 |---------|------------|------------------|-------|------|
-| Agents | [agynio/agents](https://github.com/agynio/agents) | [Agents Service](agents-service.md) | Control plane | Manages agent resource definitions, volumes, MCP servers, skills, hooks, and related configuration. |
+| Agents | [agynio/agents](https://github.com/agynio/agents) | [Agents Service](agents-service.md) | Control plane | Manages agent resource definitions, environments, sandboxes, volumes, MCP servers, skills, and related configuration. |
+| Images | [agynio/images](https://github.com/agynio/images) | [Images Service](images-service.md) | Control plane | Owns the image catalog: image records and the versions discovered from their upstream repositories. |
+| Image Proxy | [agynio/image-proxy](https://github.com/agynio/image-proxy) | [Image Proxy](image-proxy.md) | Data plane | Serves every workload image pull, authenticating upstream with catalog credentials that never leave the platform. |
 | Agents Orchestrator | [agynio/agents-orchestrator](https://github.com/agynio/agents-orchestrator) | [Agents Orchestrator](agents-orchestrator.md) | Control plane | Reconciles thread demand and runtime state into agent workloads. |
 | Apps Service | [agynio/apps](https://github.com/agynio/apps) | [Apps Service](apps-service.md) | Control plane / Data plane | Manages app definitions, installations, app identities, profiles, and installation configuration. |
 | Authorization | [agynio/authorization](https://github.com/agynio/authorization) | [Authorization](authz.md#authorization-service) | Data plane | Central gRPC proxy for OpenFGA permission checks and relationship tuple writes. |

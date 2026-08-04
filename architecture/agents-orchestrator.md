@@ -16,7 +16,7 @@ graph TB
 
     Agents -->|instances with unacked inbox items,<br/>class definitions + sub-resources| Reconciler
     Notifications -->|message.created, agent.updated events| Reconciler
-    Secrets -->|secret + image pull secret resolution| Reconciler
+    Secrets -->|secret resolution| Reconciler
     Runners[Runners] -->|workload state| Reconciler
     Reconciler -->|start/stop workloads| Runner
     Reconciler -->|create/delete identities| ZitiMgmt[Ziti Management]
@@ -24,9 +24,9 @@ graph TB
 
 | Dependency | Usage |
 |-----------|-------|
-| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) definitions and sub-resources (MCPs, volumes, ENVs, init scripts, hooks, skills, image pull secret attachments). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
+| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) definitions and sub-resources (MCPs, volumes, ENVs, init scripts, skills). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
 | **Notifications** | Subscribe to `message.created` events on `instance_inbox:*` (for reactivity when an instance has new inbox items) and `agent.updated` events (for class configuration changes) |
-| **Secrets** | Resolve secret values for ENVs that reference secrets. Resolve image pull secret credentials for private registry access |
+| **Secrets** | Resolve secret values for ENVs that reference secrets |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
@@ -161,17 +161,20 @@ sequenceDiagram
     participant O as Orchestrator
     participant T as Agents
     participant S as Secrets
+    participant IM as Images
+    participant IP as Image Proxy
     participant RS as Runners Service
     participant ZM as Ziti Management
     participant R as Runner
 
     O->>T: Get instance + class definition + sub-resources
-    T-->>O: Instance, Agent (class), MCPs, Volumes, ENVs, InitScripts, Hooks, Skills, ImagePullSecretAttachments
+    T-->>O: Instance, Agent (class), MCPs, Volumes, ENVs, InitScripts, Skills
     O->>S: Resolve secret values for secret-backed ENVs
     S-->>O: Resolved secret values
-    O->>S: Resolve image pull secrets (IDs from attachments)
-    S-->>O: Resolved credentials (registry, username, password)
-    O->>O: Merge image pull credentials, detect conflicts
+    O->>IM: Resolve image references (environment + MCPs)
+    IM-->>O: Proxy references
+    O->>IP: MintPullCredential(workload, images)
+    IP-->>O: Username + password
     O->>O: Generate workload_key and volume_key per persistent volume
     O->>O: Assemble workload spec — embed workload_key and volume_keys as labels
     O->>RS: Resolve runner + catalog names (environment's runner; flavor and storage classes by name)
@@ -205,18 +208,17 @@ Before starting a workload, the orchestrator selects a runner:
 
 The orchestrator assembles the full workload specification from multiple sources:
 
-1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the main container image and the runner; its flavor name, resolved against the runner's [reported catalog](runners.md#runner-catalog) during [runner selection](#runner-selection), supplies the compute resources. Environment-targeted ENVs, image pull secret attachments, and egress rule attachments are collected alongside the agent's own.
+1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the workspace image, the agent runtime image, and the runner; its flavor name, resolved against the runner's [reported catalog](runners.md#runner-catalog) during [runner selection](#runner-selection), supplies the compute resources. Environment-targeted ENVs and egress rule attachments are collected alongside the agent's own.
 2. **Capabilities** (from Agents): named platform capabilities (e.g., `docker`). The orchestrator includes the capability list in the workload spec. The runner resolves each capability to its configured implementation — injecting the appropriate sidecars and environment variables. See [Resource Definitions — Capabilities](resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
 3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
 4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths. Each persistent volume carries its resolved [storage class](resource-definitions.md#storage-class) name — the volume definition's requested class, or the runner's `default` when none is set. The runner maps the class name to its backing storage.
-5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs, hooks).
-6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent ENVs into the agent container, MCP ENVs into the respective MCP sidecar, hook ENVs into the hook container. No container receives another container's resolved values. Agent ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
-7. **Init scripts** (from Agents): shell scripts for agent container initialization. Fetched by `agynd` at startup via the Gateway. MCP and hook init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
-8. **Hooks** (from Agents): event-driven sidecar containers.
+5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs).
+6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent ENVs into the agent container, MCP ENVs into the respective MCP sidecar. No container receives another container's resolved values. Agent ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
+7. **Init scripts** (from Agents): shell scripts for agent container initialization. Fetched by `agynd` at startup via the Gateway. MCP init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
 9. **Skills** (from Agents): prompt fragments. Fetched by `agynd` at startup via the Gateway and written to the filesystem in the layout expected by the agent CLI.
-10. **OpenZiti enrollment JWT** (from Ziti Management): injected as `ZITI_ENROLLMENT_JWT` into the **Ziti sidecar container**. The sidecar exchanges the JWT for an x509 certificate at startup, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace. MCP and hook sidecars share the pod network and can reach `.ziti` services via the sidecar, but receive no agent secrets or configuration — their env vars are injected separately and contain only what they need.
-11. **Image pull credentials** (from Agents + Secrets): image pull secret attachments from Agents, credential values resolved via Secrets service. Merged with conflict detection. See [Resource Definitions — Image Pull Secret Attachment](resource-definitions.md#image-pull-secret-attachment).
-12. **Egress CA public certificate** (from cert-manager `egress-ca` Secret in the platform namespace): bytes inlined into the workload spec at the path `/etc/agyn/egress-ca/ca.crt`, mounted into every workload container (agent, MCP sidecars, hooks). See [Egress CA Distribution](#egress-ca-distribution).
+10. **OpenZiti enrollment JWT** (from Ziti Management): injected as `ZITI_ENROLLMENT_JWT` into the **Ziti sidecar container**. The sidecar exchanges the JWT for an x509 certificate at startup, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace. MCP sidecars share the pod network and can reach `.ziti` services via the sidecar, but receive no agent secrets or configuration — their env vars are injected separately and contain only what they need.
+11. **Image references and pull credential** (from Images + Image Proxy): every image in the spec — the environment's workspace and agent runtime images, and each MCP's — is resolved through the [Images](images-service.md) service and rewritten to an [image proxy](image-proxy.md) reference. The orchestrator then mints one short-lived pull credential scoped to this workload and the images it may pull, and revokes it when the workload stops. No registry address or upstream credential appears in the workload spec.
+12. **Egress CA public certificate** (from cert-manager `egress-ca` Secret in the platform namespace): bytes inlined into the workload spec at the path `/etc/agyn/egress-ca/ca.crt`, mounted into every workload container (agent, MCP sidecars). See [Egress CA Distribution](#egress-ca-distribution).
 
 In addition to user-defined environment variables, the orchestrator injects **platform-managed environment variables** into containers:
 
@@ -229,21 +231,23 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 | `WORKLOAD_ID` | Agent container | Workload UUID (`workload_key`) for this execution. Used by `agynd` for activity keepalives and span attribution |
 | `AGENT_MCP_SERVERS` | Agent container | MCP name-to-port mapping (see [MCP — Port Allocation](mcp.md#port-allocation)) |
 | `MCP_PORT` | Each MCP sidecar | Assigned localhost port (see [MCP — Port Allocation](mcp.md#port-allocation)) |
-| `SSL_CERT_FILE` | Agent + MCP + hook containers | Path to the Egress CA bundle (`/etc/agyn/egress-ca/ca.crt`). Recognized by `curl`, Python `requests`/`httpx`/`urllib3` |
-| `REQUESTS_CA_BUNDLE` | Agent + MCP + hook containers | Same path. Recognized by Python `requests` |
-| `NODE_EXTRA_CA_CERTS` | Agent + MCP + hook containers | Same path. Recognized by Node.js |
-| `CURL_CA_BUNDLE` | Agent + MCP + hook containers | Same path. Recognized by `curl` |
-| `SSL_CERT_DIR` | Agent + MCP + hook containers | Directory `/etc/agyn/egress-ca`. Recognized by Go's `crypto/x509` |
+| `SSL_CERT_FILE` | Agent + MCP containers | Path to the Egress CA bundle (`/etc/agyn/egress-ca/ca.crt`). Recognized by `curl`, Python `requests`/`httpx`/`urllib3` |
+| `REQUESTS_CA_BUNDLE` | Agent + MCP containers | Same path. Recognized by Python `requests` |
+| `NODE_EXTRA_CA_CERTS` | Agent + MCP containers | Same path. Recognized by Node.js |
+| `CURL_CA_BUNDLE` | Agent + MCP containers | Same path. Recognized by `curl` |
+| `SSL_CERT_DIR` | Agent + MCP containers | Directory `/etc/agyn/egress-ca`. Recognized by Go's `crypto/x509` |
 
 `HOME` and `WORKSPACE_DIR` are not platform-managed and are not reserved. The agent container uses whatever the image defines, or what the user sets via an [ENV](resource-definitions.md#env) resource. Agent-specific fallbacks (for example, Codex needing a writable `HOME`) are handled by [`agynd`](agynd-cli.md), not the orchestrator.
 
 The orchestrator also wires the init container flow:
 
-- Read `init_image` from the agent definition (fall back to `DEFAULT_INIT_IMAGE`).
-- Add `agyn-bin` ephemeral volume.
-- Build init container with the init image.
+- Add the `agyn-bin` ephemeral volume.
+- Build the two **platform init containers** from the orchestrator's configured `agynd-cli-init` and `agyn-cli-init` references. They are injected into every workload, including sandboxes.
+- Build the **agent runtime init container** from the environment's agent runtime image, when it names one. Its `config.json` tells `agynd` which agent CLI to spawn — the orchestrator reads neither.
 - Set main container command to `/agyn-bin/agynd`.
 - Mount `agyn-bin` in the main container.
+
+See [Agent Init Container](agent-init.md).
 
 The orchestrator is the only service that performs this assembly. The Runner receives an opaque workload spec — it does not know about agents, agent resources, or secrets.
 
@@ -256,6 +260,7 @@ sequenceDiagram
     participant O as Orchestrator
     participant R as Runner
     participant RS as Runners Service
+    participant IP as Image Proxy
     participant ZM as Ziti Management
 
     O->>RS: UpdateWorkload(status=stopping)
@@ -264,9 +269,13 @@ sequenceDiagram
     R-->>O: OK
     O->>RS: UpdateWorkload(status=stopped, removed_at=now)
     RS-->>O: OK
+    O->>IP: RevokePullCredential(workloadId)
+    IP-->>O: OK
     O->>ZM: DeleteIdentity(openZitiIdentityId)
     ZM-->>O: OK
 ```
+
+The pull credential is revoked alongside the OpenZiti identity — both are per-workload grants that outlive nothing. A missed revocation is bounded by the credential's TTL rather than left open indefinitely. See [Image Proxy — Pull Credentials](image-proxy.md#pull-credentials).
 
 `status=stopping` is set before the runner call so the console can show the workload as being stopped. `removed_at` is set after `StopWorkload` succeeds — it reflects the actual removal time. The metering sampling loop picks up the workload on its next tick (since `removed_at > last_metering_sampled_at`) and emits the tail sample. The workload record is retained for audit history.
 
@@ -337,7 +346,7 @@ The flavor is the one recorded on the workload at start time, resolved from the 
 
 `runner_id` accompanies it because a flavor name is only meaningful against the runner that reported it — two runners may both declare `ram-2gb` with different resources.
 
-A workload with no flavor emits no compute record. That is every agent still carrying an inline image and resources instead of an environment; those are deprecated, and metering them in units nobody prices is what this replaced.
+Every started workload carries a flavor. An agent workload takes it from the agent's [environment](resource-definitions.md#environment), which is required; a [sandbox](../product/sandboxes/sandboxes.md) takes it from the environment it runs; and a flavor name that does not resolve against the runner's catalog fails scheduling rather than starting without one. There is no unmetered compute — a workload that emitted no record would be one that never ran.
 
 **Storage** — one record per persistent volume each interval:
 
@@ -444,7 +453,7 @@ The orchestrator distributes the [Egress CA](egress-gateway.md#egress-ca) public
 |---|---|
 | Source | Kubernetes Secret `egress-ca` in the platform namespace, populated by cert-manager (see [Egress Gateway — Egress CA](egress-gateway.md#egress-ca)). The orchestrator reads the `tls.crt` key |
 | Transport | Included in `StartWorkloadRequest.inline_files` as `"/etc/agyn/egress-ca/ca.crt": <bytes>`. See [Runner — Inline Files](runner.md#inline-files) |
-| Mount | The runner materializes the entry as a per-pod Kubernetes Secret + projected volume; mounted read-only at `/etc/agyn/egress-ca/` in every agent-pod container (agent, MCP sidecars, hooks) |
+| Mount | The runner materializes the entry as a per-pod Kubernetes Secret + projected volume; mounted read-only at `/etc/agyn/egress-ca/` in every agent-pod container (agent, MCP sidecars) |
 | Trust hookup | The orchestrator sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `CURL_CA_BUNDLE`, and `SSL_CERT_DIR` env vars in every agent-pod container pointing at the mounted path |
 
 This mechanism runs uniformly for in-cluster and external runners — neither cert-manager nor any other trust-distribution machinery is required in the runner's cluster.

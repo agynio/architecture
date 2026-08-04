@@ -371,14 +371,14 @@ The [Ziti Management Service](#ziti-management-service) is the canonical example
 
 ### Agents Service
 
-All agent resources (Agents, Volumes, MCPs, Skills, Hooks, ENVs, InitScripts, VolumeAttachments, ImagePullSecretAttachments) are org-scoped. Sub-resources inherit their parent's organization. Agent-level access is split between org membership (metadata visibility and creation) and per-agent roles (configuration access, availability changes, role management) — see the [`agent` OpenFGA type](#agent).
+All agent resources (Agents, Volumes, MCPs, Skills, ENVs, InitScripts, VolumeAttachments) are org-scoped. Sub-resources inherit their parent's organization. Agent-level access is split between org membership (metadata visibility and creation) and per-agent roles (configuration access, availability changes, role management) — see the [`agent` OpenFGA type](#agent).
 
 | Operation | Check |
 |-----------|-------|
 | `CreateAgent`, `CreateVolume` | `owner` on `organization:<org_id>` |
 | `ListAgents`, `GetAgent` (metadata fields only), `GetVolume`, `ListVolumes` (via Gateway) | `member` on `organization:<org_id>` |
-| `GetAgent` (configuration fields), `ListMCPs`, `ListSkills`, `ListHooks`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, `ListImagePullSecretAttachments`, and the `Get` counterpart of each sub-resource | `can_read_config` on `agent:<agent_id>` |
-| `UpdateAgent` on configuration fields; Create / Update / Delete on any agent sub-resource (MCP, Skill, Hook, ENV, InitScript, Volume Attachment, Image Pull Secret Attachment) | `can_edit_config` on `agent:<agent_id>` |
+| `GetAgent` (configuration fields), `ListMCPs`, `ListSkills`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, and the `Get` counterpart of each sub-resource | `can_read_config` on `agent:<agent_id>` |
+| `UpdateAgent` on configuration fields; Create / Update / Delete on any agent sub-resource (MCP, Skill, ENV, InitScript, Volume Attachment) | `can_edit_config` on `agent:<agent_id>` |
 | `UpdateAgent` on the `availability` field, `DeleteAgent` | `can_delete` on `agent:<agent_id>` |
 | `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>`; `SetAgentRole` additionally requires the target identity to satisfy `member` on the agent's organization |
 | `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
@@ -471,10 +471,23 @@ Files are org-scoped. Access is determined by organization membership. No separa
 
 | Operation | Check |
 |-----------|-------|
-| Create, Update, Delete (providers, secrets, image pull secrets) | `owner` on `organization:<org_id>` |
-| Get, List (providers, secrets, image pull secrets) | `member` on `organization:<org_id>` |
+| Create, Update, Delete (providers, secrets) | `owner` on `organization:<org_id>` |
+| Get, List (providers, secrets) | `member` on `organization:<org_id>` |
 | `ResolveSecretValue` (via Gateway) | `admin` on `cluster:global` |
-| `ResolveSecretValue`, `ResolveImagePullSecret` (internal) | Internal only (Orchestrator via Istio) |
+| `ResolveSecretValue` (internal) | Internal only (Orchestrator via Istio) |
+
+### Images Service
+
+[Image](resource-definitions.md#image) visibility affects who can read image records: `public` images are visible to any authenticated identity; `internal` images only to members of the owning organization. Visibility also governs use — an organization that can read an image can build environments on it, and there is no separate grant.
+
+| Operation | Check |
+|-----------|-------|
+| `CreateImage`, `UpdateImage`, `DeleteImage` | `owner` on `organization:<org_id>` |
+| `GetImage`, `ListImages`, `ListVersions`, `RefreshImage` | `member` on `organization:<org_id>`, or the image is `public` |
+| `ResolveVersion` | Internal only (Agents Service, Image Proxy via Istio) |
+| `RegisterPlatformImage` | Internal only ([platform provisioning](operations/platform-provisioning.md); service identity, no organization membership) |
+
+No `image` OpenFGA type is introduced — both visibility values resolve against existing organization relations, so images need no per-resource tuples.
 
 ### LLM Service
 
@@ -579,6 +592,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `instance_inbox:{id}` | `id == caller.identity_id` AND `caller.identity_type == agent_instance` (identity equality, no OpenFGA). `instance_inbox:me` is rewritten before the check. Only the instance itself may subscribe to its inbox room |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `agent_instance:{id}` | `member` on `organization:<instance.org_id>`. Carries `instance.updated`. An instance's own identity satisfies `member` through its `org` relation, which is how the Orchestrator watches the instances it reconciles |
 | `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality, no OpenFGA). `:me` is not accepted for this room pattern |
 | `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |

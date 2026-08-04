@@ -14,6 +14,7 @@ Desired architecture state of the platform.
   - [New Service Development](operations/new-service.md)
   - [E2E Testing](operations/e2e-testing.md)
   - [Database Migrations](operations/database-migrations.md)
+  - [Platform Resource Provisioning](operations/platform-provisioning.md)
 
 ## By domain
 
@@ -54,6 +55,8 @@ Desired architecture state of the platform.
 - [Runner](runner.md)
 - [k8s-runner](k8s-runner.md)
 - [Agent Init Container](agent-init.md)
+- [Images Service](images-service.md)
+- [Image Proxy](image-proxy.md)
 - [agyn-cli](agyn-cli.md)
 - [agynd-cli](agynd-cli.md)
 - [agn-cli](agn-cli.md)

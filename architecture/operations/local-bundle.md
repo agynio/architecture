@@ -22,7 +22,7 @@ The base image contains no Agyn service versions and no production, staging, ext
 The platform build boots the base QCOW2 as its input disk and:
 
 1. Applies supporting manifests (namespaces, dev secrets, shared Postgres, Istio routing) and installs the data layer (OpenFGA, MinIO) and the platform as a Helm release of the `agyn-platform` umbrella chart.
-2. Waits until every workload is Ready — which guarantees every container image is present in the k3s containerd store.
+2. Waits until every workload is Ready — which guarantees every container image is present in the k3s containerd store. Workload images are pre-pulled under the [image proxy](../image-proxy.md) references the platform will later request, not their upstream names: containerd keys content by the reference it was pulled with, so pulling upstream names would leave the first workload start missing the cache. The proxy host is deployment configuration and is known at bake time.
 3. Finalizes the disk clean.
 
 No GitOps tooling is involved at any stage — neither image contains Argo CD, and the bake installs the platform directly. The shipped image boots with the platform already deployed and all images local — no registry pulls, no in-VM reconciliation.

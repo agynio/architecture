@@ -106,12 +106,18 @@ Each named volume in the workload spec carries a `storage_class` — an entry na
 
 When `StartWorkload` includes `image_pull_credentials`, the k8s-runner:
 
-1. For each credential, creates a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` in the workload namespace. The secret name is derived from the workload ID (e.g., `workload-<id>-pull-<index>`).
-2. The `.dockerconfigjson` data contains a single `auths` entry with the registry hostname, username, and password from the credential.
-3. All created Kubernetes Secrets are listed in the Pod's `spec.imagePullSecrets`.
-4. On `StopWorkload` or `RemoveWorkload`, the k8s-runner deletes the Kubernetes Secrets it created for that workload.
+1. Creates a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` in the workload namespace. The secret name is derived from the workload ID (e.g., `workload-<id>-pull`).
+2. The `.dockerconfigjson` data contains a single `auths` entry: the [image proxy](image-proxy.md) host, and the username and password minted for this workload.
+3. The Secret is listed in the Pod's `spec.imagePullSecrets`.
+4. On `StopWorkload` or `RemoveWorkload`, the k8s-runner deletes the Kubernetes Secret it created for that workload.
 
 Kubernetes Secrets are created per-workload. They are not shared across workloads.
+
+Every image the spec sources from the [catalog](../product/images/images.md) resolves to the same proxy host, so one credential covers the whole Pod: the `auths` key selects *which* credential and the request path selects *which* image. Two workloads share the host key and differ in the credential value, because each Pod names its own Secret. No upstream registry address or organization credential ever reaches the cluster.
+
+The platform's own containers — the two binary init images and the Ziti sidecar — carry chart-pinned public references and are pulled without any credential, so the `auths` map holds one entry regardless.
+
+Two properties of the shared [workload namespace](#namespace) are required rather than incidental: nothing may attach image pull secrets to the workload ServiceAccount (the kubelet merges those with the Pod's, so they would apply to every workload), and workload Pods set `automountServiceAccountToken: false` so a workload cannot read the API and enumerate its neighbours' pull credentials.
 
 ## Capability Implementations
 

@@ -11,7 +11,8 @@ Domain glossary — canonical definitions of product terms. Both product and arc
 | **Container** | A running workload (Kubernetes pod) attached to a conversation's agent. Containers provide terminal access for inspection. |
 | **Context** | The set of items (messages, tool results, memory, summaries) assembled into a prompt for an LLM call. Context is paginated and inspectable per LLM event. |
 | **Conversation** | A persistent exchange between participants (users, agents, or both). Conversations have a lifecycle (open → resolved). |
-| **Environment** | An organization-level runtime definition: a runner, a flavor on that runner, and a container image. Agents and sandboxes run in environments. Egress rules, environment variables, and image pull secrets can be attached to an environment, applying to everything running in it. |
+| **Environment** | An organization-level runtime definition: a runner, a flavor on that runner, a workspace image, and optionally an agent runtime image. Agents and sandboxes run in environments. Egress rules and environment variables can be attached to an environment, applying to everything running in it. |
+| **Image** | An organization-level catalog entry naming an upstream container repository and the credential to read it. Its versions are discovered from that repository rather than registered. Environments and MCP servers select images instead of holding registry URLs. |
 | **Flavor** | A named compute size (CPU/memory) in a runner's catalog. Environments reference flavors by name; the reference is resolved at workload start. |
 | **Gateway** | The external API surface of the platform. All client applications communicate with the platform through the Gateway via ConnectRPC. |
 | **Identity** | A unique entity in the platform — a user, an agent, or a service. Every identity has a type and a platform-wide ID. |

@@ -11,18 +11,18 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | Terraform Resource | API Resource | Description |
 |-------------------|-------------|-------------|
 | `agyn_user` | User | Platform user (OIDC subject, profile, cluster role). See [Users — Admin User Management](../users.md#admin-user-management) |
+| `agyn_organization` | Organization | Organization (display name, cluster-wide unique [slug](../organizations.md#slug), sandbox TTL and idle-timeout defaults) |
 | `agyn_app` | App | App registration (slug, name, icon). Returns service token for enrollment |
 | `agyn_runner` | Runner | Runner registration (name, organization scope, labels). Returns service token for enrollment |
-| `agyn_agent` | Agent | Agent definition (identity, model, image, compute resources, configuration) |
+| `agyn_agent` | Agent | Agent definition (identity, model, environment reference, configuration) |
 | `agyn_volume` | Volume | Volume definition (persistent/ephemeral, mount path, size) |
-| `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent, MCP, or hook) |
-| `agyn_image_pull_secret` | Image Pull Secret | Registry credential (registry hostname, username, password/token). Managed by the Secrets service |
-| `agyn_image_pull_secret_attachment` | Image Pull Secret Attachment | Relationship between an image pull secret and a container (agent, MCP, or hook) |
+| `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent or MCP) |
+| `agyn_image` | Image | Catalog entry: name, type, upstream repository, optional credential, visibility. Managed by the Images service |
+| `agyn_environment` | Environment | Runner, flavor name, workspace image + tag, optional agent runtime image + tag |
 | `agyn_llm_provider` | LLM Provider | Connection to an external LLM service (endpoint, protocol, auth method, credentials). Managed by the LLM service |
 | `agyn_llm_model` | Model | Platform model mapped to a remote model on an LLM provider. Managed by the LLM service |
-| `agyn_mcp` | MCP | MCP server definition (image, command, compute resources) |
+| `agyn_mcp` | MCP | MCP server definition (image reference + tag, command, compute resources) |
 | `agyn_skill` | Skill | Skill definition (name, body) |
-| `agyn_hook` | Hook | Hook definition (event, function, image, compute resources) |
 | `agyn_env` | ENV | Environment variable (name, plain value or secret reference) |
 | `agyn_init_script` | InitScript | Initialization script (shell script content) |
 | `agyn_membership` | Membership | Organization membership (identity, organization, role). See [Organizations — Members Management](../organizations.md#members-management) |
@@ -94,6 +94,7 @@ data "agyn_user" "alice" {
 
 resource "agyn_organization" "eng" {
   name = "Engineering"
+  slug = "engineering"
 }
 
 resource "agyn_membership" "alice_eng" {
@@ -216,4 +217,4 @@ Resource-specific fields are exposed as typed HCL attributes. The canonical sche
 
 ### Ownership
 
-Most sub-resources (MCP, Skill, Hook, ENV, InitScript) have an ownership field (`agent_id`, `mcp_id`, or `hook_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.
+Most sub-resources (MCP, Skill, ENV, InitScript) have an ownership field (`agent_id` or `mcp_id`) that determines which parent resource they belong to. These are required, immutable after creation, and expressed as standard Terraform resource attributes — not as attachment resources.

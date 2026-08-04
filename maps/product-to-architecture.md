@@ -83,16 +83,20 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Token Counting](../architecture/token-counting.md)
 - [Runners](../architecture/runners.md)
 
-## Runtime (Flavors, Environments, Sandboxes)
+## Runtime (Images, Flavors, Environments, Sandboxes)
 
 ### Product docs
 
+- [Images](../product/images/images.md)
 - [Flavors and Environments](../product/environments/environments.md)
 - [Sandboxes](../product/sandboxes/sandboxes.md)
 
 ### Architecture docs
 
-- [Resource Definitions — Flavor, Environment, Sandbox](../architecture/resource-definitions.md#flavor)
+- [Resource Definitions — Image, Flavor, Environment, Sandbox](../architecture/resource-definitions.md#image)
+- [Images Service](../architecture/images-service.md)
+- [Image Proxy](../architecture/image-proxy.md)
+- [Agent Init Container](../architecture/agent-init.md)
 - [Terminal Proxy](../architecture/terminal-proxy.md)
 - [Runners](../architecture/runners.md)
 - [Agents Orchestrator](../architecture/agents-orchestrator.md)
