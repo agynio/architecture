@@ -14,7 +14,7 @@ It also replaces a resource. With credentials attached to images and resolved by
 |---|---|
 | **Plane** | Data — it is on the image pull path of every cold workload start |
 | **Language** | Go |
-| **Repository** | `agynio/image-proxy` |
+| **Repository** | `agynio/image-pull-proxy` |
 | **API** | OCI Distribution (registry v2) over HTTPS, plus an internal gRPC surface for credential lifecycle |
 | **State** | PostgreSQL — issued pull credentials. Content cache on disk or object storage; authoritative image content is always upstream |
 | **External dependencies** | [Images](images-service.md) service (reference resolution), upstream container registries |
