@@ -34,6 +34,7 @@
 - No local sync daemon: no detached lifecycle independent of the invoking terminal, no owner-only socket and single-instance guard, no persisted sessions with a reconciliation base and trash, no version-mismatch restart, no opt-in resume-at-login service.
 - No sync engine. Reconciliation, conflict detection, ignore handling, symbolic-link and permission modes, and staged transitions are not present in the CLI in any form.
 - No reconnection model: no classification of transport failure, sandbox stop, sandbox termination, and root-identity mismatch into distinct outcomes, and no full rescan on reconnect.
+- No root-disappearance detection on the engineer's side — no recorded filesystem identity for the local root, and no guard against propagating a side that has lost most of its tracked content. An unmounted drive or a recreated directory otherwise reconciles as a deletion of everything and destroys `/workspace`, which has no trash.
 - No halt reporting: no sentinel file in the sync root, no desktop notification, no non-zero status exit, no banner on `sandbox connect`.
 
 ### Runners
@@ -54,6 +55,7 @@
 - `agyn sandbox cp` moves a file in and back out again without a daemon or a session being created.
 - Changing the same file on both sides quarantines that path with both versions intact while every other path continues to sync; `agyn sandbox sync resolve` clears it.
 - A sandbox terminated by its TTL leaves the local directory untouched: the session halts on the root-identity check and requires `sync reset` to continue.
+- The reverse holds: unmounting the drive the local root lives on, or deleting and recreating that directory, halts the session with `/workspace` untouched — it is not read as a deletion of everything.
 - A sandbox left idle under an active sync session stops on schedule, and the session pauses without restarting it. `agyn sandbox connect` resumes both.
 - A file deleted locally by sync is recoverable with `agyn sandbox sync undelete`.
 - Running any other `agyn` command does not start the sync daemon. After a reboot, `agyn sandbox sync list` reports sessions as not running rather than appearing to sync.
