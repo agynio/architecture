@@ -34,7 +34,7 @@
 - No local sync daemon: no detached lifecycle independent of the invoking terminal, no owner-only socket and single-instance guard, no persisted sessions with a reconciliation base and trash, no version-mismatch restart, no opt-in resume-at-login service.
 - No sync engine. Reconciliation, conflict detection, ignore handling, symbolic-link and permission modes, and staged transitions are not present in the CLI in any form.
 - No reconnection model: no classification of transport failure, sandbox stop, sandbox termination, and root-identity mismatch into distinct outcomes, and no full rescan on reconnect.
-- No root-disappearance detection on the engineer's side — no recorded filesystem identity for the local root, and no guard against propagating a side that has lost most of its tracked content. An unmounted drive or a recreated directory otherwise reconciles as a deletion of everything and destroys `/workspace`, which has no trash.
+- No root-disappearance detection on the engineer's side — no recorded inode for the local root, and no guard against propagating a side that has lost most of its tracked content. An unmounted drive or a recreated directory otherwise reconciles as a deletion of everything and destroys `/workspace`, which has no trash.
 - No halt reporting: no sentinel file in the sync root, no desktop notification, no non-zero status exit, no banner on `sandbox connect`.
 
 ### Runners
