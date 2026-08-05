@@ -150,6 +150,23 @@ Halts are reported through channels ordered by likelihood of being noticed:
 
 Resolution is always an explicit out-of-band command — see [agyn-cli — Sandbox Sync Commands](agyn-cli.md#sandbox-sync-commands).
 
+### Recovering from a content-loss halt
+
+A bulk deletion the engineer meant — `rm -rf` on a results directory, a checkout to a branch with far fewer files — is indistinguishable from a loss they did not. The ignore set keeps dependency directories out of it, so this is uncommon; uncommon is precisely when the way out has to be obvious rather than inferred.
+
+The recovery is chosen by **what the engineer is asserting**, not by which side they believe is correct:
+
+| Situation | What they assert | Command |
+|---|---|---|
+| The drive was not mounted, the checkout was mid-flight, the backup finished restoring | Nothing — the environment was wrong and now is not | `resume`. The next cycle sees the content and proceeds; had it not, the guard fires again |
+| The deletion was intended | That this specific loss is wanted | The pending change is acknowledged by count, and only that pending change |
+| The root itself was replaced or wiped, on either side | Which side is to be the new base | `reset --from-local` \| `--from-remote` |
+
+Two properties keep these from collapsing into one another:
+
+- **`reset` propagates.** Declaring a side authoritative makes the other side match it, deletions included. It is not a re-derivation of the base from whatever both sides currently hold — that reading would leave deleted files present and untracked in the sandbox, and they would return on the next cycle looking like remote creations. Because it propagates, `reset` is itself subject to the content-loss guard: it names how many entries it will delete on the far side and requires that to be confirmed. An engineer who reaches for `reset --from-local` after a failed mount is stopped by the same count that would have told them something was wrong.
+- **Acknowledging a deletion is not `reset`.** It clears one pending change, names the count, and leaves the session's base intact. It cannot be used to recover a wiped root, and `reset` cannot be used to wave through an ordinary deletion.
+
 ## The Local Daemon
 
 Sync must outlive the command that starts it. A session tied to a terminal stops silently when the window closes, which is the failure this design most needs to avoid.

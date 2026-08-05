@@ -36,6 +36,7 @@
 - No reconnection model: no classification of transport failure, sandbox stop, sandbox termination, and root-identity mismatch into distinct outcomes, and no full rescan on reconnect.
 - No root-disappearance detection on the engineer's side — no recorded inode for the local root, and no guard against propagating a side that has lost most of its tracked content. An unmounted drive or a recreated directory otherwise reconciles as a deletion of everything and destroys `/workspace`, which has no trash.
 - No halt reporting: no sentinel file in the sync root, no desktop notification, no non-zero status exit, no banner on `sandbox connect`.
+- No separation between the recoveries a halt can need: acknowledging an intended bulk deletion by count, resuming when the cause was environmental, and declaring a base after a root was replaced are three different assertions and must not share one command. `reset` propagates deletions to the far side and is itself subject to the content-loss confirmation.
 
 ### Runners
 
