@@ -24,7 +24,7 @@ The consequence is accepted deliberately: a platform release cannot correct the 
 
 Platform-provisioned resources live in an ordinary [organization](../organizations.md), created by the same provisioning path.
 
-It has **no members**. Cluster admins already hold owner-level access to every organization on the platform (see [Authorization — Cluster Permissions](../authz.md#cluster-permissions)), so it is administrable without anyone being added to it, and no human identity needs to be manufactured at install time.
+It has **no members**, and no human identity is manufactured at install time. A cluster admin may add itself to any organization, including this one (see [Authorization — Cluster Permissions](../authz.md#cluster-permissions)), so administering it is a deliberate step rather than an access everyone holds by default.
 
 Its images are registered `public`, which is what makes them usable from every organization on the platform.
 
