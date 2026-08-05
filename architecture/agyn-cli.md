@@ -360,7 +360,7 @@ The `sandbox sync` subgroup keeps a local directory and a sandbox directory cont
 |---------|-------------|
 | `agyn sandbox sync [NAME] [--local PATH] [--remote PATH] [--foreground]` | Create and start a session between a local directory (`--local`, default the working directory) and a sandbox directory (`--remote`, default `/workspace`). Returns as soon as the session is established. `NAME` resolves as it does for `connect`, and additionally from the working directory when it already belongs to a session |
 | `agyn sandbox sync list` | Sessions with their local root, sandbox, state, and last successful sync. Sessions whose daemon is not running are listed as such |
-| `agyn sandbox sync status [SESSION]` | Detailed state, including quarantined conflicts and the reason for any halt. Exits non-zero while anything needs attention |
+| `agyn sandbox sync status [SESSION]` | Detailed state, including quarantined conflicts and the reason for any halt. Exit code distinguishes the conditions a prompt would style differently: healthy, halted, running with conflicts quarantined, and daemon not running |
 | `agyn sandbox sync pause \| resume \| stop [SESSION]` | Suspend, restart, or remove a session. `stop` removes the session; neither side's files are touched |
 | `agyn sandbox sync resolve <path> --keep-local \| --keep-remote` | Resolve a quarantined conflict. `--all` applies one side to every conflict in the session |
 | `agyn sandbox sync reset --from-local \| --from-remote` | Re-establish a halted session by declaring one side authoritative. Required after the sandbox's workspace has been replaced |

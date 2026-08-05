@@ -16,12 +16,15 @@
 
 ### Terminal Proxy
 
-- Sessions are TTY-only. Non-TTY session kinds — no PTY, no resize, stdout and stderr kept separate — are not supported.
+- Sessions are TTY-only. Non-TTY session kinds — no PTY, no resize — are not supported.
+- Both `Runner.Exec` output streams are written to the WebSocket as untagged binary frames. That is correct for TTY sessions, where a PTY merges them anyway, but leaves a non-TTY consumer unable to separate protocol from diagnostics — a single stderr byte corrupts the stream. Non-TTY kinds need `separate_stderr` requested and each binary frame tagged with its source stream.
+- `SESSION_KIND_UNSPECIFIED` has no defined rejection behavior, and there is no kind-to-command table, no absolute-path invocation for the in-sandbox binary, and no root-path validation or workspace confinement.
 - Sandbox activity reporting does not discriminate by kind: every attached session drives `TouchWorkload` and updates `last_session_at`. `SYNC` sessions must do neither, or a background sync session keeps a sandbox running for as long as an engineer's machine stays connected.
 
 ### agyn (in-sandbox)
 
-- No `sandbox sync serve` endpoint: no root marker and identity reporting, no scan with a supplied digest cache, no blocking change poll with degraded-watch reporting, no content staging on the workspace filesystem, no atomic transition with per-path results, no collection of staging left by terminated sessions.
+- No `sandbox sync serve` endpoint: no root marker and identity reporting, no protocol-version negotiation, no scan with a supplied digest cache, no blocking change poll with degraded-watch reporting, no content staging on the workspace filesystem, no atomic transition with per-path results, no collection of staging left by terminated sessions.
+- `agyn` is not on `PATH` for an exec'd process — `PATH` is extended only by `agynd` when it spawns the agent subprocess, and a sandbox does not run `agynd`. Sync invokes it by absolute path and needs no `PATH` at all; the interactive case is covered by [Agent Volume Layout](2026-08-04-agyn-volume-layout.md).
 
 ### agyn CLI
 

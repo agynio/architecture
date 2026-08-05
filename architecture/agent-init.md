@@ -32,17 +32,17 @@ The platform supports multiple agent CLI types (Codex, Claude Code, [`agn`](agn-
 graph TB
     subgraph Pod
         subgraph "Init containers (run first, in order)"
-            AD[agynd-cli-init<br/>from orchestrator config<br/>agynd → /agyn-bin]
-            AC[agyn-cli-init<br/>from orchestrator config<br/>agyn → /agyn-bin/cli]
-            AR[agent-runtime<br/>from environment<br/>agent CLI + config.json → /agyn-bin]
+            AD[agynd-cli-init<br/>from orchestrator config<br/>agynd → /agyn/bin]
+            AC[agyn-cli-init<br/>from orchestrator config<br/>agyn → /agyn/bin]
+            AR[agent-runtime<br/>from environment<br/>agent CLI → /agyn/bin<br/>config.json → /agyn]
         end
         subgraph "Main container (user's workspace image)"
-            AGYND[/agyn-bin/agynd<br/>reads /agyn-bin/config.json<br/>spawns agent CLI]
+            AGYND[/agyn/bin/agynd<br/>reads /agyn/config.json<br/>spawns agent CLI]
         end
         subgraph Sidecars
             MCP[MCP servers]
         end
-        VOL[emptyDir: agyn-bin]
+        VOL[emptyDir: agyn]
     end
 
     AD -->|writes to| VOL
@@ -61,20 +61,30 @@ An agent CLI upgrade is a new agent runtime image, published without a platform 
 
 ### Shared Volume Contract
 
-All three init containers write into an `emptyDir` mounted at `/agyn-bin`, which the main container also mounts:
+All three init containers write into an `emptyDir` mounted at `/agyn`, which the main container also mounts:
 
 ```
-/agyn-bin/
-├── agynd          # daemon binary            (agynd-cli-init)
-├── cli/
-│   └── agyn       # platform CLI binary      (agyn-cli-init)
-├── codex          # agent CLI binary         (agent runtime image)
+/agyn/
+├── bin/
+│   ├── agynd      # daemon binary            (agynd-cli-init)
+│   ├── agyn       # platform CLI binary      (agyn-cli-init)
+│   └── codex      # agent CLI binary         (agent runtime image)
 └── config.json    # runtime config for agynd (agent runtime image)
 ```
 
-Init containers run in order and write disjoint paths, so the three images compose without coordination beyond the layout above. This is what allows each binary to ship in its own image.
+Init containers run in order and write disjoint paths, so the three images compose without coordination beyond the layout above. This is what allows each binary to ship in its own image. `agyn` and `agynd` are **reserved names** in `bin/`: an agent runtime image must not ship a binary called either.
 
-`agynd` prepends `/agyn-bin/cli` and `/agyn-bin` to `PATH` when spawning the agent subprocess, making `agyn` and the agent CLI available by name. The agent CLI binary keeps its original name — someone who execs into the container to debug sees the real one.
+`/agyn/bin` is the single `PATH` entry, and everything on it is a binary — configuration lives beside it at `/agyn`, not on `PATH`. The volume is a delivery surface written by init containers and read by the main container; it is not writable agent state, so no ownership fixing is required for non-root images.
+
+The agent CLI binary keeps its original name — someone who execs into the container to debug sees the real one.
+
+`PATH` is established by whoever starts a process, because nothing inside the container extends it on its own:
+
+| Process | How `/agyn/bin` gets on `PATH` |
+|---|---|
+| Agent subprocess | `agynd` prepends it when spawning |
+| Interactive session | The [Terminal Proxy](terminal-proxy.md#session-kinds) prepends it in the command it binds, expanded inside the container so the image's own `PATH` survives |
+| Platform-invoked process | Not at all — invoked by absolute path |
 
 ### config.json
 
@@ -83,14 +93,16 @@ Written by the agent runtime image, read by `agynd` at startup:
 ```json
 {
   "sdk": "codex",
-  "bin": "/agyn-bin/codex"
+  "bin": "codex"
 }
 ```
 
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `sdk` | string | `codex`, `claude`, `agn`, … | Which SDK module `agynd` uses to communicate with the agent CLI |
-| `bin` | string | absolute path | Path to the agent CLI binary on the shared volume |
+| `bin` | string | relative path | The agent CLI binary's location under `/agyn/bin`, relative to it — normally just the binary's name |
+
+`bin` is **relative to the volume**, not an absolute path. An image states what it carries; where the platform mounts it is the platform's business, and an image that hardcodes a mount point has to be rebuilt whenever that mount moves.
 
 The image describes itself. The [Agents Orchestrator](agents-orchestrator.md) sets no binary paths, no SDK types, and no agent CLI arguments — it treats the agent runtime image as an opaque reference to something the catalog resolves, exactly as it treats the workspace image.
 
@@ -150,15 +162,15 @@ sequenceDiagram
     participant GW as Gateway
 
     K->>AD: Start agynd-cli-init
-    AD->>AD: cp agynd → /agyn-bin
+    AD->>AD: cp agynd → /agyn/bin
     AD-->>K: Exit 0
 
     K->>AC: Start agyn-cli-init
-    AC->>AC: cp agyn → /agyn-bin/cli
+    AC->>AC: cp agyn → /agyn/bin
     AC-->>K: Exit 0
 
     K->>AR: Start agent runtime init container
-    AR->>AR: cp agent CLI, config.json → /agyn-bin
+    AR->>AR: cp agent CLI → /agyn/bin, config.json → /agyn
     AR-->>K: Exit 0
 
     K->>ZS: Start Ziti sidecar container
@@ -166,15 +178,15 @@ sequenceDiagram
     Note over ZS: Resolves gateway.ziti / llm-proxy.ziti, intercepts via DNS + TPROXY
 
     K->>MC: Start main container
-    Note over MC: command: /agyn-bin/agynd
+    Note over MC: command: /agyn/bin/agynd
 
-    MC->>MC: Read /agyn-bin/config.json → sdk type, bin path
+    MC->>MC: Read /agyn/config.json → sdk type, bin path
     MC->>GW: GetAgent + ListSkills + ListInitScripts + ListMCPs
     GW-->>MC: Agent config, skills, init scripts, MCP definitions
     MC->>MC: Prepare environment (skills to filesystem, LLM Proxy config, MCP endpoints)
     MC->>MC: Execute init scripts in order (/bin/sh -lc each)
     MC->>MC: Spawn agent CLI at bin path (via SDK module)
-    Note over MC: Child PATH includes /agyn-bin/cli and /agyn-bin
+    Note over MC: Child PATH includes /agyn/bin
     MC->>GW: Subscribe to notifications
     MC->>MC: Begin message sync loop
 ```
@@ -182,7 +194,7 @@ sequenceDiagram
 Two workloads deviate from this sequence:
 
 - **A workspace-only environment** (no agent runtime image) runs the two platform init containers alone. No agent CLI and no `config.json` are present.
-- **A [sandbox](../product/sandboxes/sandboxes.md)** runs a long-lived holder process as its main container rather than `agynd`, whether or not its environment names an agent runtime image. When it does, the agent CLI is on `PATH` for a person to drive by hand; `agynd` is present but not started.
+- **A [sandbox](../product/sandboxes/sandboxes.md)** runs a long-lived holder process as its main container rather than `agynd`, whether or not its environment names an agent runtime image. `agynd` is present but not started — so nothing extends `PATH` from inside the container, and the binaries under `/agyn/bin` are reachable only by absolute path unless a session establishes `PATH` itself. Interactive sessions do: the [Terminal Proxy](terminal-proxy.md#session-kinds) prepends `/agyn/bin` to `$PATH` in the command it binds, expanded inside the container so the image's own `PATH` survives. That is what puts `agyn` and the environment's agent CLI on `PATH` for a person driving a sandbox by hand.
 
 ## Environment Variable Contract
 
@@ -228,20 +240,20 @@ spec:
     - name: agynd-cli-init
       image: ghcr.io/agynio/agynd-cli-init:<platform-version>   # chart-pinned, not proxied
       volumeMounts:
-        - name: agyn-bin
-          mountPath: /agyn-bin
+        - name: agyn
+          mountPath: /agyn
 
     - name: agyn-cli-init
       image: ghcr.io/agynio/agyn-cli-init:<platform-version>    # chart-pinned, not proxied
       volumeMounts:
-        - name: agyn-bin
-          mountPath: /agyn-bin
+        - name: agyn
+          mountPath: /agyn
 
     - name: agent-runtime
       image: <proxy-host>/<org>/<image-name>:<tag>   # from environment.agent_runtime_image
       volumeMounts:
-        - name: agyn-bin
-          mountPath: /agyn-bin
+        - name: agyn
+          mountPath: /agyn
 
     - name: ziti-sidecar
       image: ghcr.io/agynio/ziti-sidecar:latest
@@ -256,7 +268,7 @@ spec:
   containers:
     - name: agent-<short-id>
       image: <proxy-host>/<org>/<image-name>:<tag>   # from environment.workspace_image
-      command: ["/agyn-bin/agynd"]
+      command: ["/agyn/bin/agynd"]
       env:
         - name: AGENT_ID
           value: "<uuid>"
@@ -270,8 +282,8 @@ spec:
           value: "filesystem:8100,github:8101"
         # ... user-defined agent ENVs (resolved secret values included)
       volumeMounts:
-        - name: agyn-bin
-          mountPath: /agyn-bin
+        - name: agyn
+          mountPath: /agyn
         # ... user volumes
 
     - name: mcp-<short-id>
@@ -279,7 +291,7 @@ spec:
       # ... (only receives its own MCP ENVs — no agent secrets)
 
   volumes:
-    - name: agyn-bin
+    - name: agyn
       emptyDir: {}
     # ... user volumes
 ```

@@ -90,7 +90,7 @@ When `StartWorkload` is called, the k8s-runner:
 
 The pod includes a label (`agyn.dev/managed-by: agents-orchestrator`) that the workload-namespace [Workload Egress NetworkPolicy](#workload-egress-networkpolicy) selects on. The runtime does not create or manage that NetworkPolicy — it is installed as part of the runner deployment.
 
-Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn-bin`).
+Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn`).
 
 The Pod's `restartPolicy` is `Never` — the Agents Orchestrator owns lifecycle decisions. If a container crashes, the Runner reports the failure; it does not restart the Pod.
 

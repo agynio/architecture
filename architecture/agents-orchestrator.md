@@ -241,11 +241,11 @@ In addition to user-defined environment variables, the orchestrator injects **pl
 
 The orchestrator also wires the init container flow:
 
-- Add the `agyn-bin` ephemeral volume.
+- Add the `agyn` ephemeral volume.
 - Build the two **platform init containers** from the orchestrator's configured `agynd-cli-init` and `agyn-cli-init` references. They are injected into every workload, including sandboxes.
 - Build the **agent runtime init container** from the environment's agent runtime image, when it names one. Its `config.json` tells `agynd` which agent CLI to spawn — the orchestrator reads neither.
-- Set main container command to `/agyn-bin/agynd`.
-- Mount `agyn-bin` in the main container.
+- Set main container command to `/agyn/bin/agynd`.
+- Mount `agyn` in the main container.
 
 See [Agent Init Container](agent-init.md).
 
