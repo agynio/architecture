@@ -159,13 +159,15 @@ The recovery is chosen by **what the engineer is asserting**, not by which side 
 | Situation | What they assert | Command |
 |---|---|---|
 | The drive was not mounted, the checkout was mid-flight, the backup finished restoring | Nothing — the environment was wrong and now is not | `resume`. The next cycle sees the content and proceeds; had it not, the guard fires again |
-| The deletion was intended | That this specific loss is wanted | The pending change is acknowledged by count, and only that pending change |
+| The deletion was intended | That this specific loss is wanted | `accept-deletions`, which clears that one pending change and only that one |
 | The root itself was replaced or wiped, on either side | Which side is to be the new base | `reset --from-local` \| `--from-remote` |
 
 Two properties keep these from collapsing into one another:
 
 - **`reset` propagates.** Declaring a side authoritative makes the other side match it, deletions included. It is not a re-derivation of the base from whatever both sides currently hold — that reading would leave deleted files present and untracked in the sandbox, and they would return on the next cycle looking like remote creations. Because it propagates, `reset` is itself subject to the content-loss guard: it names how many entries it will delete on the far side and requires that to be confirmed. An engineer who reaches for `reset --from-local` after a failed mount is stopped by the same count that would have told them something was wrong.
-- **Acknowledging a deletion is not `reset`.** It clears one pending change, names the count, and leaves the session's base intact. It cannot be used to recover a wiped root, and `reset` cannot be used to wave through an ordinary deletion.
+- **Acknowledging a deletion is not `reset`.** `accept-deletions` clears one pending change, names the count, and leaves the session's base intact. It cannot be used to recover a wiped root, and `reset` cannot be used to wave through an ordinary deletion.
+
+Both confirmations have to survive having no human present. Neither prompts without a TTY and neither proceeds silently: the assertion is carried by a flag naming the **expected count**, which must match what is pending. A bare yes-flag would be written into a pipeline against three deletions and still be there authorizing thirty thousand — the count is what scopes the authorization to the change its author actually saw. See [agyn-cli — Sandbox Sync Commands](agyn-cli.md#sandbox-sync-commands).
 
 ## The Local Daemon
 

@@ -37,6 +37,7 @@
 - No root-disappearance detection on the engineer's side — no recorded inode for the local root, and no guard against propagating a side that has lost most of its tracked content. An unmounted drive or a recreated directory otherwise reconciles as a deletion of everything and destroys `/workspace`, which has no trash.
 - No halt reporting: no sentinel file in the sync root, no desktop notification, no non-zero status exit, no banner on `sandbox connect`.
 - No separation between the recoveries a halt can need: acknowledging an intended bulk deletion by count, resuming when the cause was environmental, and declaring a base after a root was replaced are three different assertions and must not share one command. `reset` propagates deletions to the far side and is itself subject to the content-loss confirmation.
+- Neither confirmation has a non-interactive path. Without a TTY they must neither prompt nor proceed, and the assertion must be carried by a flag naming the expected count rather than a blanket yes — a pipeline authorized against three deletions must not later authorize thirty thousand. Recovery commands require a running daemon, as `pause`/`resume`/`stop` do.
 
 ### Runners
 
