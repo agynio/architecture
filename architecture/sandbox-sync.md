@@ -26,7 +26,7 @@ Shared storage remains the right answer *inside* the cluster — a read-write-ma
 | Engineer's machine | Sync daemon | Owns every session: watching, reconciliation, transfer, reconnection, halt state |
 | Engineer's machine | Local endpoint | In-process filesystem access to the local root |
 | Gateway | `CreateTerminalSession(kind: SYNC)` | Authorizes and binds the in-sandbox command into a ticket |
-| Terminal Proxy | Sync session | A non-TTY session kind that does not report sandbox activity. The wire protocol is unchanged — the proxy does not interpret what it carries |
+| Terminal Proxy | Sync session | A non-TTY session kind that does not report sandbox activity, and whose output frames are tagged by source stream. The proxy interprets no payload |
 | Sandbox container | `agyn sandbox sync serve` | Stateless remote endpoint — scans, stages, applies |
 
 ## Control Model
@@ -60,7 +60,7 @@ sequenceDiagram
 
 Sync sessions reuse the [Terminal Proxy session establishment](terminal-proxy.md#session-establishment) unchanged, including its authorization: the caller must be the sandbox **owner**. Organization owners can manage a sandbox but cannot attach to one they do not own, and that applies to sync exactly as it applies to shells.
 
-The client requests a **session kind**, not a command. The Gateway holds the command for each kind and binds it into the ticket, so the client supplies no arguments beyond the root path — which the Gateway validates as absolute and normalizes before binding. This keeps the ticket meaningful and stops the surface drifting into arbitrary remote execution.
+The client requests a **session kind**, not a command. The Gateway holds the command for each kind and binds it into the ticket, so the client supplies no argument beyond the root path. That path is validated in two places — lexically at the Gateway, then resolved against the real filesystem by the endpoint at handshake, since only a process inside the container can follow symlinks or see where the workspace is mounted. See [Terminal Proxy — Root validation](terminal-proxy.md#root-validation).
 
 ## Endpoint Protocol
 
@@ -110,7 +110,7 @@ The ancestor is committed only after a complete successful cycle, so an interrup
 
 | Concern | Rule |
 |---|---|
-| **On-disk footprint** | One directory per root, `<root>/.agyn-sync/`, holding `id` (the session UUID that backs the identity check) and `staging/`. Excluded from synchronization by construction |
+| **On-disk footprint** | Nothing persistent is added to the local root. Session state — reconciliation base, trash, staging — lives under `~/.agyn/sync/sessions/<id>/`, and the identity marker exists only on the sandbox side, which is the side that can be wiped out from under a session. Staging needs to share a filesystem with the root it writes into for the final rename to be atomic; when the local root is on a different filesystem from `~`, a staging directory is created inside it for the duration of a transfer and removed afterwards. The only thing sync ever leaves in the engineer's directory is the transient halt report described below |
 | **First contact** | Inferred when only one side has content — the non-empty side wins. When both are non-empty and unmarked, the session halts and a direction must be given explicitly, with the same `--from-local` / `--from-remote` choice that recovers a halted session |
 | **Ignores** | `.git/` **is** synchronized — git must work on both sides. A built-in set covers dependency and build directories, `.agynignore` in the root adds to it in gitignore syntax, and `.gitignore` itself is honored only on request: build output that belongs on the sandbox side is routinely gitignored |
 | **Overlapping roots** | Rejected. A session whose local or remote root nests inside an existing session's is refused, naming the conflict. Two engines writing one subtree cannot be reconciled |
@@ -141,7 +141,7 @@ Halts are reported through channels ordered by likelihood of being noticed:
 |---|---|
 | Inline output | A foreground session is attached |
 | Sentinel file in the sync root | Immediately — it appears in the editor tree and in `git status` |
-| Native OS notification | At the moment the halt occurs |
+| Native OS notification | At the moment the halt occurs — `osascript` on macOS, `notify-send` on Linux, skipped silently when neither is present. Never a hard dependency |
 | `agyn sandbox sync status`, non-zero exit | On demand, and from shell prompts and editor tasks |
 | Banner on `agyn sandbox connect` | The engineer is about to work on those files |
 
@@ -225,7 +225,7 @@ If the vendoring surface proves unworkable in practice, the fallback is a purpos
 
 - **Reducing steady-state cost** — dropping the exec stream when both sides are quiet and reconnecting on local change, or varying fidelity by whether a shell is attached, which needs an attachment signal the platform does not expose today. Either is warranted by measurement, not in advance.
 - **A direct data path** — an OpenZiti connection from the CLI to a per-sandbox service, bypassing the Kubernetes API server entirely. This lifts the throughput ceiling and removes the per-session API-server connection. The CLI surface does not change, which is what keeps it a later optimization rather than a fork in the road.
-- **Windows support** — deferred. The watching APIs have equivalents, but case-insensitive paths, path separators, reserved filenames, and the absent executable bit make it a distinct engine problem rather than a port.
+- **Windows**, if the [`agyn` CLI](agyn-cli.md) ever targets it. Sync would not come along for free: the watching APIs have equivalents, but case-insensitive paths, path separators, reserved filenames, and the absent executable bit make it a distinct engine problem rather than a port.
 - **Shared read-write-many volumes** mounted by several workloads at once, which would change what a session targets without changing how it works.
 
 ## Related

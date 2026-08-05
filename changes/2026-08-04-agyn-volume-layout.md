@@ -42,7 +42,7 @@ The target is one mount at `/agyn`, every binary in `/agyn/bin`, and configurati
 
 ### Terminal Proxy
 
-- No sessions exist yet (see [Sandboxes](2026-07-15-sandboxes.md)). When they do, the `PATH` prefix bound into TTY session commands and the absolute path bound into `SYNC` must use `/agyn/bin`.
+- The proxy is implemented and issues shell sessions today, with the command hardcoded as `exec ${SHELL:-sh} -l` in the service and mirrored in its ticket store. That form both omits the platform binaries from `PATH` and, being a login shell, would discard a `PATH` set ahead of it. It must become the profile-first form in [Terminal Proxy — PATH in a session](../architecture/terminal-proxy.md#path-in-a-session), and the command must stop being a hardcoded constant now that it varies by session kind.
 
 ### k8s-runner
 
@@ -53,7 +53,7 @@ The target is one mount at `/agyn`, every binary in `/agyn/bin`, and configurati
 - An agent workload starts with one `emptyDir` mounted at `/agyn`, holding `bin/agynd`, `bin/agyn`, the environment's agent CLI in `bin/`, and `config.json` at the root.
 - `which agyn` and `which <agent-cli>` both resolve inside the agent subprocess with a single `/agyn/bin` entry on `PATH`, and `config.json` is not on `PATH`.
 - A runtime image whose `config.json` carries `"bin": "codex"` runs; one carrying an absolute path fails at startup with a message naming the field.
-- A sandbox shell has `agyn` and the environment's agent CLI on `PATH`, with the workspace image's own `PATH` entries intact.
+- A sandbox shell on a Debian-family workspace image has `agyn` and the environment's agent CLI on `PATH`, ahead of everything `/etc/profile` set — the case a `PATH` assigned before a login shell would have lost.
 - A non-root workspace image runs unchanged — the volume is read by the main container, so no ownership fixing is introduced.
 
 ## Notes

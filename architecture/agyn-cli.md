@@ -369,7 +369,7 @@ The `sandbox sync` subgroup keeps a local directory and a sandbox directory cont
 | `agyn sandbox sync daemon install \| uninstall` | Register or remove a user-level service so sessions resume at login. Opt-in; nothing is installed otherwise |
 | `agyn sandbox sync serve --root PATH` | Hidden. The in-sandbox endpoint, launched by the platform inside the container — never run by hand |
 
-The positional is the sandbox, as everywhere else in the group — local and remote directories are flags, mirroring [`files download`](#download), where the remote object is positional and the local path is `--output`. A session is named for its local directory and its sandbox (`api-brave-otter`) and is unique per daemon; `SESSION` may be omitted whenever only one session is a candidate.
+The positional is the sandbox, as everywhere else in the group — local and remote directories are flags, mirroring [`files download`](#download), where the remote object is positional and the local path is `--output`. A session's identity is the `(local root, sandbox, remote root)` triple. Its *name* is only a label, derived from the local directory and the sandbox (`api-brave-otter`) and given a short discriminator when that would collide with an existing session. `SESSION` may be omitted whenever only one session is a candidate.
 
 There is no selected-sandbox setting. `profile` and `local` have `select`/`use` because a profile and a VM are long-lived machine-level choices; a sandbox is org-scoped and expires, so a stored selection would routinely point at something terminated. Sandboxes resolve the way `connect` resolves them — the sole owned sandbox, otherwise named. Sync adds one further step first: a working directory that already belongs to a session resolves to that session's sandbox, which is a per-directory answer rather than a machine-wide mode.
 
@@ -381,7 +381,7 @@ Sync outlives the command that starts it, so sessions survive closing the termin
 |---------|----------|
 | **Start** | Only `agyn sandbox sync` and `sync daemon start` launch it. No other command in the CLI does — an unrelated invocation never spawns a sync daemon |
 | **Detachment** | A new session with no controlling terminal, output to a rotating log under `~/.agyn/sync/`. Unaffected by the invoking shell exiting |
-| **Address** | gRPC over an owner-only unix socket under `~/.agyn/sync/`, guarded by a lock file against concurrent daemons |
+| **Address** | Connect over an owner-only unix socket under `~/.agyn/sync/` — the CLI's existing RPC stack, not gRPC. A lock file guards against concurrent daemons |
 | **Stop** | Explicitly, or automatically once the last session is removed |
 | **Reboot** | Nothing resumes on its own; sessions persist and are reported as not running. `sync daemon install` is the opt-in for resume-at-login |
 | **Upgrade** | A daemon running an incompatible version is detected on the socket handshake and restarted; sessions persist across it |

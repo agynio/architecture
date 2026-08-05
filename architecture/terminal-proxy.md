@@ -58,7 +58,7 @@ The command is fixed at ticket issuance, never at attach time. It is derived fro
 
 | Kind | TTY | Command | Consumer |
 |---|---|---|---|
-| `SHELL` | yes | A login shell resolved inside the container, with the platform binaries prepended to `PATH`: `/bin/sh -c 'PATH=/agyn/bin:$PATH exec ${SHELL:-sh} -l'` | `agyn sandbox start`/`connect`, Console terminal |
+| `SHELL` | yes | `/bin/sh -lc 'PATH=/agyn/bin:$PATH exec ${SHELL:-sh}'` — see [PATH](#path-in-a-session) | `agyn sandbox start`/`connect`, Console terminal |
 | `EXEC` | yes | A caller-supplied command, run with the same `PATH` prefix | Console non-shell inspection commands |
 | `SYNC` | no | `/agyn/bin/agyn sandbox sync serve --root <path>` | [Workspace sync](sandbox-sync.md), `agyn sandbox cp` |
 
@@ -66,12 +66,34 @@ The command is fixed at ticket issuance, never at attach time. It is derived fro
 
 Authorization does not vary by kind: `EXEC` carries a caller-supplied command but is authorized by the same check as `SHELL` (see [Authorization](#authorization)). What binding the command at issuance buys is not an extra permission gate but immutability — the command cannot be swapped at attach time.
 
-The platform's binaries are delivered to `/agyn/bin` by the [binary init containers](agent-init.md), but nothing puts them on `PATH` for a session: `PATH` is extended only by `agynd` when it spawns the agent subprocess, and a sandbox does not run `agynd`. Sessions therefore establish it themselves, and the two kinds do it differently for good reason:
+### PATH in a session
 
-- **TTY kinds prepend to `$PATH`** in the bound command, as above. The expansion happens inside the container, so the image's own `PATH` — language toolchains, Nix profiles — is preserved rather than replaced. Setting `PATH` through the pod spec would replace it, and the orchestrator cannot know what the image configured.
-- **`SYNC` uses an absolute path** and depends on `PATH` not at all, which is what a machine-invoked command should do.
+The platform's binaries are delivered to `/agyn/bin` by the [binary init containers](agent-init.md), but nothing puts them on `PATH` for a session: `PATH` is extended only by `agynd` when it spawns the agent subprocess, and a sandbox does not run `agynd`. Sessions establish it themselves.
 
-Its `root` parameter is validated as absolute, normalized, symlink-free, and confined to the workload's workspace mount. This is not a privilege boundary — a sandbox owner can already obtain a shell — but it keeps tickets honest and prevents the surface from generalizing into arbitrary remote execution.
+**`SYNC` sidesteps the problem** by using an absolute path, which is what a machine-invoked command should do regardless.
+
+**TTY kinds must prepend after the login profile has run, not before.** The obvious form — setting `PATH` and then exec'ing a login shell — does not work: `/etc/profile` on Debian and Ubuntu assigns `PATH` unconditionally, so a login shell discards anything set ahead of it. The prefix would vanish on exactly the base images most likely to be in use.
+
+The bound command therefore runs the profile first and prepends afterwards:
+
+```sh
+/bin/sh -lc 'PATH=/agyn/bin:$PATH exec ${SHELL:-sh}'
+```
+
+The outer `sh -l` processes `/etc/profile` and the user's profile; `$PATH` is then whatever that left, and the platform entry goes in front of it. Setting `PATH` through the pod spec is not an alternative — Kubernetes `env` replaces the image's value rather than extending it, and the orchestrator cannot know what the image configured.
+
+The consequence to be aware of: the final shell is **not** a login shell, so shell-specific login files (`~/.bash_profile`) do not run, while `/etc/profile` and `~/.profile` already have. Making the final shell a login shell would re-run the profile and discard the prefix again.
+
+### Root validation
+
+`SYNC`'s `root` parameter is checked in two places, because neither alone can do the job:
+
+| Check | Where | Why there |
+|---|---|---|
+| Absolute, lexically normalized, no `..` traversal | Gateway, at issuance | Purely textual, and it is what keeps the ticket honest |
+| Resolves inside the workload's workspace mount, after following symlinks | The endpoint, at handshake | Only the process inside the container can see the filesystem. The Gateway has no mount data for a container — `Runners.Container` carries name, role, image, and status — and does not call the Runners service at all; the proxy does |
+
+A root failing the second check fails the session at handshake with the resolved path named. This is not a privilege boundary — a sandbox owner can already obtain a shell — but it keeps tickets meaningful and prevents the surface from generalizing into arbitrary remote execution.
 
 `SYNC` sessions run with `Runner.Exec` wall and idle timeouts disabled, as terminal sessions do. A session parked in a blocking poll legitimately emits nothing for the poll interval; an idle timeout would reap healthy sessions. Liveness is the WebSocket ping/pong, unchanged.
 
@@ -81,17 +103,17 @@ Tickets are **self-contained signed tokens** (key shared across proxy replicas),
 
 One WebSocket per session. Frames:
 
-| Frame | Direction | Content |
-|---|---|---|
-| Binary | client → proxy | Raw input bytes for the PTY (keystrokes, pastes, escape sequences) |
-| Binary | proxy → client | Raw PTY output bytes |
-| Text (JSON) | client → proxy | Control: `{"type":"resize","cols":N,"rows":N}` |
-| Text (JSON) | proxy → client | Control: `{"type":"exit","code":N,"reason":"completed\|cancelled\|error"}` — final message before close |
-| Ping/Pong | both | Liveness, every 30s; a peer missing two intervals is considered gone |
+| Frame | Direction | TTY kinds | Non-TTY kinds (`SYNC`) |
+|---|---|---|---|
+| Binary | client → proxy | Raw input bytes for the PTY (keystrokes, pastes, escape sequences) | Raw stdin bytes — no prefix |
+| Binary | proxy → client | Raw PTY output bytes — **no prefix** | **One-byte stream prefix** (`0x00` stdout, `0x01` stderr) followed by the payload |
+| Text (JSON) | client → proxy | Control: `{"type":"resize","cols":N,"rows":N}` | Not used |
+| Text (JSON) | proxy → client | Control: `{"type":"exit","code":N,"reason":"completed\|cancelled\|error"}` — final message before close | Same |
+| Ping/Pong | both | Liveness, every 30s; a peer missing two intervals is considered gone | Same |
 
-The proxy does not interpret binary frames, so the same wire protocol serves every session kind: for TTY kinds they carry PTY bytes, for `SYNC` they carry the endpoint protocol. `resize` is meaningful only to TTY kinds.
+The proxy never interprets the *payload*, so one wire protocol serves every session kind — TTY kinds carry PTY bytes, `SYNC` carries the endpoint protocol. The one thing that differs is stream framing on the proxy→client direction.
 
-**Non-TTY sessions tag their output streams.** [`Runner.Exec`](runner.md#execution) distinguishes stdout from stderr (`ExecOptions.separate_stderr`, and distinct response events), but for TTY sessions the proxy writes both as untagged binary frames — correct there, since a PTY merges the two at the kernel anyway. A non-TTY consumer cannot afford that: one byte of stderr from a library inside the container would land inside the protocol stream and corrupt it. For non-TTY kinds the proxy therefore requests `separate_stderr` and prefixes each binary frame with a one-byte stream identifier (`0` stdout, `1` stderr). TTY kinds are unchanged and carry no prefix.
+**Why non-TTY output is tagged.** [`Runner.Exec`](runner.md#execution) distinguishes stdout from stderr (`ExecOptions.separate_stderr`, and distinct response events), but for TTY sessions the proxy writes both as untagged binary frames — correct there, since a PTY merges the two at the kernel anyway. A non-TTY consumer cannot afford that: one byte of stderr from a library inside the container would land inside the protocol stream and corrupt it. Non-TTY kinds therefore request `separate_stderr`, and the proxy prefixes each binary frame with the stream it came from.
 
 ## Terminal Semantics
 

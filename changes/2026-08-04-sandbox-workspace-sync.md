@@ -12,18 +12,18 @@
 
 ### Gateway
 
-- `CreateTerminalSession` takes a free-form optional command override rather than a **session kind**. The kind-to-command mapping, the `SYNC` kind, and root-path validation and normalization for it do not exist. Tickets are not bound to a kind.
+- `CreateTerminalSession` takes a free-form optional command override rather than a **session kind**. The kind-to-command mapping, the `SYNC` kind, and lexical root-path validation for it do not exist. Tickets are not bound to a kind.
 
 ### Terminal Proxy
 
 - Sessions are TTY-only. Non-TTY session kinds — no PTY, no resize — are not supported.
 - Both `Runner.Exec` output streams are written to the WebSocket as untagged binary frames. That is correct for TTY sessions, where a PTY merges them anyway, but leaves a non-TTY consumer unable to separate protocol from diagnostics — a single stderr byte corrupts the stream. Non-TTY kinds need `separate_stderr` requested and each binary frame tagged with its source stream.
-- `SESSION_KIND_UNSPECIFIED` has no defined rejection behavior, and there is no kind-to-command table, no absolute-path invocation for the in-sandbox binary, and no root-path validation or workspace confinement.
+- `SESSION_KIND_UNSPECIFIED` has no defined rejection behavior, there is no kind-to-command table, and no absolute-path invocation for the in-sandbox binary.
 - Sandbox activity reporting does not discriminate by kind: every attached session drives `TouchWorkload` and updates `last_session_at`. `SYNC` sessions must do neither, or a background sync session keeps a sandbox running for as long as an engineer's machine stays connected.
 
 ### agyn (in-sandbox)
 
-- No `sandbox sync serve` endpoint: no root marker and identity reporting, no protocol-version negotiation, no scan with a supplied digest cache, no blocking change poll with degraded-watch reporting, no content staging on the workspace filesystem, no atomic transition with per-path results, no collection of staging left by terminated sessions.
+- No `sandbox sync serve` endpoint: no root resolution against the real filesystem and confinement to the workspace mount — the only place either can be checked, since neither the Gateway nor the proxy can see the container's filesystem or has mount data for a container — no root marker and identity reporting, no protocol-version negotiation, no scan with a supplied digest cache, no blocking change poll with degraded-watch reporting, no content staging on the workspace filesystem, no atomic transition with per-path results, no collection of staging left by terminated sessions.
 - `agyn` is not on `PATH` for an exec'd process — `PATH` is extended only by `agynd` when it spawns the agent subprocess, and a sandbox does not run `agynd`. Sync invokes it by absolute path and needs no `PATH` at all; the interactive case is covered by [Agent Volume Layout](2026-08-04-agyn-volume-layout.md).
 
 ### agyn CLI
@@ -62,6 +62,7 @@
 ## Notes
 
 - Depends on [Sandboxes](2026-07-15-sandboxes.md) — sync targets a sandbox's workspace and reuses the Terminal Proxy session path that change introduces.
+- Depends on [Agent Volume Layout](2026-08-04-agyn-volume-layout.md). The `SYNC` command is bound as an absolute path under `/agyn/bin`, which does not exist until that change lands — today the binaries are at `/agyn-bin/agynd` and `/agyn-bin/cli/agyn`. Session kinds cannot be built against the target layout before it exists.
 - Assumes the `agyn` CLI is present in every sandbox, which the platform's binary init containers provide. Sync ships no binary of its own to either end.
 - Which reconciliation engine is vendored is unsettled, under the constraints in [Sync Engine](../architecture/sandbox-sync.md#sync-engine). The leading candidate's core packages are permissively licensed and transport-agnostic, but the module carries a mixed license overall and its transitive surface is unmeasured. The alternative is a purpose-built engine. Nothing else in this delta depends on which is chosen.
 - Delta transfer for large, slightly changed files is out of scope; whole-file transfer over a compressed stream is sufficient for working trees.
