@@ -21,6 +21,8 @@ agyn sandbox sync                  # keep the working directory and /workspace i
 - As an engineer, I want a directory on my machine and a directory in the sandbox to stay in step, so I can edit in my own editor while the work runs in the sandbox and see whatever it writes back.
 - As an engineer, I want the sandbox to carry the environment's secrets, egress rules, MCP servers, and storage layout, so I can manually exercise exactly what an agent in that environment could do.
 - As an engineer, I want to know before I start working whether my files will survive the sandbox going idle.
+- As an engineer, I want to say how long my sandbox should outlive my last connection — a four-hour build and a five-minute experiment do not want the same answer — and to set my own usual value once rather than on every start.
+- As an organization owner, I want a ceiling on that, so a forgotten sandbox on expensive hardware cannot be pinned alive by whoever started it.
 - As an organization owner, I want to see every sandbox running in my organization and terminate any of them.
 - As a platform operator, I want sandboxes to stop when idle and disappear after a TTL, so forgotten sandboxes don't consume capacity forever.
 
@@ -38,9 +40,9 @@ Sandboxes are managed through a new `agyn sandbox` command group:
 
 | Command | Description |
 |---|---|
-| `agyn sandbox start [--env NAME] [--name NAME] [--sync PATH]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted |
+| `agyn sandbox start [--env NAME] [--name NAME] [--sync PATH] [--idle-timeout DURATION]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted. `--idle-timeout` overrides how long the sandbox survives unattended — see [Choosing an idle timeout](#choosing-an-idle-timeout) |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
-| `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
+| `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session, idle timeout, remaining TTL. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none — stopping discards everything |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete the volumes provisioned for it |
 | `agyn sandbox cp [-r] SRC DST` | Copy files in or out once. The sandbox side carries a `NAME:path` prefix |
@@ -60,9 +62,22 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 | `failed` | Workload failed to start. Sticky until the user acts: `connect` performs a fresh start attempt (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). TTL still applies |
 | `terminated` | Deleted explicitly or by TTL; provisioned volumes removed. A soft state: the record is retained for audit and usage history but hidden from default lists |
 
-- **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped; the sandbox record and the environment's persistent volumes survive, and `connect` restarts the workload on the same disks. **Anything outside a persistent volume does not survive** — see [Storage](#storage). While a session is attached the sandbox is never considered idle. A [sync session](#workspace-sync) is deliberately **not** an activity signal: a laptop left syncing would otherwise keep a sandbox running indefinitely.
+- **Idle timeout** (default `30m`, set per sandbox at creation): idle means **nothing is attached**. While a session is attached the sandbox is never considered idle; the clock starts at the last detach. When it elapses, the workload is stopped; the sandbox record and the environment's persistent volumes survive, and `connect` restarts the workload on the same disks. **Anything outside a persistent volume does not survive** — see [Storage](#storage). A [sync session](#workspace-sync) is deliberately **not** an attachment for this purpose: a laptop left syncing would otherwise keep a sandbox running indefinitely. See [Choosing an idle timeout](#choosing-an-idle-timeout).
 - **TTL** (default `72h` from creation): when it elapses, the sandbox is terminated and its volumes deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
-- **Defaults are organization-configurable** (org owners set default TTL and idle timeout in organization settings, within platform bounds). Both values are resolved and stored on the sandbox at creation — changing the org default later does not affect existing sandboxes.
+- **Defaults are organization-configurable** (org owners set the default TTL, the default idle timeout, and the maximum idle timeout a creator may request, within platform bounds). Values are resolved and stored on the sandbox at creation — changing an org setting later does not affect existing sandboxes.
+
+### Choosing an idle timeout
+
+Thirty minutes fits an engineer stepping away from a shell. It fits nothing else: a long build, a call, a run left going overnight all want a different number, and the person starting the sandbox knows which.
+
+```bash
+agyn sandbox start --env gpu --idle-timeout 4h
+agyn profile set cloud --sandbox-idle-timeout 2h    # my default, this profile
+```
+
+The value resolves flag → local profile default → organization default. An organization owner sets the ceiling (`sandbox_max_idle_timeout`); a request above it is **rejected, naming the ceiling**, rather than quietly reduced to a number the engineer never sees and would plan around wrongly. TTL is the backstop underneath: a long idle timeout keeps a sandbox alive while nobody is attached, but nothing outlives its TTL.
+
+Two bounds govern a sandbox's life, so `agyn sandbox list` shows both — the idle timeout and the remaining TTL — rather than making one of them something you go looking for.
 - One workload at a time per sandbox. Sandboxes are first-class workload owners in the runtime model (`owner_kind=sandbox` on workload and volume records) — no agent instance exists behind a sandbox.
 
 ## What's Inside

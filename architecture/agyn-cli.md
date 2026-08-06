@@ -380,7 +380,7 @@ Engineers use the `sandbox` command group to start on-demand workloads and attac
 
 | Command | Description |
 |---------|-------------|
-| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted. Prints a notice before attaching when the environment declares no persistent [volume](resource-definitions.md#volume) — nothing written in the shell will survive the workload stopping |
+| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH] [--idle-timeout DURATION]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted. `--idle-timeout` sets how long the sandbox survives with nothing attached — see [Idle Timeout](#sandbox-idle-timeout). Prints a notice before attaching when the environment declares no persistent [volume](resource-definitions.md#volume) — nothing written in the shell will survive the workload stopping |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes. Terminated sandboxes are hidden unless `--terminated` is passed. `--all` lists every sandbox in the organization (org owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none |
@@ -398,6 +398,23 @@ agyn sandbox cp -r ./src brave-otter:/workspace/src
 The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). A dropped connection ends the session, not the sandbox — `agyn sandbox connect` reattaches. `start` and `connect` require a TTY; the only non-interactive session the CLI opens is [workspace sync](#sandbox-sync-commands).
 
 `agyn sandbox start --sync PATH` composes start, shell attach, and sync in one invocation.
+
+### Sandbox Idle Timeout
+
+A sandbox is idle when **nothing is attached to it** — every attached terminal session keeps it alive, and the clock starts at the last detach. A [sync session](#sandbox-sync-commands) is deliberately not an attachment for this purpose: a laptop left syncing would keep a sandbox running indefinitely. See [Terminal Proxy — Sandbox Activity Reporting](terminal-proxy.md#sandbox-activity-reporting).
+
+Thirty minutes suits an engineer stepping away from a shell and suits nothing else. A long build, a call, a run left going overnight all want a different number, and it is known at `start`:
+
+```bash
+agyn sandbox start --env gpu --idle-timeout 4h
+agyn profile set cloud --sandbox-idle-timeout 2h    # my default, this profile
+```
+
+The value resolves flag → profile → organization default, and the server is the authority: [`CreateSandbox`](agents-service.md#resources) rejects anything above the organization's `sandbox_max_idle_timeout`, naming the ceiling, rather than clamping silently to a number the caller never sees. It is recorded on the sandbox at creation and does not change afterwards — as with TTL, a running sandbox is not re-read against settings that have since moved.
+
+The profile default lives on the [profile](#profiles) rather than in one global config because it belongs to a Gateway and an organization: a local VM and a production tenant deserve different answers, and switching profiles should switch the answer with them.
+
+`agyn sandbox list` shows each sandbox's idle timeout alongside its remaining TTL, so the two bounds on a sandbox's life are visible in the same place.
 
 ---
 
@@ -499,7 +516,7 @@ A profile is the CLI's context: which Gateway to talk to, which organization to 
 | `agyn profile list` | The configured profiles; the current one is marked |
 | `agyn profile show [NAME]` | One profile's settings |
 | `agyn profile select` \| `use NAME` | Choose the profile subsequent commands run under — interactively, or by name for scripts |
-| `agyn profile set NAME [--gateway-url URL] [--organization ID] [--ca-file PATH]` | Create or update a profile. Fields not given are left as they are |
+| `agyn profile set NAME [--gateway-url URL] [--organization ID] [--ca-file PATH] [--sandbox-idle-timeout DURATION]` | Create or update a profile. Fields not given are left as they are |
 | `agyn profile remove NAME` | Delete a profile and its stored token |
 
 | Field | Description |
@@ -507,6 +524,7 @@ A profile is the CLI's context: which Gateway to talk to, which organization to 
 | `gatewayUrl` | Gateway base URL |
 | `organization` | Organization ID for org-scoped commands |
 | `caFile` | PEM bundle trusted in addition to the system trust store. Written by `agyn local credentials` for a VM's own CA |
+| `sandboxIdleTimeout` | Idle timeout sent on `agyn sandbox start` when `--idle-timeout` is not given. A local preference, not a policy — the server validates it against the organization's ceiling like any other request value. See [Sandbox Idle Timeout](#sandbox-idle-timeout) |
 
 Settings live in `~/.agyn/config.yaml` under `profiles.<name>`. Tokens live in `~/.agyn/credentials`, keyed by profile name, mode `0600`.
 

@@ -13,7 +13,8 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 | `id` | string (UUID) | Unique organization identifier |
 | `name` | string | Display name |
 | `slug` | string | Cluster-wide unique short name. Max 64 chars, pattern: `^[a-z0-9-]+$`. See [Slug](#slug) |
-| `sandbox_default_idle_timeout` | duration string | Default idle timeout snapshotted onto newly created sandboxes. Platform-bounded; default `30m` |
+| `sandbox_default_idle_timeout` | duration string | Idle timeout applied when the creator names none. Platform-bounded; default `30m` |
+| `sandbox_max_idle_timeout` | duration string | Ceiling on an idle timeout a creator may ask for. Platform-bounded; defaults to the platform maximum |
 | `sandbox_default_ttl` | duration string | Default hard lifetime snapshotted onto newly created sandboxes. Platform-bounded; default `72h`, maximum `336h` |
 | `created_at` | timestamp | Creation time |
 
@@ -36,10 +37,13 @@ Organizations own the default sandbox lifecycle settings used by the [Agents ser
 
 | Setting | Default | Bounds | Description |
 |---------|---------|--------|-------------|
-| `sandbox_default_idle_timeout` | `30m` | Platform minimum/maximum | How long a sandbox may remain detached before its workload is stopped. The sandbox record survives idle stop, as do the persistent volumes its [environment](resource-definitions.md#environment) declares |
+| `sandbox_default_idle_timeout` | `30m` | Platform minimum/maximum | How long a sandbox may remain detached before its workload is stopped, when the creator names no value. The sandbox record survives idle stop, as do the persistent volumes its [environment](resource-definitions.md#environment) declares |
+| `sandbox_max_idle_timeout` | Platform maximum | Platform minimum/maximum | The largest idle timeout a creator may ask for. `CreateSandbox` rejects a larger value rather than clamping it, naming this ceiling |
 | `sandbox_default_ttl` | `72h` | Platform maximum `336h` | Hard sandbox lifetime from creation. On expiry the sandbox is terminated and the volumes provisioned for it are deleted |
 
-Only organization owners may update these settings. Values are validated by Organizations before persistence. The Agents service snapshots both values onto each sandbox at creation; changing organization defaults never mutates existing sandboxes.
+Only organization owners may update these settings. Values are validated by Organizations before persistence. The Agents service snapshots the resolved values onto each sandbox at creation; changing organization settings never mutates existing sandboxes.
+
+**Two settings for idle timeout, not one.** The default is what an engineer who has not thought about it gets; the maximum is what the organization is willing to pay for when someone has. Collapsing them would mean the default is also the most expensive option available, which inverts what a default is for. The ceiling defaults to the platform maximum — an organization narrows it deliberately, and `sandbox_default_ttl` remains the hard backstop underneath either way: an idle timeout can keep a sandbox alive, but never past its TTL.
 
 ## Organizations Service
 
