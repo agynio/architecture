@@ -90,7 +90,7 @@ Each label a query can group or filter by has a column on [UsageEvent](#usageeve
 | `resource_id` | UUID of the specific resource associated with the usage |
 | `resource` | Resource type (e.g., `model`, `workload`, `thread`, `message`, `egress`) |
 | `identity_id` | UUID of the identity that caused the usage |
-| `identity_type` | Type of identity: `agent`, `user`, `app` |
+| `identity_type` | Type of identity: `agent`, `user`, `app`, `sandbox` |
 | `agent_id` | Agent associated with the usage (present when the producer has agent context) |
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
 | `host` | Destination host (present for `resource=egress` records) |

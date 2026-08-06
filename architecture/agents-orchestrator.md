@@ -352,7 +352,9 @@ Every started workload carries a flavor. An agent workload takes it from the age
 
 | unit | value | labels | idempotency_key |
 |------|-------|--------|-----------------|
-| `GB_SECONDS` | size_gb × interval_s | resource_id=volume_id, resource=volume, identity_id, identity_type=agent, kind=storage | deterministic(volume_id+interval_start) |
+| `GB_SECONDS` | size_gb × interval_s | resource_id=**provisioned volume id**, resource=volume, identity_id, identity_type, kind=storage | deterministic(provisioned volume id+interval_start) |
+
+`resource_id` and the idempotency key are the [Runners](runners.md#volume-resource) record's `id`, not the Agents service `volume_id`. One definition backs one disk per owner, so keying on the definition would merge every owner's storage into a single series and collide their idempotency keys interval by interval. `identity_id` and `identity_type` name the owner — the agent instance, or the sandbox for `owner_kind=sandbox`.
 
 `size_gb` comes from the actual volume record in the [Runners](runners.md) service, not the volume definition in the Agents service. Idempotency keys are derived deterministically — if the Metering Service call fails and the Orchestrator retries, duplicate records are dropped by the Metering Service without error. See [Metering — Deduplication](metering.md#deduplication).
 

@@ -615,13 +615,14 @@ Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all or
 |-----------|-------|
 | `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>` |
 | `GetEgressRule`, `ListEgressRules` | `member` on `organization:<org_id>` |
-| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` | `can_edit_config` on `agent:<agent_id>`. On create, the service additionally verifies the agent belongs to the rule's organization (a `Check` that `organization:<rule.org_id>` holds the `org` relation on `agent:<agent_id>`) to prevent cross-org attachments |
-| `ListEgressRuleAttachments` (by `agent_id`) | `can_read_config` on `agent:<agent_id>` |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (agent target) | `can_edit_config` on `agent:<agent_id>`. On create, the service additionally verifies the agent belongs to the rule's organization (a `Check` that `organization:<rule.org_id>` holds the `org` relation on `agent:<agent_id>`) to prevent cross-org attachments |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (environment target) | `can_edit_config` on `environment:<environment_id>`, with the same cross-org guard against the `org` relation on the environment |
+| `ListEgressRuleAttachments` (by `agent_id` / `environment_id`) | `can_read_config` on that target |
 | `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
 | `ListEgressRulesByAgent` (internal) | Internal only (Egress Gateway via Istio) |
 | `CountRulesReferencingSecret` (internal) | Internal only (Secrets service via Istio) |
 
-No new OpenFGA types are introduced. Rules use existing organization-level checks; attachments use the existing per-agent `can_edit_config` / `can_read_config` from the [agent](#agent) type plus the `org` relation for the cross-org guard.
+No new OpenFGA types are introduced. Rules use existing organization-level checks; each attachment uses its target's `can_edit_config` / `can_read_config` — from the [agent](#agent) type or the [environment](#environment) type — plus that type's `org` relation for the cross-org guard.
 
 ### Notifications Service
 

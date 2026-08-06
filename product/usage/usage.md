@@ -100,7 +100,7 @@ Tracks CPU and RAM allocated to agent workloads. Values are allocation-based, no
 
 ## Storage
 
-Tracks persistent volume capacity allocated to agents. Values are allocation-based — they reflect the size of volumes attached to agents, not actual disk utilization.
+Tracks persistent volume capacity provisioned for agent instances and sandboxes. Values are allocation-based — they reflect declared volume size, not actual disk utilization. One [environment](../environments/environments.md#volumes) volume declaration produces one disk per owner, and each is metered separately.
 
 **Summary cards:**
 

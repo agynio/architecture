@@ -125,7 +125,7 @@ graph TB
 | **Authorization** | Fine-grained access control. Thin proxy to OpenFGA — centralizes configuration, adds observability. Services call Authorization for permission checks and relationship writes |
 | **[Agents Orchestrator](agents-orchestrator.md)** | Reconciles agent workloads for threads with unacknowledged messages |
 | **Tracing** | Span ingestion and query. Implements standard OTLP TraceService/Export with upsert semantics for in-progress spans. Captures full LLM call context for observability |
-| **[Agents](agents-service.md)** | Management of agent resources: agents, environments, sandboxes, volumes, MCP servers, skills, etc. |
+| **[Agents](agents-service.md)** | Management of agent resources: agents, environments and what they contain (volumes, MCP servers, init scripts, ENVs), sandboxes, skills, etc. |
 | **[Runners](runners.md)** | Manages runner registrations and workload runtime state. Central registry of runners (cluster-scoped and org-scoped) and running workloads |
 | **Runner** | Executes workloads. Current implementation: [k8s-runner](k8s-runner.md) |
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
@@ -142,7 +142,7 @@ The platform separates three distinct data concerns, each with its own storage a
 | Concern | What it stores | Storage | Lifetime |
 |---------|---------------|---------|----------|
 | **Chat / Threads** | User messages and agent responses — the conversation record | PostgreSQL ([Threads](threads.md)) | Long-lived |
-| **Agent state** | Internal working memory managed by each agent implementation | Disk (persistent volume) | Lives as long as the volume exists |
+| **Agent state** | Internal working memory managed by each agent implementation | Disk, persistent or ephemeral per the agent's [environment](resource-definitions.md#environment) | Lives as long as the disk under it |
 | **Tracing** | Full LLM call context (complete request bodies) for observability and debugging | PostgreSQL ([Tracing](tracing.md)) | Shorter retention due to data volume |
 
 See [Agent State](agent/state.md) for the persistence model.
@@ -153,7 +153,7 @@ See [Agent State](agent/state.md) for the persistence model.
 |-------|--------------|
 | PostgreSQL | Primary relational store (platform data, user records, identity registry, organizations, tracing) |
 | Redis | Pub/sub for notifications, caching |
-| Persistent Volumes | Agent state — managed by each agent implementation on disk |
+| Persistent Volumes | Agent and sandbox working storage, where the [environment](resource-definitions.md#environment) declares it — one disk per owner |
 | Object Storage (S3) | Media file storage (MinIO locally, any S3-compatible in production) |
 | OpenFGA | Relationship-based access control (authorization model and relationship tuples). PostgreSQL-backed |
 

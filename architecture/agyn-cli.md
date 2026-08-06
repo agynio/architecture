@@ -331,7 +331,7 @@ Engineers use the `sandbox` command group to start on-demand workloads and attac
 
 | Command | Description |
 |---------|-------------|
-| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted |
+| `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted. Prints a notice before attaching when the environment declares no persistent [volume](resource-definitions.md#volume) — nothing written in the shell will survive the workload stopping |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes. Terminated sandboxes are hidden unless `--terminated` is passed. `--all` lists every sandbox in the organization (org owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none |

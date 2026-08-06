@@ -170,7 +170,7 @@ These spans are visible in the Console's tracing view, filterable by `agyn.agent
 
 ## Lifecycle
 
-Rules are created, edited, and deleted by organization owners through the Console (see [Console — Egress Rules](../console/console.md#egress-rules)), the `agyn` CLI, or the Terraform provider. Attaching and detaching rules to agents requires the same permission as editing the agent's configuration (`can_edit_config` on the agent); attaching to environments requires the same permission that manages environments (organization owner).
+Rules are created, edited, and deleted by organization owners through the Console (see [Console — Egress Rules](../console/console.md#egress-rules)), the `agyn` CLI, or the Terraform provider. Attaching and detaching rules requires the same permission as editing the target's configuration — `can_edit_config` on the agent, or `can_edit_config` on the [environment](../environments/environments.md#who-can-use-an-environment).
 
 | Event | Effect |
 |---|---|
