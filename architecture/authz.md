@@ -71,6 +71,7 @@ type organization
     define can_add_member: admin from cluster
     define can_create_thread: member or thread_create
     define can_create_sandbox: member
+    define can_create_environment: member
     define can_list_sandboxes: owner or admin from cluster
     define thread_create: [identity]
     define thread_write: [identity]
@@ -184,6 +185,38 @@ When an instance is created, the Agents service writes:
 
 `DeleteInstance` (terminal) removes every tuple on `agent_instance:<id>`.
 
+#### environment
+
+[Environments](resource-definitions.md#environment) are org-scoped resources authored by any member and owned by their creator. The type mirrors [`agent`](#agent), with one relation agents have no need for: `can_use`.
+
+```
+type environment
+  relations
+    define org: [organization]
+    define owner: [identity, group#member]
+    define maintainer: [identity, group#member]
+    define user: [identity, group#member]
+    define internal_access: [organization]
+    define can_use: owner or maintainer or user or member from internal_access
+    define can_read_config: owner or maintainer or owner from org
+    define can_edit_config: owner or maintainer or owner from org
+    define can_manage_roles: owner or owner from org
+    define can_delete: owner or owner from org
+```
+
+**`can_use` separates running in an environment from editing one.** An environment carries secret-backed [ENVs](resource-definitions.md#env), egress rules that inject credentials, and the contents of its [volumes](resource-definitions.md#volume) — and anyone who can start a [sandbox](../product/sandboxes/sandboxes.md) in it gets an interactive shell sitting on all three. Being able to *use* an environment is therefore a grant in its own right, and it is checked on `CreateSandbox` and on any `CreateAgent`/`UpdateAgent` that points an agent at the environment. `can_edit_config`, which governs the volumes, MCPs, init scripts, and ENVs the environment declares, is a strictly separate question: a team may hand out `user` widely while keeping authorship to itself.
+
+Reading environment *metadata* (name, runner, flavor, images, availability) is gated by `member` on the organization — the same split [`agent`](#agent) uses, and what lets any member see the environment picker without being able to read the ENVs behind it.
+
+`availability` drives `internal_access` exactly as it does on agents: `internal` writes `organization:<org_id>, internal_access, environment:<id>`, resolving every org member to `can_use`; `private` deletes the tuple, leaving only explicit role holders. An environment holding credentials that only one team should reach is `private` with `user` granted to that team's group.
+
+When an environment is created, the Agents service writes:
+- `organization:<org_id>, org, environment:<id>`
+- `identity:<creator_id>, owner, environment:<id>`
+- If `availability=internal`: `organization:<org_id>, internal_access, environment:<id>`
+
+Volumes, MCPs, init scripts, and ENVs owned by an environment carry no tuples of their own — they are gated by `can_read_config` / `can_edit_config` on the parent environment.
+
 #### sandbox
 
 [Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them. Organization owners can list, stop, and delete every sandbox in the organization, but attaching to one is owner-only: an org owner cannot connect to another user's sandbox unless they are also that sandbox's `owner`.
@@ -245,6 +278,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 | **can_view_volumes** | computed | List and read provisioned volumes in the organization. Held by owners and cluster admins |
 | **can_create_thread** | computed | Create threads in the organization. Computed from `member` or `thread_create` |
 | **can_create_sandbox** | computed | Create sandboxes in the organization. Computed from `member` |
+| **can_create_environment** | computed | Create environments in the organization. Computed from `member` — environments are authored by whoever needs one, and the creator becomes their [`owner`](#environment) |
 | **can_list_sandboxes** | computed | List all sandboxes in the organization. Held by owners and cluster admins |
 | **thread_create** | app permission | Written for app installations that declare the `thread:create` permission |
 | **thread_write** | app permission | Written for app installations that declare the `thread:write` permission |
@@ -254,7 +288,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 #### Computed relations
 
 - `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
-- `can_create_sandbox` follows `member`; every active organization member can create a sandbox.
+- `can_create_sandbox` and `can_create_environment` follow `member`; every active organization member can create a sandbox and author an environment.
 - `can_add_member`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` remains owner-only.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
@@ -373,18 +407,23 @@ The [Ziti Management Service](#ziti-management-service) is the canonical example
 
 ### Agents Service
 
-All agent resources (Agents, Volumes, MCPs, Skills, ENVs, InitScripts, VolumeAttachments) are org-scoped. Sub-resources inherit their parent's organization. Agent-level access is split between org membership (metadata visibility and creation) and per-agent roles (configuration access, availability changes, role management) — see the [`agent` OpenFGA type](#agent).
+All agent resources (Agents, Environments, MCPs, Skills, ENVs, InitScripts, Volumes) are org-scoped. Sub-resources inherit their parent's organization. Agent- and environment-level access is split between org membership (metadata visibility and creation) and per-resource roles (configuration access, availability changes, role management) — see the [`agent`](#agent) and [`environment`](#environment) OpenFGA types.
 
 | Operation | Check |
 |-----------|-------|
-| `CreateAgent`, `CreateVolume` | `owner` on `organization:<org_id>` |
-| `ListAgents`, `GetAgent` (metadata fields only), `GetVolume`, `ListVolumes` (via Gateway) | `member` on `organization:<org_id>` |
-| `GetAgent` (configuration fields), `ListMCPs`, `ListSkills`, `ListENVs`, `ListInitScripts`, `ListVolumeAttachments`, and the `Get` counterpart of each sub-resource | `can_read_config` on `agent:<agent_id>` |
-| `UpdateAgent` on configuration fields; Create / Update / Delete on any agent sub-resource (MCP, Skill, ENV, InitScript, Volume Attachment) | `can_edit_config` on `agent:<agent_id>` |
+| `CreateAgent` | `owner` on `organization:<org_id>` |
+| `ListAgents`, `GetAgent` (metadata fields only), `ListEnvironments`, `GetEnvironment` (metadata fields only) | `member` on `organization:<org_id>` |
+| `GetAgent` (configuration fields), `ListMCPs`, `ListSkills`, `ListENVs`, `ListInitScripts`, and the `Get` counterpart of each sub-resource, scoped to an agent | `can_read_config` on `agent:<agent_id>` |
+| `UpdateAgent` on configuration fields; Create / Update / Delete on any agent sub-resource (MCP, Skill, ENV, InitScript) | `can_edit_config` on `agent:<agent_id>` |
+| `UpdateAgent` on the `environment_id` field, `CreateAgent` with an `environment_id` | `can_edit_config` on `agent:<agent_id>` **and** `can_use` on `environment:<environment_id>` |
 | `UpdateAgent` on the `availability` field, `DeleteAgent` | `can_delete` on `agent:<agent_id>` |
 | `SetAgentRole`, `RemoveAgentRole`, `ListAgentRoles` | `can_manage_roles` on `agent:<agent_id>`; `SetAgentRole` additionally requires the target identity to satisfy `member` on the agent's organization |
 | `ListMyAgentRoles` | Self only — returns the caller's own role assignments |
-| Update, Delete on Volume | `owner` on `organization:<volume.org_id>` |
+| `CreateEnvironment` | `can_create_environment` on `organization:<org_id>`; the creator is written as `owner` |
+| `GetEnvironment` (configuration fields), `ListVolumes`, `ListMCPs`, `ListInitScripts`, `ListENVs` scoped to an environment, and their `Get` counterparts | `can_read_config` on `environment:<environment_id>` |
+| `UpdateEnvironment` on configuration fields; Create / Update / Delete on any environment sub-resource (Volume, MCP, InitScript, ENV) | `can_edit_config` on `environment:<environment_id>` |
+| `UpdateEnvironment` on the `availability` field, `DeleteEnvironment` | `can_delete` on `environment:<environment_id>` |
+| `SetEnvironmentRole`, `RemoveEnvironmentRole`, `ListEnvironmentRoles` | `can_manage_roles` on `environment:<environment_id>`; `SetEnvironmentRole` additionally requires the target identity to satisfy `member` on the environment's organization |
 | `CreateInstance` | `can_initiate` on `agent:<class_id>` (same gate as adding the class to a thread). Also called internally by Threads during the [class-on-add rewrite](threads.md#class-on-add-rewrite) |
 | `GetInstance`, `ListInstances` (via Gateway) | `member` on `organization:<org_id>` |
 | `ListInstances` (internal) | Internal only (Orchestrator via Istio) — desired-state query (`state=active, has_unacked=true`) across organizations |
@@ -394,7 +433,7 @@ All agent resources (Agents, Volumes, MCPs, Skills, ENVs, InitScripts, VolumeAtt
 | `GetUnackedInboxItems`, `AckInboxItems`, `GetUnackedInboxCount` | Self only — `caller.identity_id == agent_instance_id` (no OpenFGA check) |
 | Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
-| `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>`; owner is derived from authenticated context |
+| `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>` **and** `can_use` on `environment:<environment_id>`; owner is derived from authenticated context |
 | `GetSandbox` | `owner` on `sandbox:<id>` or `can_list_sandboxes` on `organization:<sandbox.org_id>` |
 | `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters `owner_id == caller.identity_id` |
 | `ListSandboxes` (`all=true`) | `can_list_sandboxes` on `organization:<org_id>` |
@@ -594,6 +633,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `instance_inbox:{id}` | `id == caller.identity_id` AND `caller.identity_type == agent_instance` (identity equality, no OpenFGA). `instance_inbox:me` is rewritten before the check. Only the instance itself may subscribe to its inbox room |
 | `workload:{id}` | `member` on `organization:<workload.org_id>` |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
+| `environment:{id}` | `member` on `organization:<environment.org_id>`. Carries `environment.updated`, which every agent and sandbox running the environment is affected by |
 | `agent_instance:{id}` | `member` on `organization:<instance.org_id>`. Carries `instance.updated`. An instance's own identity satisfies `member` through its `org` relation, which is how the Orchestrator watches the instances it reconciles |
 | `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality, no OpenFGA). `:me` is not accepted for this room pattern |
 | `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` |

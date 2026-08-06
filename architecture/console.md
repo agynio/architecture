@@ -57,7 +57,7 @@ The Console displays:
 
 | Gateway Service | Methods | Authorization | Console Section |
 |----------------|---------|---------------|-----------------|
-| `AgentsGateway` | All CRUD for agents and sub-resources | Org owner or cluster admin | Agents, MCPs, Skills, ENVs, Init Scripts, Volume Attachments, Volumes |
+| `AgentsGateway` | All CRUD for agents, environments, and their sub-resources | Per-resource role (`can_read_config` / `can_edit_config` on the agent or environment), or org owner or cluster admin | Agents, Environments, Volumes, MCPs, Skills, ENVs, Init Scripts |
 | `AgentsGateway` | `ListInstances`, `GetInstance`, `PauseInstance`, `ResumeInstance` | Org owner or cluster admin | Instances (Operations) |
 | `ThreadsGateway` | `ListOrganizationThreads`, `GetMessages` | `can_view_threads` on the organization (org owner or cluster admin) | Threads |
 | `UsersGateway` | `GetMe`, `CreateUser`, `GetUser`, `GetUserByOIDCSubject`, `ListUsers`, `UpdateUser`, `DeleteUser`, `CreateAPIToken`, `ListAPITokens`, `RevokeAPIToken` | `GetMe`: any authenticated user. Cluster admin (user CRUD), self (API tokens) | Users |

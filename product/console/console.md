@@ -44,7 +44,7 @@ The Console is the platform's management interface for organizations, users, age
 | Role | Scope | What they see |
 |------|-------|---------------|
 | **Cluster admin** | Platform-wide | Cluster administration (users, organizations, cluster-scoped runners, app catalog) + all organization-level sections |
-| **Organization owner** | Per-organization | Organization-level sections: the organization and its groups; agents and apps; runtime (environments, volumes, runners); networking (private networks, private resources, egress rules); LLM providers and models; credentials; operations |
+| **Organization owner** | Per-organization | Organization-level sections: the organization and its groups; agents and apps; runtime (images, environments, runners); networking (private networks, private resources, egress rules); LLM providers and models; credentials; operations |
 
 Organization members do not have Console access. A user can be an organization owner in one organization and a regular member (no Console access) in another. The Console displays only the organizations where the user is an owner.
 
@@ -143,11 +143,10 @@ The groups follow the platform's own model: the organization itself, the actors 
 | Section | Description |
 |---------|-------------|
 | Images | The organization's image catalog (see [Images](#images)) |
-| Environments | Runtime definitions — runner, flavor, images (see [Environments](../environments/environments.md)) |
-| Volumes | Volume declarations (see [Volumes](#volumes)) |
+| Environments | Runtime definitions — runner, flavor, images, and the volumes, MCPs, init scripts, and ENVs a workload carries (see [Environments](../environments/environments.md)) |
 | Runners | Org-scoped runner management (see [Runners](#runners)) |
 
-Images come first because environments are assembled from them: the group reads as what runs, how it is composed, what it stores, and where it lands.
+Images come first because environments are assembled from them: the group reads as what runs, how it is composed, and where it lands. Storage has no section of its own here — a volume is part of an environment, edited on it.
 
 **Networking** — what work can reach, inbound and outbound. Private Resources and Egress Rules are adjacent deliberately: they are the two sides of one per-destination decision (see [EgressRule interaction](../private-networks/private-networks.md#egressrule-interaction)).
 
@@ -184,7 +183,7 @@ Registry credentials are not here. They are a property of an [image](#images) an
 | Provisioned Storage | Persistent volumes provisioned on runners (see [Provisioned Storage](#provisioned-storage)) |
 | Usage | Resource consumption metrics — LLM tokens, compute, storage, platform activity (see [Usage](../usage/usage.md)) |
 
-**Volumes and Provisioned Storage are different resources**, not two views of one. Volumes (Runtime) are organization-level *declarations* owned by the [Agents service](../../architecture/agents-service.md). Provisioned Storage (Operations) are the volumes actually *provisioned on runners*, owned by [Runners](../../architecture/runners.md). They have separate lifecycles and separate APIs; the section names must keep the distinction legible.
+**Volume declarations and Provisioned Storage are different resources**, not two views of one. A declaration is part of an [environment](#environments) (or an MCP server) and is owned by the [Agents service](../../architecture/agents-service.md); Provisioned Storage (Operations) are the disks actually *provisioned on runners*, one per agent instance or sandbox, owned by [Runners](../../architecture/runners.md). They have separate lifecycles and separate APIs, and a single declaration can sit behind many rows here.
 
 #### Cluster Administration Sections
 
@@ -287,11 +286,11 @@ Groups are also reachable as an inline "Create group" affordance in the [private
 
 - **Configuration** — name, model (selector from organization's models), environment (selector; required — only environments with an agent runtime image are offered), idle timeout, availability (selector: `internal` or `private` — the create form prefills `internal`), agent behavioral configuration (JSON editor). The API has no default for availability — the create form always submits an explicit value. Images and compute come from the environment and are shown read-only with a link to it.
 - **Roles** — list of identities with a role on this agent. Columns: identity (resolved name), role (`owner` / `maintainer` / `participant`). Actions: Add role (search the organization's members by name or `@nickname`, pick a role), Change role (inline), Remove role. The agent's creator is automatically granted `owner` at creation. Role assignment is restricted to identities that are members of the agent's organization — the search returns only org members. Organization owners hold owner-level capabilities on every agent and do not need an explicit role.
-- **MCPs** — list of MCP server definitions. Each MCP shows its image (name and tag, from the [image catalog](#images)), command, compute resources, and its own ENVs and init scripts. Each MCP has a Manage menu with: Edit, Environment Variables, Init Scripts, Delete.
+- **MCPs** — MCP server definitions belonging to this agent, shown alongside the ones its [environment](#environments) contributes (read-only here, with a link). Each MCP shows its image (name and tag, from the [image catalog](#images)), command, compute resources, shared volume names, and its own ENVs, init scripts, and volumes. Each has a Manage menu with: Edit, Environment Variables, Init Scripts, Volumes, Delete. An agent-level MCP whose name matches an environment-level one is marked as overriding it.
 - **Skills** — list of prompt fragments. Each skill has a name and body (text editor).
 - **ENVs** — environment variables attached directly to the agent. Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
-- **Init Scripts** — shell scripts attached directly to the agent.
-- **Volume Attachments** — volumes mounted on the agent container. Select from organization's volumes.
+- **Init Scripts** — shell scripts attached directly to the agent, running after the environment's.
+- **Storage** — read-only. Names the environment's volumes and links to it; agents declare no volumes of their own.
 - **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their domain pattern and effect summary, each with a Detach button. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
 
 ### Images
@@ -308,15 +307,25 @@ The organization's [image catalog](../images/images.md) — the images environme
 
 **Delete image** — requires confirmation, and warns that environments and MCPs referencing it will become unschedulable. It is not blocked by references; see [Images Service — Deletion](../../architecture/images-service.md#deletion).
 
-### Volumes
+### Environments
 
-Organization-level volume *declarations*, owned by the [Agents service](../../architecture/agents-service.md). A declaration is what the operator authors; the volume actually provisioned on a runner is a separate resource shown under [Provisioned Storage](#provisioned-storage).
+Runtime definitions owned by the [Agents service](../../architecture/agents-service.md) — see [Flavors and Environments](../environments/environments.md) for the product behavior. Any organization member can create one; what they can see and change on someone else's depends on their role.
 
-**Volume list** — table of volumes in the organization. Columns: name, size, attachment target (agent or MCP — or "unattached"), created date. Default sort: creation time, newest first.
+**Environment list** — table of environments in the organization. Columns: name, runner, flavor, workspace image (name and tag), agent runtime image, availability (`internal` or `private`), created date. An environment whose flavor, storage class, or image no longer resolves is flagged **unschedulable** with the unresolved name. Default sort: creation time, newest first.
 
-**Volume detail** — name, size, mount path. Shows current attachment (if any) with a link to the parent resource.
+**Environment detail** — configuration plus inline sub-resource management. Members without `can_read_config` see the header only; the sections below are hidden rather than empty.
 
-**Create volume** — name (required), size (required), mount path (required).
+- **Configuration** — name, runner (selector), flavor (free text with a warning when the name is not currently reported), workspace image and tag, agent runtime image and tag (both via the [version picker](#images)), availability. Changing the runner warns that existing provisioned storage pins running owners to the old one.
+- **Volumes** — the mounts every workload in this environment carries. Columns: name, mount path, persistent, size, storage class, TTL. Add/edit/delete inline. Deleting one warns that the disks provisioned from it will be deprovisioned for every agent instance and sandbox. **When the list is empty the section states it plainly** — workloads here keep nothing across a restart — because that consequence is invisible otherwise.
+- **MCPs** — MCP servers that run in every workload of this environment. Each shows image and tag, command, compute resources, its shared volume names, and its own ENVs, init scripts, and volumes. Manage menu: Edit, Environment Variables, Init Scripts, Volumes, Delete. The shared-volume picker offers this environment's volume names.
+- **Init Scripts** — scripts run in the main container before the agent CLI (or the sandbox shell). Ordered; the environment's run before any agent's.
+- **ENVs** — environment variables injected into the main container of every workload. Plain value or secret reference.
+- **Egress Rules** — rules attached to the environment, applying to every workload running it. Same attach/detach affordance as on an agent.
+- **Roles** — identities with a role on this environment (`owner` / `maintainer` / `user`). Same add/change/remove affordances as [agent roles](#agents). The creator is `owner`. The section explains what `user` grants: starting a sandbox here, and pointing an agent here — both of which reach the secrets and volumes above.
+
+**Create environment** — name, runner, flavor, workspace image, optional agent runtime image, availability. Volumes, MCPs, init scripts, and ENVs are added after creation from the detail page.
+
+**Delete environment** — blocked while any agent or sandbox references it; the dialog lists what does.
 
 ### Runners
 
@@ -555,7 +564,7 @@ The workload detail view shows:
 
 - Workload metadata — agent name (link to agent detail), runner name (link to runner detail), thread ID, status, started, duration. Names are resolved server-side like in the list; raw `agent_id` / `runner_id` are not displayed.
 - A list of containers, ordered init containers first (in declaration order), then the main container, then sidecars. Each row shows name, role, image, a state badge (`running`, `waiting`, `terminated`) with the runtime reason when present (e.g., `ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, `Completed`, `Error`), the runtime message as secondary text, exit code (when terminated), restart count, started at, and finished at.
-- Thread storage associated with the workload's thread, loaded via `RunnersGateway.ListVolumesByThread(workload.thread_id)`. This section is labeled as thread storage, not mounted volumes or workload volumes: it lists provisioned volumes associated with the thread and is not evidence of the exact volumes mounted by the workload's current pod.
+- Storage associated with the workload's owner, loaded via `RunnersGateway.ListVolumesByAgentInstance(workload.owner_id)` for agent workloads and the sandbox-owner equivalent for sandboxes. This section is labeled as owner storage, not mounted volumes: it lists the disks provisioned for that owner and is not evidence of the exact volumes mounted by the workload's current pod.
 - A log viewer for the selected container. The viewer loads the last **1000 lines** from the runtime and then follows new output in real time. A container selector switches between containers in the workload (init containers included). There are no tail-length or since-time controls — the fixed window keeps the UI simple.
   - If the container cannot be reached (unknown workload or container, or the Pod has already been deleted), the viewer shows an empty state: "Container no longer exists on the runner. Logs are only available while the container exists."
   - When the runtime closes the stream cleanly (logs exhausted, or the container terminated with the Pod still present), the viewer stays visible with a "Stream ended" marker so the user can scroll through what was captured; it does not clear or auto-close.
@@ -565,7 +574,7 @@ Container state refreshes within one reconciliation interval — a crash, image 
 Backing RunnersGateway APIs:
 
 - `GetWorkload(workload_id)` for workload metadata and containers.
-- `ListVolumesByThread(workload.thread_id)` for thread storage shown from the workload context.
+- `ListVolumesByAgentInstance(workload.owner_id)` for owner storage shown from the workload context.
 
 ### Sandboxes
 
@@ -575,19 +584,20 @@ See [Sandboxes](../sandboxes/sandboxes.md) for the full specification.
 
 ### Provisioned Storage
 
-Real-time view of persistent volumes provisioned on runners across the organization. These are the volumes that actually exist on a runner, owned by [Runners](../../architecture/runners.md) — distinct from the organization-level [Volumes](#volumes) declarations under Runtime.
+Real-time view of persistent disks provisioned on runners across the organization. These are the volumes that actually exist on a runner, owned by [Runners](../../architecture/runners.md) — distinct from the declarations on an [environment](#environments) or an MCP server. One declaration appears here once per owner: an environment's `workspace` volume used by four agent instances and two sandboxes is six rows.
 
 | Column | Description |
 |--------|-------------|
-| Name | Volume name (link to volume detail) |
+| Name | Volume name, with the declaring environment or MCP beneath it (link to that resource) |
+| Owner | The agent instance or sandbox the disk belongs to, by name |
 | Size | Provisioned size |
 | Used | Current usage |
-| Attached to | Resources holding the volume (agent or MCP — or "unattached"). Rendered by name. If the volume is mounted by more than one container, the column shows the primary attachment's name followed by `+N more`; the volume detail lists every attachment |
+| Mounted by | Containers holding the disk (agent or MCP). More than one when an MCP shares an environment volume; the column shows the first name followed by `+N more`, and the detail lists every mount |
 | Status | Volume status (`provisioning`, `active`, `deprovisioning`, `deleted`, `failed`) |
 
 Default sort: name. Sortable columns: Name, Size, Status, Created.
 
-**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Attached to kind (multi-select of `agent`, `mcp`, `unattached`). The Attached-to-kind filter returns volumes with at least one attachment of the selected kind.
+**Filters** — filter bar with Status (multi-select), Runner (multi-select), and Owner kind (multi-select of `agent instance`, `sandbox`).
 
 **Search** — substring match on volume name, case-insensitive.
 

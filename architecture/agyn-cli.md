@@ -334,8 +334,8 @@ Engineers use the `sandbox` command group to start on-demand workloads and attac
 | `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes. Terminated sandboxes are hidden unless `--terminated` is passed. `--all` lists every sandbox in the organization (org owners) |
-| `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
-| `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
+| `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none |
+| `agyn sandbox delete [NAME]` | Terminate the sandbox and delete the volumes provisioned for it |
 | `agyn sandbox cp [-r] SRC DST` | Copy files between the local machine and a sandbox. Exactly one of `SRC`/`DST` carries a `NAME:path` prefix, naming the sandbox side — the `docker cp` and `kubectl cp` convention. `-r` copies directories |
 
 `cp` is a one-shot transfer, not a relationship: it scans the source, transfers what differs, applies through the same staged atomic write [sync](#sandbox-sync-commands) uses, and exits. No daemon, no watching, no reconciliation base, and no conflict handling — there are no two sides to keep in agreement over time.

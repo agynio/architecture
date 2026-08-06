@@ -2,7 +2,7 @@
 
 Canonical schema for all agent-managed resources in the Agyn platform. This is the single source of truth for resource structure — the Terraform provider, Agents API, and UI should all align to these definitions.
 
-Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor) and [Storage Classes](#storage-class), which are reported by runners and stored in the [Runners](runners.md#runner-catalog) service as part of the runner's catalog, and [Images](#image) and [Image Versions](#image-version), which are owned by the [Images](images-service.md) service. Agents, Environments, Sandboxes, Volumes, and Images are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
+Resources are managed by the [Agents](agents-service.md) service and stored in PostgreSQL, except [Flavors](#flavor) and [Storage Classes](#storage-class), which are reported by runners and stored in the [Runners](runners.md#runner-catalog) service as part of the runner's catalog, and [Images](#image) and [Image Versions](#image-version), which are owned by the [Images](images-service.md) service. Agents, Environments, Sandboxes, and Images are scoped to an [organization](organizations.md) (direct `organization_id`). Sub-resources inherit organization scope through their parent. See [Organizations — Resource Scoping](organizations.md#resource-scoping).
 
 All resources share a common envelope:
 
@@ -33,18 +33,18 @@ erDiagram
     StorageClass }o--|| Runner : "reported catalog entry"
 
     Environment ||--o{ ENV : "environment_id"
+    Environment ||--o{ Volume : "environment_id"
+    Environment ||--o{ MCP : "environment_id"
+    Environment ||--o{ InitScript : "environment_id"
 
     Agent ||--o{ MCP : "agent_id"
     Agent ||--o{ Skill : "agent_id"
     Agent ||--o{ ENV : "agent_id"
     Agent ||--o{ InitScript : "agent_id"
-    Agent ||--o{ VolumeAttachment : "agent_id"
-
-    Volume ||--o{ VolumeAttachment : "volume_id"
 
     MCP ||--o{ ENV : "mcp_id"
     MCP ||--o{ InitScript : "mcp_id"
-    MCP ||--o{ VolumeAttachment : "mcp_id"
+    MCP ||--o{ Volume : "mcp_id"
 
     Secret ||--o{ ENV : "secret_id"
 ```
@@ -62,7 +62,7 @@ An agent definition that determines how an agent workload behaves when processin
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
 | `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
-| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the workspace image, the agent runtime image, the runner, and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources. Must name an environment that has an agent runtime image; an agent has no agent CLI otherwise. See [Runner Selection](runners.md#runner-selection) |
+| `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the workspace image, the agent runtime image, the runner, the workload's [storage](#volume), and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources, plus any MCPs, init scripts, and ENVs attached to it. Must name an environment that has an agent runtime image; an agent has no agent CLI otherwise. See [Runner Selection](runners.md#runner-selection) |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
 | `instance_idle_ttl` | duration string | `"720h"` (30 days) | How long an [agent instance](agent-instances.md) can go without new inbox items before the Agents service transitions it `active → paused`. Distinct from `idle_timeout`, which stops workloads (seconds-to-minutes scale); this pauses the instance itself (days scale). Format: Go-style duration; minimum `1h`. Read live — changing the value applies to all existing instances of the class on the next [idle GC](agents-service.md#idle-gc) tick |
 | `default_thread` | enum | `origin` | `origin` or `none`. Whether an instance created from a thread takes that thread as its [`default_thread_id`](agent-instances.md#default-thread). `origin` — the joining thread is assigned automatically, so every instance has a fallback destination. `none` — instances start with no default; every send names its thread, and `final_message` has nowhere to post. Governs the automatic path only — `agyn agents instantiate --default-thread` and [`SetInstanceDefaultThread`](agents-service.md#agent-instance-api) are deliberate acts and still apply. See [Agent Instances — Default thread](agent-instances.md#default-thread) |
@@ -98,7 +98,7 @@ A named storage tier offered by a specific runner — an entry in the runner's [
 |-------|------|---------|-------------|
 | `runner_id` | string (UUID) | | The runner offering this storage class |
 | `name` | string | | Storage class name (e.g., `standard`, `fast-ssd`). Unique per runner. Max 64 chars, pattern: `^[a-z0-9-]+$` |
-| `default` | boolean | `false` | At most one storage class per runner. Used when a volume names no class, and for [sandbox workspace volumes](#sandbox) |
+| `default` | boolean | `false` | At most one storage class per runner. Used when a volume names no class |
 | `deprecated` | boolean | `false` | Soft signal: Console and CLI pickers warn against new references. Deprecated classes still resolve and provision |
 
 Visibility and lifecycle follow the same rules as flavors. Already-provisioned volumes are unaffected by catalog changes — the class is applied at provisioning time and recorded on the [provisioned volume record](runners.md#volume-resource).
@@ -154,10 +154,23 @@ An organization-scoped runtime definition: a runner, a flavor name on that runne
 | `workspace_image_tag` | string | | Tag within that image. Validated against the image's discovered [versions](#image-version) on write; resolved again at each workload start |
 | `agent_runtime_image_id` | string (UUID) | `null` | Reference to an [Image](#image) of type `agent_runtime`. Runs as an init container and supplies the agent CLI. `null` means a workspace-only environment — usable by [sandboxes](#sandbox), rejected by `CreateAgent` |
 | `agent_runtime_image_tag` | string | `null` | Tag within that image. Same validation and resolution as the workspace tag |
+| `availability` | enum | | `internal` or `private`. Controls who may **run** workloads in the environment — start a sandbox in it, or point an agent at it. `internal` — any org member. `private` — only identities holding an [environment role](agents-service.md#environment-roles) (`owner`, `maintainer`, or `user`). Required on `CreateEnvironment` — the API has no default. Same values, and the same `internal_access` mechanism, as [Agent](#agent) availability. See [Authorization — environment](authz.md#environment) |
 
 Environments hold no registry addresses. Both references resolve through the [Images](images-service.md) service, and the [Agents Orchestrator](agents-orchestrator.md) rewrites them to [image proxy](image-proxy.md) references at workload assembly.
 
-Environments are an attachment target: [ENV](#env) variables and [EgressRuleAttachments](#egress-rule-attachment) may target an environment, applying to every workload (agent or sandbox) running it. An environment referenced by any agent or sandbox cannot be deleted.
+An environment defines **what a workload in it contains**, through sub-resources that reference it by `environment_id`:
+
+| Sub-resource | Effect on every workload running the environment |
+|---|---|
+| [Volume](#volume) | Mounted into the main container. An environment with no volumes gives its workloads no storage beyond the container's own ephemeral disk |
+| [MCP](#mcp) | Runs as a sidecar |
+| [InitScript](#initscript) | Executed by [`agynd`](agynd-cli.md) during container initialization |
+| [ENV](#env) | Injected into the main container |
+| [EgressRuleAttachment](#egress-rule-attachment) | Applied to the workload's outbound traffic |
+
+All of them apply to agent workloads and [sandboxes](#sandbox) alike — a sandbox is the environment's contents without the agent loop. [Agents](#agent) may add MCPs, init scripts, and ENVs of their own; volumes are environment-level only. An environment referenced by any agent or sandbox cannot be deleted.
+
+Because everything above is *reachable from a shell* by anyone who can start a sandbox in the environment — secret-backed ENVs, credential-injecting egress rules, and the contents of its volumes — running in an environment is a privilege of its own, gated by `can_use` and governed by `availability`. Editing an environment and using one are separate permissions.
 
 An environment naming an image that was deleted, whose tag is `gone` upstream, or whose visibility no longer reaches the organization becomes **unschedulable and is flagged** — the same treatment as an unresolvable flavor name.
 
@@ -165,7 +178,7 @@ An environment naming an image that was deleted, whose tag is `gone` upstream, o
 
 ## Sandbox
 
-An on-demand workload started by a user rather than by inbox traffic: one workload plus a workspace volume, running an [Environment](#environment). Org-scoped, owned by the creating user. Managed by the [Agents](agents-service.md) service; reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md).
+An on-demand workload started by a user rather than by inbox traffic, running an [Environment](#environment). Org-scoped, owned by the creating user. Managed by the [Agents](agents-service.md) service; reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -173,11 +186,11 @@ An on-demand workload started by a user rather than by inbox traffic: one worklo
 | `environment_id` | string (UUID) | | Reference to the [Environment](#environment) the sandbox runs. Immutable after creation |
 | `owner_id` | string (UUID) | | Identity of the creating user. Immutable |
 | `status` | enum | | `starting` \| `running` \| `stopped` \| `failed` \| `terminated`. `terminated` is a soft state: the record is retained for audit and usage history, hidden from default lists. See [Sandboxes — Lifecycle](../product/sandboxes/sandboxes.md#lifecycle) |
-| `idle_timeout` | duration string | `"30m"` | How long after the last shell session detaches before the workload is stopped. The sandbox record and workspace volume survive the stop. Resolved from the organization's sandbox settings at creation and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
-| `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its workspace volume deleted, regardless of state. Resolved from the organization's sandbox settings at creation (platform bounds: max `336h`) and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
+| `idle_timeout` | duration string | `"30m"` | How long after the last shell session detaches before the workload is stopped. The sandbox record survives the stop, as do the persistent volumes its environment defines. Resolved from the organization's sandbox settings at creation and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
+| `ttl` | duration string | `"72h"` | Hard lifetime from creation. On expiry the sandbox is terminated and its provisioned volumes deleted, regardless of state. Resolved from the organization's sandbox settings at creation (platform bounds: max `336h`) and stored on the sandbox — later changes to the org default do not affect existing sandboxes |
 | `last_session_at` | timestamp \| null | `null` | Updated every time a shell session detaches. Display/bookkeeping only — idle enforcement uses workload activity (`last_activity_at` on the [workload record](runners.md#workload-resource)), not this field |
 
-Sandboxes are first-class runtime owners: their workload and workspace-volume records in the [Runners](runners.md) service carry `owner_kind=sandbox` — no agent instance is created for a sandbox. The workspace volume is runtime-only (provisioned by the Orchestrator, `volume_id` NULL); it is not an Agents-service [Volume](#volume) resource and has no [VolumeAttachment](#volume-attachment). It is provisioned with the runner's `default` [Storage Class](#storage-class).
+Sandboxes are first-class runtime owners: their workload and volume records in the [Runners](runners.md) service carry `owner_kind=sandbox` — no agent instance is created for a sandbox. A sandbox has no storage of its own: it mounts the [Volumes](#volume) its environment defines, provisioned per sandbox, and an environment defining none gives its sandboxes nothing that survives a stop. The platform provisions no implicit workspace volume.
 
 `ConnectSandbox` flows go through `EnsureSandboxRunning`: a no-op when the sandbox is `running`, a restart when `stopped`, and a fresh user-driven start attempt when `failed` (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). Terminal tickets are issued only after `EnsureSandboxRunning` succeeds.
 
@@ -185,48 +198,63 @@ Sandboxes are first-class runtime owners: their workload and workspace-volume re
 
 ## Volume
 
-A volume definition. Volumes exist independently of agents. A volume is mounted into a container via a [VolumeAttachment](#volume-attachment).
+A disk mounted into a container. Each volume belongs to exactly one target — an [Environment](#environment) or an [MCP](#mcp) — identified by the corresponding foreign key. There is no free-standing volume resource and no attachment relationship: a volume is declared where it is mounted.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `persistent` | boolean | | `true` = named persistent volume (PVC). `false` = ephemeral (emptyDir) |
-| `mount_path` | string | | Absolute container path for the volume mount (e.g., `"/workspace"`) |
-| `size` | string | | Volume capacity (e.g., `"10Gi"`). Required when `persistent` is `true` |
-| `storage_class` | string | `null` | Name of a [Storage Class](#storage-class) in the catalog of the runner the workload lands on. Late-bound: not validated on create/update; resolved at provisioning time, and an unresolvable name fails scheduling. `null` resolves to the runner's `default` class. Only applies when `persistent` is `true`; applied when the volume instance is first provisioned — existing instances keep their class |
-| `ttl` | duration string | `null` | How long after the last workload on a thread stops before the volume instance for that thread is deleted (e.g., `"7d"`, `"24h"`). `null` means the volume is never deleted automatically. Only applies when `persistent` is `true` |
+| `environment_id` | string (UUID) | | Target environment. Mounted into the main container of every workload (agent or sandbox) running the environment. Mutually exclusive with `mcp_id` |
+| `mcp_id` | string (UUID) | | Target MCP server. Mounted into that sidecar only. Mutually exclusive with `environment_id` |
+| `name` | string | | Volume name. Unique within the target. Max 64 chars, pattern: `^[a-z0-9-]+$`. Names the volume for an MCP's [`shared_volumes`](#mcp) and labels it in the Console and metering |
+| `mount_path` | string | | Absolute container path for the mount (e.g., `"/workspace"`). Unique within the target |
+| `persistent` | boolean | `false` | `true` = a provisioned disk (PVC) that survives workload stops. `false` = ephemeral scratch (emptyDir), discarded with the workload |
+| `size` | string | `null` | Volume capacity (e.g., `"10Gi"`). Required when `persistent` is `true`, rejected otherwise |
+| `storage_class` | string | `null` | Name of a [Storage Class](#storage-class) in the catalog of the runner the workload lands on. Late-bound: not validated on create/update; resolved at provisioning time, and an unresolvable name fails scheduling. `null` resolves to the runner's `default` class. Only applies when `persistent` is `true`; applied when the volume is first provisioned — existing disks keep their class |
+| `ttl` | duration string | `null` | How long after the last workload for an owner stops before that owner's disk is deleted (e.g., `"7d"`, `"24h"`). `null` means it is never deleted automatically. Only applies when `persistent` is `true`. Sandbox-owned disks are deleted on sandbox termination regardless of this value |
 
----
+Exactly one of `environment_id` or `mcp_id` is set.
 
-## Volume Attachment
+**A volume is a definition, not a disk.** A persistent volume materializes as one provisioned disk **per owner** — per [agent instance](agent-instances.md) or per [sandbox](#sandbox) — recorded in the [Runners](runners.md#volume-resource) service. Two agents running the same environment get the same layout and separate disks; so does every sandbox started against it. Nothing is shared between owners: the volume model carries no cross-workload sharing, and an operator wanting that reaches for external storage or an MCP that fronts it.
 
-A relationship between a [Volume](#volume) and a target container — an [Agent](#agent) or [MCP](#mcp). Volumes are reusable infrastructure that may outlive any single agent and can be remounted when a resource is replaced.
+Sharing *within* one workload is the reason volumes and mounts are not the same thing. An MCP sidecar sees:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string (UUID) | Unique identifier |
-| `volume_id` | string (UUID) | Reference to a Volume resource |
-| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `mcp_id` |
-| `mcp_id` | string (UUID) | Target MCP server. Mutually exclusive with `agent_id` |
-| `created_at` | timestamp | Creation time |
+- its own volumes (`mcp_id`), which no other container mounts, and
+- the environment volumes named in its [`shared_volumes`](#mcp), mounted at the same paths the main container sees them — the case where an agent writes a file and an MCP server reads it.
 
-Exactly one of `agent_id` or `mcp_id` is set. Volume attachments are immutable — they can be created and deleted, but not updated. Duplicate attachments (same volume_id + target) are rejected.
+Both are the same pod-level volume the main container mounts, so sharing works for ephemeral volumes exactly as it does for persistent ones: an `emptyDir` scratch directory is shared for the life of the pod.
+
+**Names are a contract, which is why they are referenced rather than IDs.** A name is unique within its target and deliberately *reusable across environments*: if `dev`, `staging`, and `gpu` each declare a volume named `workspace`, an agent-level MCP asking for `workspace` runs in all three, and repointing an agent from one to another needs no edit. Resolution is late-bound at workload assembly, exactly like a [Flavor](#flavor) or [Storage Class](#storage-class) name; a name that does not resolve fails scheduling and flags the environment. A `volume_id` would weld each MCP to one environment.
+
+Uniqueness and collisions:
+
+| Scope | Rule | Enforced |
+|---|---|---|
+| `name` within one target | Unique | On write |
+| `mount_path` within one target | Unique | On write |
+| `mount_path` within one *container* — an MCP's own volumes plus its `shared_volumes` | Unique | At workload assembly: an agent-level MCP does not know its environment until then |
+| `name` across targets — an MCP volume and an environment volume both called `workspace` | Allowed; distinct namespaces | The Orchestrator namespaces pod-level volume names at assembly |
+
+**There are no default volumes.** An environment that declares none runs workloads whose every write lands on the container's ephemeral disk and is gone when the workload stops. This is deliberate: persistence is something an operator asks for, per environment, and [agent state](agent/state.md) survives restarts only in environments that provide for it.
 
 ---
 
 ## MCP
 
-An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the agent pod, sharing the network namespace. See [MCP](mcp.md) for the full MCP architecture.
+An MCP (Model Context Protocol) server definition. Runs as a sidecar container inside the workload's pod, sharing the network namespace. Belongs to exactly one target — an [Environment](#environment) or an [Agent](#agent). See [MCP](mcp.md) for the full MCP architecture.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this MCP server belongs to |
-| `name` | string | | MCP server name. Unique within agent. Max 63 characters, pattern: `^[a-z][a-z0-9_]{0,62}$`. Used as the server key in agent CLI MCP configuration and as the tool namespace prefix |
+| `environment_id` | string (UUID) | | Target environment. Runs in every workload (agent or sandbox) running the environment. Mutually exclusive with `agent_id` |
+| `agent_id` | string (UUID) | | Target agent. Runs only in that agent's workloads. Mutually exclusive with `environment_id` |
+| `name` | string | | MCP server name. Unique within the target. Max 63 characters, pattern: `^[a-z][a-z0-9_]{0,62}$`. Used as the server key in agent CLI MCP configuration and as the tool namespace prefix |
 | `image_id` | string (UUID) | | Reference to an [Image](#image) of type `mcp` or `workspace`. A purpose-built MCP server image and a devcontainer are both legitimate ways to host one |
 | `image_tag` | string | | Tag within that image. Validated against discovered [versions](#image-version) on write; resolved again at each workload start |
 | `command` | string | | Startup command executed inside the container |
 | `resources` | object | | Compute resources for the sidecar container (see [Compute Resources](#compute-resources)) |
+| `shared_volumes` | list<string> | `[]` | Names of [Volumes](#volume) on the environment this MCP runs in, mounted into the sidecar at the same paths the main container sees them. A name that does not resolve at workload start fails scheduling |
 
-Environment variables, initialization scripts, and volumes for an MCP server are [ENV](#env), [InitScript](#initscript), and [VolumeAttachment](#volume-attachment) resources that reference this MCP by `mcp_id`.
+Exactly one of `environment_id` or `agent_id` is set. Environment-level and agent-level MCPs compose as a union; on a name collision the agent-level server wins, the same rule [ENV](#env) follows.
+
+Environment variables, initialization scripts, and the sidecar's own volumes are [ENV](#env), [InitScript](#initscript), and [Volume](#volume) resources that reference this MCP by `mcp_id`.
 
 ---
 
@@ -271,17 +299,18 @@ Exactly one of `agent_id`, `mcp_id`, or `environment_id` is set (the target). Ex
 
 ## InitScript
 
-A named shell script executed by [`agynd`](agynd-cli.md) during container initialization, before the agent CLI is spawned. Each InitScript belongs to exactly one target — an [Agent](#agent) or an [MCP](#mcp).
+A named shell script executed by [`agynd`](agynd-cli.md) during container initialization, before the agent CLI is spawned. Each InitScript belongs to exactly one target — an [Environment](#environment), an [Agent](#agent), or an [MCP](#mcp).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | string (UUID) | | Unique identifier |
 | `name` | string | | Human-readable name for visibility in logs and the Console |
-| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with `mcp_id` |
-| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with `agent_id` |
+| `environment_id` | string (UUID) | | Target environment. Runs in the main container of every workload (agent or sandbox) running the environment. Mutually exclusive with the other targets |
+| `agent_id` | string (UUID) | | Target agent. Mutually exclusive with the other targets |
+| `mcp_id` | string (UUID) | | Target MCP server. Mutually exclusive with the other targets |
 | `script` | string | | Shell script content |
 
-When multiple init scripts target the same resource, they execute in creation order. Each script runs in its own shell invocation using the container's default shell. If a script exits with a non-zero code, the failure is printed to stderr and execution continues with the next script.
+Exactly one of `environment_id`, `agent_id`, or `mcp_id` is set. In an agent workload the main container runs the environment's scripts first, then the agent's; within each group, creation order. Names do not collide — every script runs. Each script runs in its own shell invocation using the container's default shell. If a script exits with a non-zero code, the failure is printed to stderr and execution continues with the next script.
 
 ---
 

@@ -164,7 +164,7 @@ An instance transitions to `terminated` on explicit `DeleteInstance`. Terminated
 
 ### State and workload
 
-- **State volume** is per-instance. Provisioned volume records in [Runners](runners.md) are keyed by `agent_instance_id`. Workload starts mount this volume; workload stops leave it in place.
+- **Storage** is per-instance. Every persistent [Volume](resource-definitions.md#volume) the instance's [environment](resource-definitions.md#environment) declares is provisioned once per instance — records in [Runners](runners.md) are keyed by `agent_instance_id`. Workload starts mount them; workload stops leave them in place. An environment declaring no persistent volume gives its instances no state that outlives a workload.
 - **Workload identity** is the instance identity. The [Orchestrator](agents-orchestrator.md) starts a workload with `AGENT_INSTANCE_ID = instance.id` in the environment; `agynd` uses this to fetch its inbox and to identify itself in platform calls. (In [Runners](runners.md) records the field is `agent_instance_id` — distinct from the runner-local `instance_id`, which is the Pod/PVC name.)
 - One workload at a time per instance. A `starting`/`running`/`stopping` workload precludes another for the same instance.
 
@@ -194,7 +194,7 @@ The `agent_instance` identity itself holds `member` on its organization (via its
 | Thread participant | References an instance (was: an agent identity) |
 | `MessageRecipient` | Only created for `user`/`app` participants; agent-instance participants get inbox items instead |
 | `passive` participant | Removed |
-| Agent state volume | Keyed by instance (was: keyed by `(agent, thread)`) |
+| Agent state storage | Keyed by instance (was: keyed by `(agent, thread)`) |
 | `THREAD_ID` env var | Removed; replaced by `AGENT_INSTANCE_ID` |
 | Implicit reply thread | Was the workload's `THREAD_ID`. Now [`default_thread_id`](#outbound) on the instance, resolved server-side from the caller identity — and opt-in for the final turn message |
 | `thread_participant:{id}` notification room (for agents) | Replaced by `instance_inbox:{id}` for agent instances; users and apps still use `thread_participant` |

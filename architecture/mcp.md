@@ -133,7 +133,20 @@ sequenceDiagram
 
 ## Resource Definition
 
-MCP servers are defined as agent sub-resources. See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource references an [Image](resource-definitions.md#image) and a tag, a startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and volumes are attached via their respective sub-resources.
+An MCP server is defined on an [Environment](resource-definitions.md#environment) or on an [Agent](resource-definitions.md#agent). See [Resource Definitions — MCP](resource-definitions.md#mcp) for the schema. Each MCP resource references an [Image](resource-definitions.md#image) and a tag, a startup command, and a `name` used as the server key in agent CLI configuration. Environment variables, init scripts, and the sidecar's own volumes are sub-resources of the MCP.
+
+**Where an MCP is defined decides which workloads run it.** Environment-level servers run in every workload of that environment — agent workloads and [sandboxes](../product/sandboxes/sandboxes.md) alike, which is what makes a sandbox a faithful hand-driven copy of an agent's runtime rather than an approximation of it. Agent-level servers run only in that agent's workloads. The two sets are merged by name at [workload assembly](agents-orchestrator.md#workload-spec-assembly), the agent-level definition winning a collision, and the merged set is what gets ports assigned and reaches the agent CLI's configuration.
+
+### Sharing files with the main container
+
+A sidecar sees its own volumes and nothing else by default. To read or write files the agent also sees, an MCP lists environment volume names in `shared_volumes`:
+
+```
+environment "dev"    volume "workspace" → /workspace (persistent, 10Gi)
+mcp "indexer"        shared_volumes: ["workspace"]
+```
+
+Both containers then mount the same pod volume at `/workspace` — one disk, two readers. The reference is by **name**, resolved at workload assembly against whichever environment the workload is running in, so an agent-level MCP asking for `workspace` works in every environment that declares one and survives the agent being repointed. An unresolvable name fails scheduling.
 
 ## Open Questions
 
