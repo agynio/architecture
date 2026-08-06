@@ -52,6 +52,12 @@ agyn expose add 3000
 agyn expose remove 3000
 agyn expose list
 
+# Environments — what a workload runs, and what it carries
+agyn environments create python-tools --runner shared --workspace-image devcontainer-py:3.12 --availability internal
+agyn environments volumes add python-tools workspace --path /workspace --size 10Gi
+agyn environments roles grant python-tools @maria --role user
+agyn environments show python-tools
+
 # Sandboxes (engineer-launched workloads with shell access)
 agyn sandbox start --env python-tools
 agyn sandbox connect brave-otter
@@ -322,6 +328,49 @@ Agents use the `expose` command group to make ports inside their container acces
 | `agyn expose list` | List active exposures for the current workload |
 
 These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The agent's workload context is resolved from the authenticated identity.
+
+---
+
+## Environment Commands
+
+The `environments` command group manages [environments](resource-definitions.md#environment) and everything they contain. See [Flavors and Environments](../product/environments/environments.md) for the product behavior.
+
+An environment is a composite: a runner, a flavor, images, and the volumes, MCP servers, init scripts, and ENVs a workload in it carries. The group is shaped accordingly — one set of commands for the environment record, one subcommand per kind of content, and roles alongside them. Every organization member can create one; what a caller may read and change on someone else's follows the [environment role](agents-service.md#environment-roles) they hold.
+
+| Command | Description |
+|---------|-------------|
+| `agyn environments list [--mine]` | Environments in the organization: name, runner, flavor, images, availability, and an **unschedulable** marker naming the unresolved reference when one exists. `--mine` filters to those the caller holds a role on |
+| `agyn environments show NAME` | Full configuration plus contents — volumes, MCPs, init scripts, ENVs, attached egress rules, and roles. Callers without `can_read_config` get the metadata header and a line stating the rest is not visible to them, rather than an empty listing that reads as "nothing configured" |
+| `agyn environments create NAME --runner RUNNER --workspace-image IMG:TAG [--agent-runtime-image IMG:TAG] [--flavor FLAVOR] --availability internal\|private` | Create an environment. The caller becomes its `owner`. An unreported flavor name warns and proceeds — it is [late-bound](../product/environments/environments.md#placement), and rejecting it would forbid applying platform resources before runner config |
+| `agyn environments update NAME [...same flags]` | Change any field. Flags not given are left as they are |
+| `agyn environments delete NAME` | Delete. Refused while any agent or sandbox references it; the error names them |
+
+### Contents
+
+| Command | Description |
+|---------|-------------|
+| `agyn environments volumes list ENV` | The environment's [volumes](resource-definitions.md#volume): name, path, persistence, size, storage class, TTL |
+| `agyn environments volumes add ENV NAME --path PATH [--size SIZE] [--storage-class CLASS] [--ttl DURATION]` | Add a volume. **`--size` is what makes it persistent** — given, the volume is a disk that survives workload stops; omitted, it is ephemeral scratch discarded with the workload. The two are biconditional in the resource itself, so the CLI does not carry a separate `--persistent` flag to contradict |
+| `agyn environments volumes remove ENV NAME` | Remove a volume. Warns that every disk provisioned from it — one per agent instance and sandbox — will be deprovisioned, and names how many exist |
+| `agyn environments mcps list \| add \| update \| remove ENV [NAME]` | MCP servers that run in every workload of the environment. `add` takes `--image IMG:TAG`, `--command CMD`, optional `--requests-cpu` / `--requests-memory` / `--limits-cpu` / `--limits-memory`, and `--share VOLUME` (repeatable) naming environment volumes to mount at the paths the main container uses |
+| `agyn environments init-scripts list \| add \| remove ENV [NAME]` | Scripts run in the main container before the agent CLI, or before a sandbox shell becomes available. `add` reads the body from `--file PATH` or stdin. Listed in execution order |
+| `agyn environments vars list \| set \| unset ENV [NAME]` | Environment variables injected into the main container. `set` takes `--value TEXT` or `--secret SECRET`, never both. `list` prints secret-backed entries as a reference, never a resolved value |
+
+`vars` rather than `env` — `agyn environments env` would read as a tautology, and the `--env` flag on [`sandbox start`](#sandbox-commands) already means the environment itself.
+
+### Roles
+
+| Command | Description |
+|---------|-------------|
+| `agyn environments roles list ENV` | Identities holding a role, with the role |
+| `agyn environments roles grant ENV @HANDLE --role owner\|maintainer\|user` | Assign or change a role. Rejects identities outside the environment's organization |
+| `agyn environments roles revoke ENV @HANDLE` | Remove a role |
+
+`user` is the role that governs *running* in an environment — starting a sandbox in it, or pointing an agent at it. Because a shell in that sandbox reaches the environment's secret-backed ENVs, its egress credentials, and its volumes, `grant --role user` states what it opens up before confirming. See [Who Can Use an Environment](../product/environments/environments.md#who-can-use-an-environment).
+
+### Declarative management
+
+This group is for inspecting and adjusting environments from a terminal. Defining them as version-controlled configuration is the [Terraform provider](operations/terraform-provider.md)'s job, and the two are not alternatives: `agyn environments show` is how an operator sees what is actually in place, including the provisioned state Terraform does not track.
 
 ---
 

@@ -151,6 +151,18 @@ Organization owners retain administrative access to every environment in the org
 
 Credentials that only one team should hold belong in a `private` environment with `user` granted to that team, or in agent-level attachments — not in an `internal` environment.
 
+## Managing Environments
+
+Three surfaces, for three different jobs:
+
+| Surface | For |
+|---|---|
+| [Console](../console/console.md#environments) | Authoring and browsing — the environment detail page carries its volumes, MCPs, init scripts, ENVs, egress rules, and roles inline |
+| [`agyn environments`](../../architecture/agyn-cli.md#environment-commands) | Working from a terminal: inspecting what is actually in place, adding a volume, granting `user`, checking why something is unschedulable |
+| [Terraform](../../architecture/operations/terraform-provider.md) | Defining environments as version-controlled configuration |
+
+The CLI and Terraform are not alternatives. Terraform states what an environment should be; `agyn environments show` reports what it currently is, including the provisioned disks and unresolved catalog names that no declarative file tracks.
+
 ## Placement
 
 An environment references its runner directly — **the environment fully determines placement**. The flavor name selects a size within that runner's catalog, late-bound at workload start:
@@ -224,6 +236,7 @@ Every started workload carries a flavor, so there is no unmetered compute. Agent
 - [Resource Definitions — Environment](../../architecture/resource-definitions.md#environment)
 - [Resource Definitions — Volume](../../architecture/resource-definitions.md#volume)
 - [Authorization — environment type](../../architecture/authz.md#environment)
+- [agyn CLI — Environment Commands](../../architecture/agyn-cli.md#environment-commands)
 - [MCP](../../architecture/mcp.md)
 - [Runners — Runner Catalog](../../architecture/runners.md#runner-catalog)
 - [Runners — Runner Selection](../../architecture/runners.md#runner-selection)
