@@ -228,7 +228,7 @@ If the vendoring surface proves unworkable in practice, the fallback is a purpos
 |---|---|
 | The endpoint shares the main container's cgroup | An over-eager scan can exhaust the container's memory and take the engineer's shell and running processes with it. Concurrency is bounded and content is streamed rather than buffered |
 | `fs.inotify.max_user_watches` is a node-level limit | It cannot be raised from inside the container, and exhaustion is easy to swallow silently. The endpoint falls back to periodic scanning and **reports the degraded mode** rather than appearing to watch |
-| Staging must share a filesystem with the root for atomic rename | It consumes the workspace volume; free space is checked before staging |
+| Staging must share a filesystem with the root for atomic rename | It consumes whatever backs the synced root — a persistent volume, or the container filesystem when the environment declares none; free space is checked before staging |
 | The mounted root may already hold content | Content baked into the image, or left by earlier sessions. First contact with an unmarked non-empty root halts and requires a direction |
 | The environment's workspace image defines the running user | Files are created as that user with default modes |
 
@@ -241,7 +241,8 @@ If the vendoring surface proves unworkable in practice, the fallback is a purpos
 | Machine sleeps | Streams die and are re-established on wake, with a full rescan |
 | Sandbox idles out under an active session | Session pauses; the sandbox is not restarted |
 | Sandbox terminated by TTL | Marker check halts the session; no local deletion occurs |
-| Workspace volume full | Staging fails cleanly and the session reports the condition |
+| Sandbox stops with no persistent volume behind the synced root | The root comes back empty on restart. The same marker check halts the session — indistinguishable from termination, and handled identically |
+| Sandbox storage full | Staging fails cleanly and the session reports the condition |
 | CLI and in-sandbox versions diverge | Refused at handshake with an actionable message; no binary is pushed to close the gap |
 
 ## Future

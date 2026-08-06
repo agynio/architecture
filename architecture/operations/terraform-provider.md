@@ -15,16 +15,16 @@ The provider connects to the [Gateway](../gateway.md) using a generated gRPC cli
 | `agyn_app` | App | App registration (slug, name, icon). Returns service token for enrollment |
 | `agyn_runner` | Runner | Runner registration (name, organization scope, labels). Returns service token for enrollment |
 | `agyn_agent` | Agent | Agent definition (identity, model, environment reference, configuration) |
-| `agyn_volume` | Volume | Volume definition (persistent/ephemeral, mount path, size) |
-| `agyn_volume_attachment` | Volume Attachment | Relationship between a volume and a container (agent or MCP) |
 | `agyn_image` | Image | Catalog entry: name, type, upstream repository, optional credential, visibility. Managed by the Images service |
-| `agyn_environment` | Environment | Runner, flavor name, workspace image + tag, optional agent runtime image + tag |
+| `agyn_environment` | Environment | Runner, flavor name, workspace image + tag, optional agent runtime image + tag, availability |
+| `agyn_volume` | Volume | Mount declaration (name, mount path, persistent, size, storage class, TTL) on an environment or an MCP |
 | `agyn_llm_provider` | LLM Provider | Connection to an external LLM service (endpoint, protocol, auth method, credentials). Managed by the LLM service |
 | `agyn_llm_model` | Model | Platform model mapped to a remote model on an LLM provider. Managed by the LLM service |
-| `agyn_mcp` | MCP | MCP server definition (image reference + tag, command, compute resources) |
+| `agyn_mcp` | MCP | MCP server definition (image reference + tag, command, compute resources, shared volume names) on an environment or an agent |
 | `agyn_skill` | Skill | Skill definition (name, body) |
 | `agyn_env` | ENV | Environment variable (name, plain value or secret reference) |
-| `agyn_init_script` | InitScript | Initialization script (shell script content) |
+| `agyn_init_script` | InitScript | Initialization script (shell script content) on an environment, agent, or MCP |
+| `agyn_environment_role` | Environment role | Role assignment on an environment (identity, `owner` / `maintainer` / `user`) |
 | `agyn_membership` | Membership | Organization membership (identity, organization, role). See [Organizations — Members Management](../organizations.md#members-management) |
 
 ## Data Sources

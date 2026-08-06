@@ -141,14 +141,14 @@ The Egress Gateway subscribes per organization. On any event, it invalidates the
 | `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>` |
 | `GetEgressRule`, `ListEgressRules` | `member` on `organization:<org_id>` |
 | `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (agent target) | `can_edit_config` on `agent:<agent_id>` (and the rule must be in the agent's organization) |
-| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (environment target) | `owner` on `organization:<org_id>` — the same permission that manages the [Environment](resource-definitions.md#environment) (and the rule must be in the environment's organization) |
+| `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (environment target) | `can_edit_config` on `environment:<environment_id>` — the same permission that edits the [Environment](resource-definitions.md#environment)'s other contents (and the rule must be in the environment's organization) |
 | `ListEgressRuleAttachments` (by `agent_id`) | `can_read_config` on `agent:<agent_id>` |
 | `ListEgressRuleAttachments` (by `environment_id`) | `member` on `organization:<org_id>` |
 | `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
 | `ListEgressRulesByAgent`, `ListEgressRulesByEnvironment` (internal) | Internal only — gated by Istio `AuthorizationPolicy` |
 | `CountRulesReferencingSecret` (internal) | Internal only — gated by Istio `AuthorizationPolicy` |
 
-See [Authorization — EgressRules Service](authz.md#egressrules-service) for the full reference. No new OpenFGA types are introduced; rules use the existing organization-level checks, agent attachments use the existing per-agent `can_edit_config`, and environment attachments use the organization `owner` relation.
+See [Authorization — EgressRules Service](authz.md#egressrules-service) for the full reference. This service introduces no OpenFGA types of its own: rules use organization-level checks, and each attachment uses its target's `can_edit_config` — on the [`agent`](authz.md#agent) type or the [`environment`](authz.md#environment) type.
 
 ## Gateway Exposure
 

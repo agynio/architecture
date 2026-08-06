@@ -19,7 +19,8 @@ agyn sandbox sync                  # keep the working directory and /workspace i
 - As an engineer, I want to start a sandbox from my terminal and get a shell in it, so I can work inside the same runtime my agents use.
 - As an engineer, I want to reconnect to my sandbox by name after a disconnect, without losing running processes or files.
 - As an engineer, I want a directory on my machine and a directory in the sandbox to stay in step, so I can edit in my own editor while the work runs in the sandbox and see whatever it writes back.
-- As an engineer, I want the sandbox to carry the environment's secrets and egress rules, so I can manually exercise exactly what an agent in that environment could do.
+- As an engineer, I want the sandbox to carry the environment's secrets, egress rules, MCP servers, and storage layout, so I can manually exercise exactly what an agent in that environment could do.
+- As an engineer, I want to know before I start working whether my files will survive the sandbox going idle.
 - As an organization owner, I want to see every sandbox running in my organization and terminate any of them.
 - As a platform operator, I want sandboxes to stop when idle and disappear after a TTL, so forgotten sandboxes don't consume capacity forever.
 
@@ -27,7 +28,7 @@ agyn sandbox sync                  # keep the working directory and /workspace i
 
 | Term | Definition |
 |---|---|
-| **Sandbox** | An org-scoped resource owned by the user who created it: one workload (plus a workspace volume) running an [environment](../environments/environments.md), started on demand rather than by inbox traffic. |
+| **Sandbox** | An org-scoped resource owned by the user who created it: one workload running an [environment](../environments/environments.md), started on demand rather than by inbox traffic. Its storage is whatever the environment declares. |
 | **Shell session** | An interactive terminal attached to the sandbox's main container. A sandbox can have zero or more concurrent sessions; the workload keeps running between sessions. |
 | **Sync session** | A continuous two-way reconciliation between a directory on the engineer's machine and a directory in the sandbox. Runs in the background on the engineer's machine, independent of any shell session. |
 
@@ -40,10 +41,12 @@ Sandboxes are managed through a new `agyn sandbox` command group:
 | `agyn sandbox start [--env NAME] [--name NAME] [--sync PATH]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted |
 | `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
-| `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and workspace volume |
-| `agyn sandbox delete [NAME]` | Terminate the sandbox and delete its workspace volume |
+| `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none — stopping discards everything |
+| `agyn sandbox delete [NAME]` | Terminate the sandbox and delete the volumes provisioned for it |
 | `agyn sandbox cp [-r] SRC DST` | Copy files in or out once. The sandbox side carries a `NAME:path` prefix |
 | `agyn sandbox sync [NAME] [--local PATH] [--remote PATH]` | Keep a local directory (default the working directory) and a sandbox directory (default `/workspace`) continuously reconciled. See [Workspace Sync](#workspace-sync) |
+
+`--remote` defaults to `/workspace` because that is the conventional mount path, not because the platform creates one. In an environment that mounts its volume elsewhere, pass the path.
 
 Convenience: `agyn sandbox start --agent @coder` resolves the agent's environment. Note this grants the *environment's* attachments only — rules and ENVs attached directly to the agent do not apply to the sandbox. `agyn sandbox start --sync .` starts a sandbox, attaches a shell, and begins syncing the current directory in one step.
 
@@ -53,12 +56,12 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 |---|---|
 | `starting` | Workload start requested, not yet running |
 | `running` | Workload up; shell sessions can attach |
-| `stopped` | Workload stopped (idle timeout or explicit `stop`); record and workspace volume retained |
+| `stopped` | Workload stopped (idle timeout or explicit `stop`); record and any persistent volumes retained |
 | `failed` | Workload failed to start. Sticky until the user acts: `connect` performs a fresh start attempt (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). TTL still applies |
-| `terminated` | Deleted explicitly or by TTL; workspace volume removed. A soft state: the record is retained for audit and usage history but hidden from default lists |
+| `terminated` | Deleted explicitly or by TTL; provisioned volumes removed. A soft state: the record is retained for audit and usage history but hidden from default lists |
 
-- **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped but the sandbox and its workspace volume survive — `connect` restarts the workload on the same volume. While a session is attached the sandbox is never considered idle. A [sync session](#workspace-sync) is deliberately **not** an activity signal: a laptop left syncing would otherwise keep a sandbox running indefinitely.
-- **TTL** (default `72h` from creation): when it elapses, the sandbox is terminated and its volume deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
+- **Idle timeout** (default `30m`): measured from the last shell session detaching. When it elapses, the workload is stopped; the sandbox record and the environment's persistent volumes survive, and `connect` restarts the workload on the same disks. **Anything outside a persistent volume does not survive** — see [Storage](#storage). While a session is attached the sandbox is never considered idle. A [sync session](#workspace-sync) is deliberately **not** an activity signal: a laptop left syncing would otherwise keep a sandbox running indefinitely.
+- **TTL** (default `72h` from creation): when it elapses, the sandbox is terminated and its volumes deleted regardless of state. The remaining TTL is visible in `agyn sandbox list` and the Console.
 - **Defaults are organization-configurable** (org owners set default TTL and idle timeout in organization settings, within platform bounds). Both values are resolved and stored on the sandbox at creation — changing the org default later does not affect existing sandboxes.
 - One workload at a time per sandbox. Sandboxes are first-class workload owners in the runtime model (`owner_kind=sandbox` on workload and volume records) — no agent instance exists behind a sandbox.
 
@@ -67,13 +70,32 @@ Convenience: `agyn sandbox start --agent @coder` resolves the agent's environmen
 A sandbox workload is assembled the same way an agent workload is, minus the agent loop:
 
 - **Image and size** come from the environment (workspace image + flavor). Placement is on the environment's runner — see [Placement](../environments/environments.md#placement).
-- **The platform's binary init containers run first**, so `agynd` and the `agyn` CLI are available inside the sandbox. The main container runs a long-lived sandbox holder process instead of the agent inbox loop. Session activity for idle tracking is reported by the [Terminal Proxy](../../architecture/terminal-proxy.md#sandbox-activity-reporting), not from inside the container.
+- **The platform's binary init containers run first**, so `agynd` and the `agyn` CLI are available inside the sandbox. The main container runs `agynd` as a holder: it runs the environment's init scripts and then idles, spawning no agent CLI and running no inbox loop. Session activity for idle tracking is reported by the [Terminal Proxy](../../architecture/terminal-proxy.md#sandbox-activity-reporting), not from inside the container.
 - **The environment's agent runtime image, when it has one**, runs as a further init container, so the agent CLI it carries is on `PATH` inside the sandbox. This is what makes a sandbox a place to drive an agent by hand rather than an empty shell. The agent loop itself does not run — see [Future](#future).
 - **Environment variables and secrets** attached to the environment are injected at workload assembly, exactly as for agents. Secret values are resolved by the orchestrator; they are never fetchable through the API from inside the sandbox.
 - **Egress rules** attached to the environment apply: matched destinations route through the [Egress Gateway](../egress-gateway/egress-gateway.md) with the same allow/deny/inject behavior an agent observes.
-- **Workspace volume**: a persistent volume mounted at `/workspace`, created with the sandbox and deleted with it. It survives idle stops and reconnects. Size is a platform default (`10Gi`, deployment-configurable) and the storage class is the runner's default — storage is not part of the flavor. It is a runtime-only volume owned by the sandbox, not a user-managed [Volume](../../architecture/resource-definitions.md#volume) resource.
+- **The environment's [volumes](../../architecture/resource-definitions.md#volume)**, provisioned per sandbox and mounted where the environment declares them. Persistent ones survive idle stops and reconnects; they are deleted when the sandbox is. **An environment declaring no persistent volume gives the sandbox nothing that outlives its workload** — see [Storage](#storage).
+- **The environment's MCP servers**, running as sidecars exactly as they would in an agent workload. The agent loop is absent; its tools are not.
+- **The environment's init scripts**, executed before the shell is available.
 - **Port exposure** works as in agent workloads: `agyn expose add 3000` inside the sandbox returns an `http://exposed-<id>.ziti:3000` URL reachable from the engineer's enrolled devices.
 - **Identity and platform access**: the sandbox workload has its own platform identity (it is not the engineer's identity, and it is **not an organization member**) with the same platform service reach as an agent workload — Gateway, **LLM Proxy**, and Tracing over the standard OpenZiti dial policies. Reachability is not authorization: platform services authorize sandbox identities by resolving through the sandbox record to its organization and owner, granting only a narrow operation set (port exposure, file upload/download, LLM calls metered to the org and attributed to the sandbox and its owner). Model-calling agent tooling therefore works inside a sandbox without the sandbox holding any broad org permissions.
+
+Starting a sandbox in an environment requires `can_use` on it — see [Who Can Use an Environment](../environments/environments.md#who-can-use-an-environment). A shell in a sandbox reaches the environment's secrets and credentials, so the right to open one is granted deliberately.
+
+## Storage
+
+**A sandbox has no storage of its own.** It mounts the [volumes](../environments/environments.md#volumes) its environment declares, one set per sandbox, and nothing else. There is no implicit `/workspace` disk: an environment that declares a persistent volume at `/workspace` gives its sandboxes a `/workspace` that survives an idle stop, and an environment that declares nothing gives them a container filesystem that is discarded when the workload stops.
+
+This is the same rule agents follow, and it is deliberate — persistence is something an operator asks for per environment, not something every workload gets by default. What it means for an engineer at a shell:
+
+| Environment declares | Sandbox stops (idle or explicit) | Sandbox terminated (TTL or `delete`) |
+|---|---|---|
+| A persistent volume | Files under it survive; `connect` returns to them | Deleted with the sandbox |
+| Nothing persistent | Everything is lost | Nothing to delete |
+
+Because the second row is easy to walk into, `agyn sandbox start` and the Console say so up front when the chosen environment declares no persistent volume, and `agyn sandbox stop` warns before stopping such a sandbox. The condition is visible in `agyn sandbox list` and on the sandbox detail page, not only at the moment work is lost.
+
+Two sandboxes in the same environment never share storage — same layout, separate disks — and neither do a sandbox and an agent running there. [Workspace sync](#workspace-sync) is the way work reaches an engineer's machine, and in an environment with no persistent volume it is also the only thing standing between an idle timeout and a lost afternoon.
 
 ## Shell Access
 
@@ -125,7 +147,7 @@ Sync is intended for working trees — source, configuration, notes, results. It
 
 Organization owners can force-terminate any sandbox but cannot attach to one they don't own.
 
-Because environment-attached secrets and egress credentials are reachable from inside any sandbox running that environment, environments define the effective sharing boundary — see [Environments — Attachments](../environments/environments.md#attachments).
+Because environment-attached secrets and egress credentials are reachable from inside any sandbox running that environment, environments define the effective sharing boundary, and starting a sandbox in one requires `can_use` — see [Environments — Who Can Use an Environment](../environments/environments.md#who-can-use-an-environment).
 
 ## Observability and Metering
 

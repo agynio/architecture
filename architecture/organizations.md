@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, sandboxes, environments, volumes, LLM providers, models, secret providers, secrets, and chats. Resources that belong to an organization have an `organization_id` field.
+The platform uses **organizations** as the grouping unit for configuration resources. An organization owns agents, sandboxes, environments, images, LLM providers, models, secret providers, secrets, and chats. Resources that belong to an organization have an `organization_id` field.
 
 Not all resources belong to organizations. Threads, files, agent state, and workloads are **independent resources** — access to them is governed by [ReBAC permissions](authz.md) rather than organizational membership. This separation reflects the domain: conversations (threads) and runtime artifacts (state, workloads) connect participants across organizational boundaries, while configuration resources (agents, sandboxes, providers, secrets) are organizational infrastructure.
 
@@ -36,8 +36,8 @@ Organizations own the default sandbox lifecycle settings used by the [Agents ser
 
 | Setting | Default | Bounds | Description |
 |---------|---------|--------|-------------|
-| `sandbox_default_idle_timeout` | `30m` | Platform minimum/maximum | How long a sandbox may remain detached before its workload is stopped. The sandbox record and workspace volume survive idle stop |
-| `sandbox_default_ttl` | `72h` | Platform maximum `336h` | Hard sandbox lifetime from creation. On expiry the sandbox is terminated and its workspace volume is deleted |
+| `sandbox_default_idle_timeout` | `30m` | Platform minimum/maximum | How long a sandbox may remain detached before its workload is stopped. The sandbox record survives idle stop, as do the persistent volumes its [environment](resource-definitions.md#environment) declares |
+| `sandbox_default_ttl` | `72h` | Platform maximum `336h` | Hard sandbox lifetime from creation. On expiry the sandbox is terminated and the volumes provisioned for it are deleted |
 
 Only organization owners may update these settings. Values are validated by Organizations before persistence. The Agents service snapshots both values onto each sandbox at creation; changing organization defaults never mutates existing sandboxes.
 
@@ -197,9 +197,9 @@ Org-scoped resources belong to an organization. They have an `organization_id` f
 
 | Service | Resources | Notes |
 |---------|-----------|-------|
-| [Agents](agents-service.md) | Agents, Environments, Sandboxes, Volumes | Direct `organization_id` on the resource |
+| [Agents](agents-service.md) | Agents, Environments, Sandboxes | Direct `organization_id` on the resource |
 | [Images](images-service.md) | Images | Direct `organization_id`. `public` images are additionally readable by every organization — see [Images Service — Visibility](images-service.md#visibility) |
-| [Agents](agents-service.md) | MCPs, Skills, ENVs, InitScripts, Volume Attachments | Inherit org scope through parent (agent or MCP). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
+| [Agents](agents-service.md) | Volumes, MCPs, Skills, ENVs, InitScripts | Inherit org scope through parent (environment, agent, or MCP). No `organization_id` column — org is resolved via the parent chain. Can be denormalized if query patterns require it |
 | [LLM](llm.md) | LLM Providers, Models | `organization_id` on the resource |
 | [Secrets](secrets.md) | Secret Providers, Secrets | `organization_id` on the resource |
 | [Chat](chat.md) | Chats | `organization_id` for listing chats within an organization. The underlying [thread](threads.md) is independent |

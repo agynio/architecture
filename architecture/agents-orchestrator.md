@@ -24,7 +24,7 @@ graph TB
 
 | Dependency | Usage |
 |-----------|-------|
-| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) definitions and sub-resources (MCPs, volumes, ENVs, init scripts, skills). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
+| **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) and environment definitions with their sub-resources (volumes, MCPs, ENVs, init scripts, skills). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` and `environment.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
 | **Notifications** | Subscribe to `message.created` events on `instance_inbox:*` (for reactivity when an instance has new inbox items) and `agent.updated` events (for class configuration changes) |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
@@ -96,7 +96,7 @@ last_stopped_at = Runners.ListWorkloadsByAgentInstance(
     instance_id,
     status_in: [stopped],
     limit: 1).first()?.created_at ?? epoch
-reset_floor = max(last_stopped_at, class.updated_at)
+reset_floor = max(last_stopped_at, class.updated_at, environment.updated_at)
 
 recent_failures = Runners.ListWorkloadsByAgentInstance(
     instance_id,
@@ -126,7 +126,7 @@ StartWorkload(...)
 
 With the defaults, an unrecoverable configuration pauses the instance after roughly two hours — long enough for most human-in-the-loop fixes, short enough that a single-instance connector (e.g., [Telegram](apps/telegram-connector.md)) is not silently blocked indefinitely. Changing the schedule or the attempt cap at the orchestrator takes effect immediately for all failed workloads — no migration is needed because retry state is derived, not stored.
 
-**Configuration-driven fast retry.** When the class or any of its sub-resources changes, Agents Service emits `agent.updated` on the `agent:{class_id}` notification room (see [Agents Service — Notifications](agents-service.md#notifications)). The orchestrator wakes the main loop on each event. Because the start decision compares `class.updated_at > latest.removed_at`, the next tick retries with `consecutive_failures = 1` for every instance of that class. No backoff-reset API and no mutation of terminal records is required.
+**Configuration-driven fast retry.** When the class or any of its sub-resources changes, Agents Service emits `agent.updated` on the `agent:{class_id}` notification room; when an environment or any of its sub-resources changes, it emits `environment.updated` on `environment:{environment_id}` (see [Agents Service — Notifications](agents-service.md#notifications)). The orchestrator wakes the main loop on each event. Because the start decision compares both `class.updated_at` and `environment.updated_at` against `latest.removed_at`, the next tick retries with `consecutive_failures = 1` for every affected instance — including every instance of every class running a repaired environment, which is why the environment event is published once rather than fanned out per agent. No backoff-reset API and no mutation of terminal records is required.
 
 **Terminal escape.** When `consecutive_failures >= MAX_ATTEMPTS`, the orchestrator calls `Agents.PauseInstance` with a reason and stops retrying. `paused` instances are skipped by step 2 on subsequent ticks; their inboxes continue to accept writes so no data is lost. A class owner (or the app that owns the instance) can inspect the failure, fix the config, and `ResumeInstance` — the fast-retry path picks up automatically on the next tick.
 
@@ -167,8 +167,8 @@ sequenceDiagram
     participant ZM as Ziti Management
     participant R as Runner
 
-    O->>T: Get instance + class definition + sub-resources
-    T-->>O: Instance, Agent (class), MCPs, Volumes, ENVs, InitScripts, Skills
+    O->>T: Get instance + class definition + environment, with sub-resources of both
+    T-->>O: Instance, Agent (class), Environment, MCPs, Volumes, ENVs, InitScripts, Skills
     O->>S: Resolve secret values for secret-backed ENVs
     S-->>O: Resolved secret values
     O->>IM: Resolve image references (environment + MCPs)
@@ -199,22 +199,22 @@ The workload stays in `status=starting` after `StartWorkload` returns. The trans
 
 Before starting a workload, the orchestrator selects a runner:
 
-1. **Check for existing volumes** — call `Runners.ListVolumesByAgentInstance(agent_instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an instance reside on the same runner (recorded as `runner_id` on each volume record).
+1. **Check for existing volumes** — call `Runners.ListVolumesByAgentInstance(agent_instance_id)` to find any active volumes already provisioned for this instance. If any exist, the runner is predetermined: all volumes for an owner reside on the same runner (recorded as `runner_id` on each volume record). A sandbox workload runs the same check through `Runners.ListVolumes(owner_kind=sandbox, owner_id=<sandbox_id>)` — pinning follows the owner, not the owner's kind.
 2. **Validate the predetermined runner** — call `Runners.GetRunner(runner_id)` and verify its status is `enrolled`. If the runner is no longer registered or not enrolled, the instance cannot be recovered: call `Agents.PauseInstance(instance_id, reason="runner_deprovisioned")` and abort the start sequence.
-3. **No existing volumes** — the runner is the one referenced by the class's [Environment](resource-definitions.md#environment) (`runner_id`). Validate that the runner is `enrolled`, then resolve catalog names against the runner's [reported catalog](runners.md#runner-catalog): the environment's flavor name (or the runner's `default` flavor when the environment names none), the storage class name of every persistent volume (or the runner's `default` class when a volume names none), and every capability the class requires (see [Runner Selection](runners.md#runner-selection)). If any name does not resolve, the workload fails to schedule and the orchestrator retries on the next reconciliation pass — the unresolved reference is surfaced on the environment as unschedulable in Console and CLI.
+3. **No existing volumes** — the runner is the one referenced by the [Environment](resource-definitions.md#environment) (`runner_id`). Validate that the runner is `enrolled`, then resolve catalog names against the runner's [reported catalog](runners.md#runner-catalog): the environment's flavor name (or the runner's `default` flavor when the environment names none), the storage class name of every persistent volume (or the runner's `default` class when a volume names none), and every capability the class requires (see [Runner Selection](runners.md#runner-selection)). If any name does not resolve, the workload fails to schedule and the orchestrator retries on the next reconciliation pass — the unresolved reference is surfaced on the environment as unschedulable in Console and CLI.
 4. **Volume/runner conflict** — if existing volumes pin the instance to a runner different from the environment's runner (the environment or its runner reference changed after volumes were provisioned), the instance cannot be recovered on the new runner: call `Agents.PauseInstance(instance_id, reason="runner_conflict")` and abort the start sequence.
 
 ### Workload Spec Assembly
 
 The orchestrator assembles the full workload specification from multiple sources:
 
-1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the workspace image, the agent runtime image, and the runner; its flavor name, resolved against the runner's [reported catalog](runners.md#runner-catalog) during [runner selection](#runner-selection), supplies the compute resources. Environment-targeted ENVs and egress rule attachments are collected alongside the agent's own.
+1. **Agent definition** (from Agents): configuration, plus the referenced [Environment](resource-definitions.md#environment). The environment supplies the workspace image, the agent runtime image, and the runner; its flavor name, resolved against the runner's [reported catalog](runners.md#runner-catalog) during [runner selection](#runner-selection), supplies the compute resources. Environment-targeted volumes, MCPs, init scripts, ENVs, and egress rule attachments are collected alongside the agent's own. A [sandbox](resource-definitions.md#sandbox) workload has no agent: the environment's contributions are the whole of its configuration.
 2. **Capabilities** (from Agents): named platform capabilities (e.g., `docker`). The orchestrator includes the capability list in the workload spec. The runner resolves each capability to its configured implementation — injecting the appropriate sidecars and environment variables. See [Resource Definitions — Capabilities](resource-definitions.md#capabilities) and [k8s-runner — Capability Implementations](k8s-runner.md#capability-implementations).
-3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the agent's network namespace. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
-4. **Volumes** (from Agents): persistent and ephemeral volumes, mount paths. Each persistent volume carries its resolved [storage class](resource-definitions.md#storage-class) name — the volume definition's requested class, or the runner's `default` when none is set. The runner maps the class name to its backing storage.
-5. **Volume attachments** (from Agents): which volumes mount into which containers (agent, MCPs).
-6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent ENVs into the agent container, MCP ENVs into the respective MCP sidecar. No container receives another container's resolved values. Agent ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
-7. **Init scripts** (from Agents): shell scripts for agent container initialization. Fetched by `agynd` at startup via the Gateway. MCP init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
+3. **MCP servers** (from Agents): sidecar images, commands, compute resources — started as sidecars sharing the workload's network namespace. Environment-level and agent-level MCPs are merged by name, the agent-level definition winning; the merged set runs in agent workloads, and the environment-level set alone runs in sandboxes. The orchestrator assigns each MCP sidecar a unique port (see [MCP — Port Allocation](mcp.md#port-allocation)).
+4. **Volumes** (from Agents): the environment's volumes and each MCP's own, with their mount paths. Each persistent volume carries its resolved [storage class](resource-definitions.md#storage-class) name — the definition's requested class, or the runner's `default` when none is set. The runner maps the class name to its backing storage. An environment declaring no volumes produces a workload with no mounts beyond the platform's own — there is no implicit workspace volume for either agents or sandboxes.
+5. **Volume mounts** (derived): the environment's volumes mount into the main container at their declared paths. Each MCP sidecar mounts its own volumes, plus every environment volume named in its [`shared_volumes`](resource-definitions.md#mcp) — at the same path the main container sees it, resolved by name against the environment being assembled. A name that does not resolve, or a mount path colliding with one of the sidecar's own volumes, fails scheduling with a descriptive error. Pod-level volume names are generated by the orchestrator, so an MCP volume and an environment volume may share a name without conflict.
+6. **Environment variables** (from Agents + Secrets): plain-text values passed as-is; secret-backed values resolved via Secrets service at assembly time. Each resolved value is injected into only the container it belongs to — agent and environment ENVs into the main container, MCP ENVs into the respective MCP sidecar. No container receives another container's resolved values. ENVs are never exposed via the Agents Service API to running workloads — injection at assembly time is the only delivery path.
+7. **Init scripts** (from Agents): shell scripts for main container initialization — the environment's, then the agent's. Fetched by `agynd` at startup via the Gateway. MCP init scripts are not currently supported — their containers are responsible for their own initialization logic via their entrypoint.
 9. **Skills** (from Agents): prompt fragments. Fetched by `agynd` at startup via the Gateway and written to the filesystem in the layout expected by the agent CLI.
 10. **OpenZiti enrollment JWT** (from Ziti Management): injected as `ZITI_ENROLLMENT_JWT` into the **Ziti sidecar container**. The sidecar exchanges the JWT for an x509 certificate at startup, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace. MCP sidecars share the pod network and can reach `.ziti` services via the sidecar, but receive no agent secrets or configuration — their env vars are injected separately and contain only what they need.
 11. **Image references and pull credential** (from Images + Image Proxy): every image in the spec — the environment's workspace and agent runtime images, and each MCP's — is resolved through the [Images](images-service.md) service and rewritten to an [image proxy](image-proxy.md) reference. The orchestrator then mints one short-lived pull credential scoped to this workload and the images it may pull, and revokes it when the workload stops. No registry address or upstream credential appears in the workload spec.
@@ -352,7 +352,9 @@ Every started workload carries a flavor. An agent workload takes it from the age
 
 | unit | value | labels | idempotency_key |
 |------|-------|--------|-----------------|
-| `GB_SECONDS` | size_gb × interval_s | resource_id=volume_id, resource=volume, identity_id, identity_type=agent, kind=storage | deterministic(volume_id+interval_start) |
+| `GB_SECONDS` | size_gb × interval_s | resource_id=**provisioned volume id**, resource=volume, identity_id, identity_type, kind=storage | deterministic(provisioned volume id+interval_start) |
+
+`resource_id` and the idempotency key are the [Runners](runners.md#volume-resource) record's `id`, not the Agents service `volume_id`. One definition backs one disk per owner, so keying on the definition would merge every owner's storage into a single series and collide their idempotency keys interval by interval. `identity_id` and `identity_type` name the owner — the agent instance, or the sandbox for `owner_kind=sandbox`.
 
 `size_gb` comes from the actual volume record in the [Runners](runners.md) service, not the volume definition in the Agents service. Idempotency keys are derived deterministically — if the Metering Service call fails and the Orchestrator retries, duplicate records are dropped by the Metering Service without error. See [Metering — Deduplication](metering.md#deduplication).
 
@@ -419,13 +421,15 @@ On each tick, for each enrolled runner:
 |------------------------|-------------------|--------|
 | `provisioning` | yes | `UpdateVolume(status=active)` — PVC was created by `StartWorkload` |
 | `provisioning` | no | no-op — `StartWorkload` may still be in progress; `failed` after workload reaches `failed` |
-| `active` | yes | check TTL — if `volume.ttl` is set and no workload for this `agent_instance_id` has been running or stopping since at least `ttl` ago (derived from `removed_at` of the most recent workload for the instance): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
-| `active` | no | `UpdateVolume(status=failed)` → `Agents.PauseInstance(agent_instance_id, reason="volume_lost")` — PVC was lost or deleted externally (e.g., runner deprovisioned). The instance's inbox keeps accepting writes; the owner can inspect and resume (state starts fresh) or terminate |
+| `active` | yes | check TTL — if `volume.ttl` is set and no workload for this owner has been running or stopping since at least `ttl` ago (derived from `removed_at` of the owner's most recent workload): `UpdateVolume(status=deprovisioning)` → `Runner.RemoveVolume`; otherwise no-op |
+| `active` | no | `UpdateVolume(status=failed)` → for an agent-instance owner, `Agents.PauseInstance(agent_instance_id, reason="volume_lost")` — PVC was lost or deleted externally (e.g., runner deprovisioned). The instance's inbox keeps accepting writes; the owner can inspect and resume (state starts fresh) or terminate. A sandbox owner has no inbox to protect: the loss is surfaced on the sandbox and the next `EnsureSandboxRunning` provisions a fresh volume |
 | `deprovisioning` | yes | retry `Runner.RemoveVolume` |
 | `deprovisioning` | no | `UpdateVolume(status=deleted, removed_at=now)` |
 | not in Runners service | yes | orphan — `Runner.RemoveVolume` |
 
-TTL is checked for `active` volumes where the instance has no running workload. TTL is read from the Agents service Volume definition. The clock starts from `removed_at` of the most recent workload for the instance, available from `Runners.ListWorkloadsByAgentInstance`. Volumes with `ttl: null` are never expired automatically.
+TTL is checked for `active` volumes whose owner has no running workload. TTL is read from the Agents service [Volume](resource-definitions.md#volume) definition — the environment's or the MCP's. The clock starts from `removed_at` of the owner's most recent workload, available from `Runners.ListWorkloadsByAgentInstance` (or the sandbox-owner equivalent). Volumes with `ttl: null` are never expired automatically.
+
+Terminating a sandbox deletes every volume owned by it regardless of `ttl` — the sandbox record is the lifetime bound for its storage, and its own [TTL](resource-definitions.md#sandbox) is what governs. Deleting a volume *definition* likewise marks every disk provisioned from it for deprovisioning, across all owners.
 
 ### Relationship to Metering
 
