@@ -91,14 +91,11 @@ Both carry the Gateway's rate limits rather than its identity middleware. `Appro
 
 ### Terminal Sessions
 
-`CreateTerminalSession` is the Gateway-exposed ticket issuance endpoint for browser and CLI session access. The client supplies a target `workload_id`, `container_name`, and a [session kind](terminal-proxy.md#session-kinds) with that kind's parameters. The Gateway derives the command from the kind; only `EXEC` carries a caller-supplied command, and it is authorized before being bound into the ticket. The request does not carry an identity; Gateway derives the caller identity from authenticated context and passes it only to the internal [Terminal Proxy](terminal-proxy.md) `IssueTicket` RPC.
+`CreateTerminalSession` is the Gateway-exposed ticket issuance endpoint for browser and CLI session access. The client supplies a target `workload_id`, `container_name`, and a [session kind](terminal-proxy.md#session-kinds) with that kind's parameters.
 
-Gateway authorizes the target before issuing a ticket:
+The Gateway routes and does not interpret. It checks the request is well-formed, resolves the caller's identity from authenticated context — the request never carries one — and forwards to the internal [Terminal Proxy](terminal-proxy.md) `IssueTicket` RPC.
 
-| Target workload | Authorization |
-|-----------------|---------------|
-| Sandbox workload | `can_connect` on `sandbox:<sandbox_id>`. This is owner-only; org owners can stop/delete non-owned sandboxes but cannot attach unless they also own the sandbox |
-| Agent workload container | `can_edit_config` on the agent class |
+Everything that follows from the kind belongs to the proxy, which owns terminal sessions: the [authorization check](terminal-proxy.md#authorization), resolving the kind to a command, and validating that kind's parameters. None of it is Gateway logic, and putting it here would put a service's domain rules in its router.
 
 On success the response contains a short-lived signed ticket, the Terminal Proxy WebSocket URL, and the ticket expiry. The command is bound into the ticket at issuance; the WebSocket handshake carries terminal size only and cannot change the command.
 

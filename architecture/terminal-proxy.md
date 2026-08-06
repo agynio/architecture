@@ -21,7 +21,7 @@ Despite the name, the proxy is not shell-specific: it carries any bidirectional 
 | **Repository** | `agynio/terminal-proxy` |
 | **API** | WebSocket (external, via ingress) + gRPC (internal ticket issuance) |
 | **State** | None — sessions are in-memory; tickets are self-contained signed tokens validated by any replica |
-| **External dependencies** | [Runners](runners.md) (workload → runner resolution, activity reporting), [OpenZiti](openziti.md) (dial runners), [Authorization](authz.md) (checks at ticket issuance, via Gateway), [Agents](agents-service.md) (sandbox session bookkeeping) |
+| **External dependencies** | [Runners](runners.md) (workload → runner resolution, activity reporting), [OpenZiti](openziti.md) (dial runners), [Authorization](authz.md) (checks at ticket issuance), [Agents](agents-service.md) (sandbox session bookkeeping) |
 
 ## Session Establishment
 
@@ -37,8 +37,9 @@ sequenceDiagram
     participant K as Container PTY
 
     C->>G: CreateTerminalSession(workload_id, container_name, kind)
-    G->>G: OpenFGA check (see Authorization)
-    G->>TP: IssueTicket (internal)
+    G->>TP: IssueTicket (internal, caller identity from context)
+    TP->>TP: OpenFGA check (see Authorization)
+    TP->>TP: Resolve kind to a command; validate the kind's parameters
     TP-->>C: { ticket, url }
     C->>TP: WebSocket connect (ticket) + handshake {cols, rows}
     TP->>RS: GetWorkload → runner_id
@@ -47,14 +48,14 @@ sequenceDiagram
     C-->>K: raw bytes, both directions, until exit
 ```
 
-1. **`CreateTerminalSession`** (Gateway RPC): the caller requests a session for `(workload_id, container_name, kind)`. The Gateway performs the authorization check, resolves the kind to a command, then asks the Terminal Proxy to issue a **ticket** — single-use, bound to the caller's identity and the target, expiring in 30 seconds. The response carries the ticket and the proxy's WebSocket URL. Long-lived auth tokens never appear in WebSocket URLs (same reasoning as the [Media Proxy](media-proxy.md)'s avoidance of tokens in `GET` URLs).
+1. **`CreateTerminalSession`** (Gateway RPC): the caller requests a session for `(workload_id, container_name, kind)`. The Gateway checks the request is well-formed, resolves the caller's identity from authenticated context, and forwards to the Terminal Proxy's internal `IssueTicket`. Everything that follows from the kind — the authorization check, resolving the kind to a command, validating that kind's parameters — happens in the proxy, which owns terminal sessions; the Gateway routes and does not interpret. `IssueTicket` returns a **ticket**: single-use, bound to the caller's identity and the target, expiring in 30 seconds. Long-lived auth tokens never appear in WebSocket URLs (same reasoning as the [Media Proxy](media-proxy.md)'s avoidance of tokens in `GET` URLs).
 2. **WebSocket connect**: the client opens the WebSocket with the ticket, sends a JSON handshake carrying **only the initial terminal size**, and the proxy resolves the hosting runner via `Runners.GetWorkload`, dials it over OpenZiti (`runner-{runnerId}` — see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)), and opens `Runner.Exec` with TTY enabled.
 
-The command is fixed at ticket issuance, never at attach time. It is derived from the requested [session kind](#session-kinds) and authorized and bound into the ticket by the Gateway. The WebSocket handshake carries no command — a client cannot escalate beyond what the ticket was issued for.
+The command is fixed at ticket issuance, never at attach time. It is derived from the requested [session kind](#session-kinds) and bound into the ticket by the proxy. The WebSocket handshake carries no command — a client cannot escalate beyond what the ticket was issued for.
 
 ## Session Kinds
 
-`CreateTerminalSession` takes a **session kind** rather than a command. The Gateway holds the command for each kind, so a client never supplies one and the ticket always describes something the platform defined.
+`CreateTerminalSession` takes a **session kind** rather than a command. The proxy holds the command for each kind, so a client never supplies one and the ticket always describes something the platform defined. The mapping lives here rather than in the [Gateway](gateway.md) because it is terminal-session domain logic, and the Gateway routes external requests to internal services rather than interpreting them.
 
 | Kind | TTY | Command | Consumer |
 |---|---|---|---|
@@ -90,8 +91,8 @@ The consequence to be aware of: the final shell is **not** a login shell, so she
 
 | Check | Where | Why there |
 |---|---|---|
-| Absolute, lexically normalized, no `..` traversal | Gateway, at issuance | Purely textual, and it is what keeps the ticket honest |
-| Resolves inside the workload's workspace mount, after following symlinks | The endpoint, at handshake | Only the process inside the container can see the filesystem. The Gateway has no mount data for a container — `Runners.Container` carries name, role, image, and status — and does not call the Runners service at all; the proxy does |
+| Absolute, lexically normalized, no `..` traversal | The proxy, at issuance | Purely textual, and it is what keeps the ticket honest |
+| Resolves inside the workload's workspace mount, after following symlinks | The endpoint, at handshake | Only the process inside the container can see the filesystem. Nothing outside it has mount data for a container — `Runners.Container` carries name, role, image, and status — so this cannot be checked before the session exists |
 
 A root failing the second check fails the session at handshake with the resolved path named. This is not a privilege boundary — a sandbox owner can already obtain a shell — but it keeps tickets meaningful and prevents the surface from generalizing into arbitrary remote execution.
 
@@ -151,7 +152,7 @@ Agent workloads get no activity touches from terminal sessions — inspecting an
 
 ## Authorization
 
-Checks run at ticket issuance (Gateway → OpenFGA):
+Checks run in the Terminal Proxy at ticket issuance, against OpenFGA. The Gateway supplies the caller's identity from authenticated context and nothing else — it does not decide who may attach:
 
 | Target | Check |
 |---|---|
