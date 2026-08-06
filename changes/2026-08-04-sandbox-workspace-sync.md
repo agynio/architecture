@@ -12,13 +12,14 @@
 
 ### Gateway
 
-- `CreateTerminalSession` takes a free-form optional command override rather than a **session kind**. The kind-to-command mapping, the `SYNC` kind, and lexical root-path validation for it do not exist. Tickets are not bound to a kind.
+- `CreateTerminalSession` takes a free-form optional command override rather than a **session kind**. The field is added and forwarded; nothing else changes. The Gateway routes and does not interpret — the kind-to-command mapping, parameter validation, and the authorization check all belong to the Terminal Proxy, which owns terminal sessions.
+- The documented behaviour was that the Gateway derives the command, validates the root, and runs the OpenFGA check. It never did any of them: it forwards `command` verbatim, and both the authorization check and the shell defaulting are already in the proxy. [gateway.md](../architecture/gateway.md#terminal-sessions) is corrected to describe routing rather than domain logic.
 
 ### Terminal Proxy
 
 - Sessions are TTY-only. Non-TTY session kinds — no PTY, no resize — are not supported.
 - Both `Runner.Exec` output streams are written to the WebSocket as untagged binary frames. That is correct for TTY sessions, where a PTY merges them anyway, but leaves a non-TTY consumer unable to separate protocol from diagnostics — a single stderr byte corrupts the stream. Non-TTY kinds need `separate_stderr` requested and each binary frame tagged with its source stream.
-- `SESSION_KIND_UNSPECIFIED` has no defined rejection behavior, there is no kind-to-command table, and no absolute-path invocation for the in-sandbox binary.
+- `SESSION_KIND_UNSPECIFIED` has no defined rejection behavior, there is no kind-to-command table, and no absolute-path invocation for the in-sandbox binary. The shell is a hardcoded constant in the service and mirrored in its ticket store; it must become a per-kind mapping owned here, alongside lexical validation of each kind's parameters.
 - Sandbox activity reporting does not discriminate by kind: every attached session drives `TouchWorkload` and updates `last_session_at`. `SYNC` sessions must do neither, or a background sync session keeps a sandbox running for as long as an engineer's machine stays connected.
 
 ### agyn (in-sandbox)

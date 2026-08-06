@@ -25,7 +25,7 @@ Shared storage remains the right answer *inside* the cluster — a read-write-ma
 | Engineer's machine | `agyn sandbox sync` | Creates and inspects sessions; talks to the daemon over a unix socket |
 | Engineer's machine | Sync daemon | Owns every session: watching, reconciliation, transfer, reconnection, halt state |
 | Engineer's machine | Local endpoint | In-process filesystem access to the local root |
-| Gateway | `CreateTerminalSession(kind: SYNC)` | Authorizes and binds the in-sandbox command into a ticket |
+| Gateway | `CreateTerminalSession(kind: SYNC)` | Routes the request to the Terminal Proxy, carrying the caller identity |
 | Terminal Proxy | Sync session | A non-TTY session kind that does not report sandbox activity, and whose output frames are tagged by source stream. The proxy interprets no payload |
 | Sandbox container | `agyn sandbox sync serve` | Stateless remote endpoint — scans, stages, applies |
 
@@ -48,9 +48,9 @@ sequenceDiagram
     participant E as agyn sandbox sync serve
 
     D->>G: CreateTerminalSession(sandbox, kind: SYNC, root)
-    G->>G: OpenFGA check — caller is the sandbox owner
-    G->>G: Validate and normalize root; bind command into ticket
-    G->>TP: IssueTicket (internal)
+    G->>TP: IssueTicket (internal, caller identity from context)
+    TP->>TP: OpenFGA check — caller is the sandbox owner
+    TP->>TP: Validate and normalize root; bind command into ticket
     TP-->>D: { ticket, url }
     D->>TP: WebSocket connect (ticket)
     TP->>R: OpenZiti Dial runner-{runnerId} → Exec (tty: false)
@@ -60,7 +60,7 @@ sequenceDiagram
 
 Sync sessions reuse the [Terminal Proxy session establishment](terminal-proxy.md#session-establishment) unchanged, including its authorization: the caller must be the sandbox **owner**. Organization owners can manage a sandbox but cannot attach to one they do not own, and that applies to sync exactly as it applies to shells.
 
-The client requests a **session kind**, not a command. The Gateway holds the command for each kind and binds it into the ticket, so the client supplies no argument beyond the root path. That path is validated in two places — lexically at the Gateway, then resolved against the real filesystem by the endpoint at handshake, since only a process inside the container can follow symlinks or see where the workspace is mounted. See [Terminal Proxy — Root validation](terminal-proxy.md#root-validation).
+The client requests a **session kind**, not a command. The Terminal Proxy holds the command for each kind and binds it into the ticket, so the client supplies no argument beyond the root path. That path is validated in two places — lexically at the proxy, then resolved against the real filesystem by the endpoint at handshake, since only a process inside the container can follow symlinks or see where the workspace is mounted. See [Terminal Proxy — Root validation](terminal-proxy.md#root-validation).
 
 ## Endpoint Protocol
 
