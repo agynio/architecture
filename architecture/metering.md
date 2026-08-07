@@ -88,10 +88,14 @@ Each label a query can group or filter by has a column on [UsageEvent](#usageeve
 | Label | Description |
 |-------|-------------|
 | `resource_id` | UUID of the specific resource associated with the usage |
-| `resource` | Resource type (e.g., `model`, `workload`, `thread`, `message`, `egress`) |
+| `resource` | Resource type (e.g., `model`, `subscription`, `workload`, `thread`, `message`, `egress`) |
 | `identity_id` | UUID of the identity that caused the usage |
 | `identity_type` | Type of identity: `agent`, `user`, `app`, `sandbox` |
 | `agent_id` | Agent associated with the usage (present when the producer has agent context) |
+| `sandbox_id` | Sandbox associated with the usage (present when the producer has sandbox context rather than agent context) |
+| `sandbox_owner_id` | Identity the sandbox belongs to |
+| `vendor` | Vendor a native-mode LLM call was served by (`claude`, `codex`) |
+| `model_name` | Vendor model name a native-mode LLM call named. Carries what `resource_id` carries in `platform` mode, where the model is a platform [Model](providers.md#model) |
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
 | `host` | Destination host (present for `resource=egress` records) |
 | `outcome` | Operation outcome for resources that distinguish outcomes (e.g., egress: `allow`, `deny`, `upstream_error`) |
@@ -99,6 +103,12 @@ Each label a query can group or filter by has a column on [UsageEvent](#usageeve
 | `runner_id` | Runner whose catalog the flavor belongs to. A flavor name is only meaningful against its runner, so it is never billed without one |
 | `kind` | Subtype discriminator (e.g., `input`, `cached`, `output`, `ram`, `thread`, `message`) |
 | `status` | Outcome of the operation (e.g., `success`, `failed`) |
+
+### Native LLM Records
+
+A `native`-mode [LLM Proxy](llm-proxy.md#native-mode) call has no platform [Model](providers.md#model) to attribute to. `resource` is `subscription` and `resource_id` the subscription UUID; `vendor` and `model_name` carry what the Model UUID carried in `platform` mode — which model actually ran.
+
+**Native-mode token counts must not be aggregated as spend.** A subscription is a flat fee: its tokens have no marginal cost, and summing them alongside API tokens produces a bill that does not exist. Every token query feeding a spend view therefore filters `resource=model`, which is what the distinct `resource` value exists to make possible. Request counts are not spend and stay unfiltered — a native call is still a call the organization made.
 
 ### Egress Records
 
@@ -155,6 +165,10 @@ The [Gateway](gateway.md) exposes the query API to authenticated callers. Access
 | `status` | string (nullable) | Label: operation outcome |
 | `flavor` | string (nullable) | Label: catalog entry billed, on `FLAVOR_SECONDS` records |
 | `runner_id` | UUID (nullable) | Label: runner whose catalog declares the flavor. Grouping by flavor alone would merge two runners' identically named entries, which need not describe the same resources |
+| `sandbox_id` | UUID (nullable) | Label: sandbox the usage belongs to |
+| `sandbox_owner_id` | UUID (nullable) | Label: identity the sandbox belongs to |
+| `vendor` | string (nullable) | Label: vendor a native-mode LLM call was served by |
+| `model_name` | string (nullable) | Label: vendor model name a native-mode LLM call named |
 
 Label columns are denormalized from the `labels` map for query performance. The table is partitioned by month on the generated `month` column, bounding time-range scans regardless of total history.
 
@@ -168,6 +182,7 @@ Label columns are denormalized from the `labels` map for query performance. The 
 | `(org_id, identity_id, unit, timestamp)` | Per-identity queries |
 | `(org_id, unit, flavor, runner_id, timestamp)` | Compute usage per flavor — the aggregation billing reads |
 | `(org_id, resource_id, unit, timestamp)` | Per-resource queries |
+| `(org_id, resource, unit, timestamp)` | Per-resource-*type* queries. Keeping subscription tokens out of spend means filtering or grouping by `resource`, which is otherwise a scan |
 
 ## Classification
 

@@ -76,6 +76,8 @@ All secret resources are org-scoped. Resolution calls are split between an inter
 | [EgressRule.effect.inject](resource-definitions.md#egress-rule) | `CountRulesReferencingSecret(secret_id)` | [EgressRules service](egress-rules-service.md) |
 | [Subscription.secret_id](providers.md#subscription) | `CountSubscriptionsReferencingSecret(secret_id)` | [LLM service](llm.md#referential-integrity-with-secrets) |
 
+A service that cannot be reached makes the secret undeletable too, but it is reported differently: known references are named first and the unreachable check is listed after them. An operator told only "cannot verify subscription references" would detach an egress rule and be refused again for a reason nobody mentioned.
+
 These are the only places the Secrets service makes outbound calls. Neither is a dependency cycle: Secrets calls out only on `DeleteSecret`, and each referencing service calls in only on create/update (existence check via `ResolveSecretExists`) — the two directions never recurse into each other.
 
 See [Authorization — Secrets Service](authz.md#secrets-service) for the full reference.

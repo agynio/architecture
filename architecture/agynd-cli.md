@@ -106,21 +106,24 @@ llm:
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://llm-proxy.ziti/v1",
-    "ANTHROPIC_AUTH_TOKEN": "unused-ziti-mTLS",
+    "ANTHROPIC_BASE_URL": "http://llm-proxy.ziti:443",
+    "ANTHROPIC_API_KEY": "platform",
     "DISABLE_AUTOUPDATER": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash",
       "Read",
       "Write",
       "Edit",
-      "Glob",
-      "Grep",
+      "MultiEdit",
       "WebFetch",
       "WebSearch",
+      "Grep",
+      "Glob",
+      "LS",
       "Task",
       "TodoWrite",
       "NotebookEdit"
@@ -130,7 +133,7 @@ llm:
 }
 ```
 
-`ANTHROPIC_BASE_URL` overrides the API endpoint. `ANTHROPIC_AUTH_TOKEN` sets a custom `Authorization: Bearer` header value — when running with the Ziti sidecar, authentication is handled at the network level, so the value is unused but must be non-empty to suppress Claude Code's authentication prompt. `DISABLE_AUTOUPDATER` prevents background update checks. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` disables telemetry and other non-essential outbound requests.
+`ANTHROPIC_BASE_URL` overrides the API endpoint; the `/v1` the LLM endpoint carries elsewhere is stripped, because Claude Code appends its own. `ANTHROPIC_API_KEY` must be non-empty to suppress Claude Code's authentication prompt, and its value is unused — with the Ziti sidecar, authentication happens at the network level. `DISABLE_AUTOUPDATER` prevents background update checks. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` disables telemetry and other non-essential outbound requests.
 
 The `permissions` block grants all built-in tools without interactive confirmation. The platform provides isolation and security at the container level — the agent should be able to perform any filesystem, shell, and network action within its container.
 
@@ -144,10 +147,12 @@ In `native` mode `agynd` writes **no endpoint configuration**. The agent CLI add
 
 | Key group | `platform` | `native` |
 |---|---|---|
-| Endpoint and credential (`env` block, `model_providers`, `llm.endpoint`) | Written | **Omitted** |
+| Endpoint and credential (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `model_providers`, `llm.endpoint`) | Written | **Omitted** |
 | Tool permissions | Written | Written |
 | MCP server wiring | Written | Written |
 | Model name | Platform [Model](providers.md#model) UUID | `LLM_MODEL_NAME`, when set |
+
+The `env` block itself survives with the keys that are neither: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` and `DISABLE_AUTOUPDATER`. Both matter more in `native` mode than in `platform` mode — only the vendor's API host is intercepted, so any other call the CLI makes on its own reaches nothing and waits out a timeout.
 
 The model name pins a model for reproducibility. Unset — the common case, and always the case for a [sandbox](../product/sandboxes/sandboxes.md) — leaves the CLI on its own default and its own picker.
 
@@ -198,7 +203,7 @@ agynd
 | **Claude Code** | `claude-sdk-go` | Custom JSONL | `claude --output-format stream-json --input-format stream-json --verbose` |
 | **agn** | `agn-sdk-go` | JSON-RPC v2 | `agn serve` |
 
-Only `codex-sdk-go` is integrated in the initial implementation; `claude-sdk-go` does not exist as a repo and `agn-sdk-go` lives in `agn-cli/sdk/` but is not wired into `agynd`, so Claude and agn return `unsupported` at runtime.
+All three are wired. `agn` is refused in `native` mode: it has no vendor of its own to be intercepted at, and addresses the LLM Proxy by a platform [Model](providers.md#model) UUID that a `native` environment's agents do not carry.
 
 ### SDK responsibilities
 

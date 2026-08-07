@@ -341,8 +341,8 @@ An environment is a composite: a runner, a flavor, images, and the volumes, MCP 
 |---------|-------------|
 | `agyn environments list [--mine]` | Environments in the organization: name, runner, flavor, images, availability, and an **unschedulable** marker naming the unresolved reference when one exists. `--mine` filters to those the caller holds a role on |
 | `agyn environments show NAME` | Full configuration plus contents — volumes, MCPs, init scripts, ENVs, attached egress rules, and roles. Callers without `can_read_config` get the metadata header and a line stating the rest is not visible to them, rather than an empty listing that reads as "nothing configured" |
-| `agyn environments create NAME --runner RUNNER --workspace-image IMG:TAG [--agent-runtime-image IMG:TAG] [--flavor FLAVOR] [--llm-mode platform\|native] --availability internal\|private` | Create an environment. The caller becomes its `owner`. An unreported flavor name warns and proceeds — it is [late-bound](../product/environments/environments.md#placement), and rejecting it would forbid applying platform resources before runner config |
-| `agyn environments update NAME [...same flags]` | Change any field. Flags not given are left as they are. `--llm-mode` is refused while any agent references the environment, naming them — see [LLM Access](../product/environments/environments.md#llm-access) |
+| `agyn environments create NAME --runner RUNNER --workspace-image IMG:TAG [--agent-runtime-image IMG:TAG] [--flavor FLAVOR] [--llm-mode platform\|native] [--allowed-model NAME]... --availability internal\|private` | Create an environment. The caller becomes its `owner`. An unreported flavor name warns and proceeds — it is [late-bound](../product/environments/environments.md#placement), and rejecting it would forbid applying platform resources before runner config |
+| `agyn environments update NAME [...same flags]` | Change any field. Flags not given are left as they are. `--llm-mode` is refused while any agent references the environment, naming them — see [LLM Access](../product/environments/environments.md#llm-access). `--allowed-model` replaces the allowlist and is sent only when passed, so an unrelated change does not clear it |
 | `agyn environments delete NAME` | Delete. Refused while any agent or sandbox references it; the error names them |
 
 ### Contents
@@ -383,12 +383,15 @@ The `subscriptions` command group manages [Subscriptions](../product/environment
 
 | Command | Description |
 |---------|-------------|
-| `agyn subscriptions list` | Subscriptions in the organization: name, vendor, referenced secret, and where each is attached |
+| `agyn subscriptions list` | Subscriptions in the organization: name, vendor, and referenced secret |
+| `agyn subscriptions show NAME` | One subscription |
+| `agyn subscriptions attachments [--subscription NAME] [--agent ID] [--environment ID]` | Where subscriptions are attached, across both scopes. Each filter narrows independently |
 | `agyn subscriptions create NAME --vendor claude\|codex --secret SECRET [--account-id ID]` | Create a subscription from an existing [secret](resource-definitions.md#secret). The secret must exist; the value is never read by the CLI |
 | `agyn subscriptions update NAME [--secret SECRET] [--account-id ID]` | Repoint at a different secret — how a rotated token is adopted. `--vendor` is not settable: changing it would silently redirect every workload the subscription serves |
 | `agyn subscriptions delete NAME` | Delete. Refused while attached to any environment or agent; the error names them |
+| `agyn subscriptions attach\|detach NAME --agent AGENT_ID` | Agent scope, which shadows the environment's for the same vendor. Environment scope is [`agyn environments subscriptions`](#contents), where the environment is named rather than typed as a UUID |
 
-No command prints a token, and none accepts one — a credential enters the platform as a [Secret](resource-definitions.md#secret), and a subscription only ever references it. Rotating a token is `agyn secrets set`, not a subscription operation, and takes effect on the next connection each workload opens.
+A subscription is addressed by name, as every other resource is; a UUID resolves too, so an id copied out of `attachments` works without a lookup. No command prints a token, and none accepts one — a credential enters the platform as a [Secret](resource-definitions.md#secret), and a subscription only ever references it. Rotating a token is `agyn secrets set`, not a subscription operation, and takes effect on the next connection each workload opens.
 
 ---
 
