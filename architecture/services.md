@@ -29,6 +29,7 @@ Central inventory of deployable long-running services in the platform. This list
 | Organizations | [agynio/organizations](https://github.com/agynio/organizations) | [Organizations](organizations.md) | Control plane | Manages organization lifecycle, membership, invitations, and organization-scoped access lists. |
 | Reminders | [agynio/reminders](https://github.com/agynio/reminders) | [Reminders](apps/reminders.md) | App | Provides delayed reminder messages as a platform app. |
 | Runners | [agynio/runners](https://github.com/agynio/runners) | [Runners](runners.md) | Control plane / Data plane | Registers runners and stores workload and volume runtime state. |
+| Sandboxes App | [agynio/sandboxes-app](https://github.com/agynio/sandboxes-app) | [Sandboxes App](sandboxes-app.md) | App | Hosts the member-facing sandbox SPA: create, browser terminal, share, stop. |
 | Secrets | [agynio/secrets](https://github.com/agynio/secrets) | [Secrets](secrets.md) | Data plane | Manages secret providers and secrets, and resolves secret values at runtime. |
 | Telegram Connector | [agynio/telegram-connector](https://github.com/agynio/telegram-connector) | [Telegram Connector](apps/telegram-connector.md) | App | Bridges Telegram bot conversations into platform threads and back. |
 | Threads | [agynio/threads](https://github.com/agynio/threads) | [Threads](threads.md) | Data plane | Stores messages, thread participants, and acknowledgments for participant-agnostic conversations. |

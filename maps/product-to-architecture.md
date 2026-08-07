@@ -90,6 +90,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Images](../product/images/images.md)
 - [Flavors and Environments](../product/environments/environments.md)
 - [Sandboxes](../product/sandboxes/sandboxes.md)
+- [Sandboxes App](../product/sandboxes/sandboxes-app.md)
 
 ### Architecture docs
 
@@ -98,6 +99,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Image Proxy](../architecture/image-proxy.md)
 - [Agent Init Container](../architecture/agent-init.md)
 - [Terminal Proxy](../architecture/terminal-proxy.md)
+- [Sandboxes App](../architecture/sandboxes-app.md)
 - [Sandbox Workspace Sync](../architecture/sandbox-sync.md)
 - [Runners](../architecture/runners.md)
 - [Agents Orchestrator](../architecture/agents-orchestrator.md)

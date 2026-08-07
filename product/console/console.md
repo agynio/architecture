@@ -580,6 +580,10 @@ Backing RunnersGateway APIs:
 
 User-started workloads with shell access — an engineer's manual working copy of an agent's runtime, running an [environment](../environments/environments.md) and carrying its secrets and egress rules. Filed under Operations because a sandbox *is* a workload; it differs from an agent workload only in being started by a user rather than by message traffic.
 
+**This is the organization-wide view, not a working surface.** It lists every sandbox in the organization — backed by `can_list_sandboxes`, which only owners and cluster admins hold — so an owner can see what is running on the organization's compute and terminate a forgotten one. The detail page's terminal is subject to the same check as everywhere else: it attaches only for a sandbox the viewer owns or has been [shared](../sandboxes/sandboxes.md#sharing). Listing every sandbox in the organization does not grant entry to any of them.
+
+Members work with their own sandboxes in the [Sandboxes app](../sandboxes/sandboxes-app.md), which is where creating, connecting, and sharing live — and which members can reach at all, unlike the Console. The two surfaces are deliberately separate: this one is a fleet list to sort and sweep, that one is a launcher for a handful of sandboxes belonging to one person.
+
 See [Sandboxes](../sandboxes/sandboxes.md) for the full specification.
 
 ### Provisioned Storage

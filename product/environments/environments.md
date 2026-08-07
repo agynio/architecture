@@ -137,7 +137,7 @@ An agent-level MCP with the same name as an environment-level one replaces it; i
 
 ## Who Can Use an Environment
 
-Everything above — the volumes' contents, the secret-backed ENVs, the egress rules that inject credentials — is reachable from a shell by anyone who can start a [sandbox](../sandboxes/sandboxes.md) in the environment. Environments are the intentional sharing boundary, so **using** an environment is a permission of its own, separate from editing it:
+Everything above — the volumes' contents, the secret-backed ENVs, the egress rules that inject credentials — is reachable from a shell by anyone who can start a [sandbox](../sandboxes/sandboxes.md) in the environment. So **using** an environment is a permission of its own, separate from editing it:
 
 | Role | Can |
 |---|---|
@@ -150,6 +150,8 @@ Any organization member may create an environment, and the creator becomes its `
 Organization owners retain administrative access to every environment in the organization.
 
 Credentials that only one team should hold belong in a `private` environment with `user` granted to that team, or in agent-level attachments — not in an `internal` environment.
+
+`can_use` governs *starting* a sandbox here, not who may enter one that already exists. A sandbox owner can [share](../sandboxes/sandboxes.md#sharing) their sandbox with someone holding no role on this environment, and that person's shell reaches everything above. The grant is per sandbox and confers nothing about the environment — they cannot start a second one — but an environment's credentials are only as confined as its users' judgment about who joins them.
 
 ## Managing Environments
 

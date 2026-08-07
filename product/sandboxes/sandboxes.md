@@ -23,6 +23,8 @@ agyn sandbox sync                  # keep the working directory and /workspace i
 - As an engineer, I want to know before I start working whether my files will survive the sandbox going idle.
 - As an engineer, I want to say how long my sandbox should outlive my last connection — a four-hour build and a five-minute experiment do not want the same answer — and to set my own usual value once rather than on every start.
 - As an organization owner, I want a ceiling on that, so a forgotten sandbox on expensive hardware cannot be pinned alive by whoever started it.
+- As an engineer, I want to give a colleague a shell in the sandbox I am debugging, without giving them anything else, and to take it back when we are done.
+- As an engineer, I want a sandbox someone shared with me to show up in my own list, and to be able to restart it when it has idled out.
 - As an organization owner, I want to see every sandbox running in my organization and terminate any of them.
 - As a platform operator, I want sandboxes to stop when idle and disappear after a TTL, so forgotten sandboxes don't consume capacity forever.
 
@@ -114,14 +116,14 @@ Two sandboxes in the same environment never share storage — same layout, separ
 
 ## Shell Access
 
-`agyn sandbox start` and `connect` attach an interactive terminal to the sandbox's main container, streamed through the [Terminal Proxy](../../architecture/terminal-proxy.md) to the runner's `Exec` API. The Console offers the same terminal on the sandbox detail page.
+`agyn sandbox start` and `connect` attach an interactive terminal to the sandbox's main container, streamed through the [Terminal Proxy](../../architecture/terminal-proxy.md) to the runner's `Exec` API. The [Sandboxes app](sandboxes-app.md) offers the same terminal in the browser, as does the Console on its sandbox detail page.
 
 The experience is SSH-parity — a real PTY with no platform-imposed limitations:
 
 - Raw, 8-bit-clean byte stream: no line buffering, no filtering. Colors (through truecolor), alternate screen, mouse reporting, and full-screen TUIs (`vim`, `htop`, `tmux`) work.
 - Terminal resize propagates (SIGWINCH), signals behave normally (`Ctrl-C`, job control), `isatty()` is true.
 - No session wall timeout, idle timeout, or output cap. An attached session keeps the sandbox alive indefinitely; the sandbox `idle_timeout` counts only detached time.
-- Multiple concurrent sessions per sandbox are allowed (same owner), each with its own PTY.
+- Multiple concurrent sessions per sandbox are allowed, each with its own PTY — several from the owner, or the owner and a [collaborator](#sharing) working side by side.
 - The shell's exit code becomes the CLI's exit code.
 
 A dropped connection ends the session but not the sandbox — like a dropped SSH connection, the foreground process group gets SIGHUP while the container keeps running. Anything that must survive a session drop should run under `nohup`/`tmux` (from the image); `agyn sandbox connect` opens a fresh shell. See [Terminal Proxy — Terminal Semantics](../../architecture/terminal-proxy.md#terminal-semantics).
@@ -150,23 +152,47 @@ For a single transfer rather than an ongoing relationship, `agyn sandbox cp` cop
 
 Sync is intended for working trees — source, configuration, notes, results. It is not a data-transfer mechanism for large datasets: those belong on the sandbox side, reached through the environment or the organization's own storage.
 
+## Sharing
+
+A sandbox owner can give other identities in their organization access to that one sandbox — the colleague who should look at the failing build, the teammate taking over a long-running job.
+
+**What a collaborator can do:** open a shell (and a sync session, which reaches the same filesystem), start the sandbox, and stop it. Starting matters: a shared sandbox that idled out overnight is useless to someone who cannot bring it back.
+
+**What a collaborator cannot do:** delete the sandbox, or share it with a third person. The share list belongs to the owner.
+
+**A share does not carry across to the environment.** Being able to start sandboxes in an environment is a separate permission held by separate people; a collaborator cannot start a second sandbox in the environment behind the one they were given.
+
+What a share *does* hand over is everything reachable from a shell in that sandbox: the environment's secret-backed ENVs, the credentials its egress rules inject, and the contents of its volumes. The person receiving it may hold no role on that environment at all. This is the intended behavior — the owner is trusted to decide who joins a sandbox they started — and it is the reason the act of sharing states its own consequences rather than reading as an invitation.
+
+Two further consequences worth knowing before sharing:
+
+- **Compute a collaborator starts bills to the owner.** Usage stays attributed to the sandbox and its owner no matter who pressed start.
+- **Unsharing takes effect on the next connection.** A session already open runs until it ends, like an SSH connection whose key was removed mid-session.
+
+Shares live on the sandbox and disappear with it: a deleted sandbox and its replacement share nothing, including their collaborators.
+
 ## Permissions
 
 | Action | Who |
 |---|---|
-| Create a sandbox | Any organization member |
-| Connect (attach a shell) | The sandbox owner only |
-| Sync a workspace | The sandbox owner only — the same check as attaching a shell |
-| List | Owner sees own; organization owners (and cluster admins, as with workloads) see all |
-| Stop / delete | The owner and organization owners |
+| Create a sandbox | Any organization member, with `can_use` on the environment |
+| Connect (attach a shell) | The sandbox owner, and the identities the owner has [shared](#sharing) it with |
+| Sync a workspace | Same as attaching a shell — a sync session reaches the same filesystem |
+| List | Owner sees own and shared-with-them; organization owners (and cluster admins, as with workloads) see all |
+| Start / stop | The owner, collaborators, and organization owners |
+| Delete | The owner and organization owners |
+| Share / unshare | The owner only |
 
-Organization owners can force-terminate any sandbox but cannot attach to one they don't own.
+Organization owners can force-terminate any sandbox but cannot attach to one on that basis — entering someone else's sandbox requires a share, the same as for anyone else.
 
-Because environment-attached secrets and egress credentials are reachable from inside any sandbox running that environment, environments define the effective sharing boundary, and starting a sandbox in one requires `can_use` — see [Environments — Who Can Use an Environment](../environments/environments.md#who-can-use-an-environment).
+**Two permissions, two questions.** `can_use` on an environment answers *may this person start a sandbox here* — see [Environments — Who Can Use an Environment](../environments/environments.md#who-can-use-an-environment). A share answers *may this person enter this particular sandbox*. They are independent: a collaborator needs only the second, and holding it grants nothing about the environment behind the sandbox.
+
+That independence is what makes sharing worth stating carefully, because environment-attached secrets and egress credentials are reachable from inside any sandbox running that environment — see [Sharing](#sharing).
 
 ## Observability and Metering
 
-- Sandboxes appear in the Console alongside agent workloads, marked as sandboxes, with owner, environment, status, and log/terminal access. Status changes are pushed live via `sandbox.updated` notifications — to the owner's room for their own list, and to an org-level room for the organization owners' list-all view.
+- The [Sandboxes app](sandboxes-app.md) is where a member sees their own sandboxes and the ones shared with them. Sandboxes also appear in the Console alongside agent workloads, marked as sandboxes, with owner, environment, status, and log/terminal access — that view is organization-wide and exists for owners overseeing the fleet.
+- Status changes are pushed live via `sandbox.updated` notifications — to the owner's room for their own list, to a per-sandbox room that also reaches collaborators, and to an org-level room for the organization owners' list-all view.
 - Egress from sandboxes emits the same spans as agent egress, attributed to the sandbox.
 - Sandbox workloads emit the same `FLAVOR_SECONDS` metering records as agent workloads, attributed to the organization and labeled with the sandbox and its owner. A sandbox always has a flavor, since it always runs through an environment.
 
@@ -185,11 +211,14 @@ Because environment-attached secrets and egress credentials are reachable from i
 - Running the actual agent loop inside a sandbox ("puppeteer an agent").
 - Per-environment sandbox permission (`can_sandbox`) for organizations whose environments carry production credentials.
 - Per-user/per-org sandbox quotas — v1 relies on idle timeout, TTL, and org-owner visibility.
+- Organization policy on sharing — confining shares to identities that already hold `can_use` on the sandbox's environment. v1 leaves the decision with the sandbox owner.
+- `agyn sandbox share` — sharing is API-backed and reachable from the [Sandboxes app](sandboxes-app.md); the CLI counterpart is not yet specified.
 - Mounting an agent instance's state volume into a sandbox for debugging (a data-access grant that needs its own design).
 - Flavor-denominated metering — see [Environments — Metering](../environments/environments.md#metering).
 
 ## Related Architecture
 
+- [Sandboxes App](sandboxes-app.md) — the browser surface for the above
 - [Resource Definitions — Sandbox](../../architecture/resource-definitions.md#sandbox)
 - [Environments](../environments/environments.md)
 - [Agents Orchestrator](../../architecture/agents-orchestrator.md)

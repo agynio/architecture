@@ -41,6 +41,7 @@ Desired architecture state of the platform.
 - [Chat](chat.md)
 - [Threads](threads.md)
 - [Console](console.md)
+- [Sandboxes App](sandboxes-app.md)
 - [Media](media.md)
 - [Media Proxy](media-proxy.md)
 - [Notifications](notifications.md)

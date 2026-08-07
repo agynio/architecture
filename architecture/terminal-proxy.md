@@ -6,7 +6,7 @@ The Terminal Proxy bridges interactive terminal sessions between clients (the Co
 
 Primary consumers:
 
-- **[Sandboxes](../product/sandboxes/sandboxes.md)** — `agyn sandbox start`/`connect` attach shells through the proxy.
+- **[Sandboxes](../product/sandboxes/sandboxes.md)** — `agyn sandbox start`/`connect` and the [Sandboxes App](sandboxes-app.md)'s browser terminal attach shells through the proxy.
 - **Console workload inspection** — the terminal on the Workload Detail and Sandbox Detail pages ([Container](../product/concepts.md) terminal access).
 - **[Sandbox Workspace Sync](sandbox-sync.md)** — file sync sessions use the same transport in its non-TTY form.
 
@@ -156,7 +156,7 @@ Checks run in the Terminal Proxy at ticket issuance, against OpenFGA. The Gatewa
 
 | Target | Check |
 |---|---|
-| Sandbox workload | Caller is the sandbox's `owner`, for every session kind including `SYNC`. Org owners can manage sandboxes but **cannot** attach — see [Sandboxes — Permissions](../product/sandboxes/sandboxes.md#permissions) |
+| Sandbox workload | `can_connect` on the sandbox — its `owner`, or an identity the owner has shared it with — for every session kind including `SYNC`. Org owners can manage sandboxes but **cannot** attach on that basis; they need a share like anyone else. See [Sandboxes — Permissions](../product/sandboxes/sandboxes.md#permissions) |
 | Agent workload container | `can_edit_config` on the agent class — a terminal grants nothing a config editor couldn't already obtain by editing the agent's configuration |
 
 The WebSocket itself is authenticated solely by the ticket. Ticket properties: single-use, 30-second expiry, bound to `(identity, workload_id, container_name, kind, command)`.

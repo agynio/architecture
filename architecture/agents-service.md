@@ -20,7 +20,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 |----------|-------------|------|
 | **Agents** | Agent class definitions: identity, model, [environment](resource-definitions.md#environment) reference, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
 | **Environments** | Runtime definitions: runner reference + [flavor](resource-definitions.md#flavor) name + a workspace [image](resource-definitions.md#image) and optional agent runtime image, each with a tag. Referenced by agents and sandboxes; owner of the volumes, MCPs, init scripts, and ENVs a workload in it carries, and attachment target for egress rules. Create/update validates that the runner is visible to the organization and that each image reference resolves to a visible image of the required type with an existing tag; the flavor name is not validated — it is late-bound against the runner's [reported catalog](runners.md#runner-catalog) at workload start. Delete is rejected while any agent or sandbox references the environment. See [Flavors and Environments](../product/environments/environments.md) | ✓ |
-| **Sandboxes** | On-demand workloads started by users: name, environment reference, owner, status, idle timeout, TTL. `CreateSandbox` accepts an `idle_timeout`, validated against the organization's `sandbox_max_idle_timeout` and falling back to its `sandbox_default_idle_timeout`; both the resolved value and the TTL are stored on the sandbox. Reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md) | Create, Get, List, Stop, Delete |
+| **Sandboxes** | On-demand workloads started by users: name, environment reference, owner, status, idle timeout, TTL, and the identities the owner has shared it with. `CreateSandbox` accepts an `idle_timeout`, validated against the organization's `sandbox_max_idle_timeout` and falling back to its `sandbox_default_idle_timeout`; both the resolved value and the TTL are stored on the sandbox. Reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md) | Create, Get, List, Stop, Delete, Share, Unshare, ListShares |
 | **Agent Instances** | Instantiations of a class with their own state and [inbox](agent-instances.md#inbox). See [Agent Instances](agent-instances.md) | Create, Get, List, Pause, Resume, Delete |
 | **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Mount declarations: name, mount path, persistence, size, storage class, TTL. Belong to an environment or an MCP. A definition, not a disk — see [Resource Definitions — Volume](resource-definitions.md#volume) | ✓ |
@@ -147,6 +147,34 @@ Availability does not affect metadata visibility: `ListEnvironments` and the met
 
 Role storage follows the agent pattern exactly: OpenFGA tuples on the [`environment` type](authz.md#environment), no parallel table, exposed through **SetEnvironmentRole**, **RemoveEnvironmentRole**, and **ListEnvironmentRoles** with the same semantics as their agent counterparts. Organization owners retain administrative access to every environment through the `owner from org` derivations.
 
+### Environment Metadata
+
+Environment metadata reads — `ListEnvironments` and the metadata view of `GetEnvironment` — carry a computed **`can_use`** boolean resolved for the calling identity.
+
+Metadata visibility and the right to run are deliberately different questions, and the answer to the second is not derivable from the response without it. `availability=internal` implies `can_use` for any member, but a `private` environment's answer depends on a role tuple the caller cannot read. A client filling an environment picker would therefore have to offer every `private` environment and let `CreateSandbox` reject the choice afterwards — which teaches the wrong thing about who may do what, at the worst moment.
+
+`can_use` is computed per request from the same check the write paths enforce; it is not stored, and it grants nothing. It exists so a picker can offer what the caller can actually run in.
+
+## Sandbox Sharing
+
+A [sandbox](../product/sandboxes/sandboxes.md) owner may grant other identities in the organization access to that one sandbox.
+
+| Method | Description |
+|--------|-------------|
+| **ShareSandbox** | Adds a principal — an identity or a [group](groups-service.md) — as a `collaborator`. The target must satisfy `member` on the sandbox's organization, checked before the tuple is written, as `SetAgentRole` does. Idempotent |
+| **UnshareSandbox** | Removes a principal's `collaborator` tuple |
+| **ListSandboxShares** | Lists the sandbox's collaborators |
+
+All three require `can_share` — the owner. Organization owners can delete a sandbox they do not own but cannot share it, matching their inability to attach to it.
+
+A collaborator holds `can_read`, `can_connect`, and `can_stop`, and nothing else: they can list the sandbox, open sessions on it through the [Terminal Proxy](terminal-proxy.md), start it through `EnsureSandboxRunning`, and stop it. They cannot delete it and cannot share it further. The relation definitions are in [Authorization — sandbox](authz.md#sandbox).
+
+**Sharing a sandbox does not share its environment.** `can_use` on an environment governs creating sandboxes in it; `collaborator` governs entering one that already exists. A collaborator cannot start a second sandbox in the environment, and the share writes no environment tuple. What the share does hand over is everything reachable from a shell — the environment's secret-backed ENVs, its credential-injecting egress rules, and its volumes — which is why the product surface names the consequence at the point of sharing.
+
+Metering is unchanged: `FLAVOR_SECONDS` records stay attributed to the organization and labeled with the sandbox and its owner regardless of who started the workload.
+
+Shares live on the sandbox, so they do not survive it. Deleting a sandbox and creating another starts with an empty share list.
+
 ## Internal API
 
 | Method | Description |
@@ -181,13 +209,15 @@ The Agents service publishes events to the [Notifications](notifications.md) ser
 | `environment.updated` | `environment:{environment_id}` | The environment is created, updated, or deleted, *or* any of its sub-resources (Volume, MCP, InitScript, ENV) is created, updated, or deleted. Every agent and sandbox running the environment is affected, which is why the event is published once per environment rather than fanned out to each referencing agent |
 | `message.created` | `instance_inbox:{instance_id}` | A new [inbox item](agent-instances.md#inbox) is written for an instance (via `FanoutInboxItem` from Threads or `WriteInboxItem` from an app) |
 | `instance.updated` | `agent:{class_id}` | Instance state transitions (`active`, `paused`, `terminated`) or metadata changes on any instance of the class |
-| `sandbox.updated` | `sandbox_owner:{owner_id}` and `sandbox_org:{organization_id}` | Sandbox lifecycle or bookkeeping changes: create, status transition, stop, delete/terminate, `last_session_at` update, or workload association update |
+| `sandbox.updated` | `sandbox_owner:{owner_id}`, `sandbox:{sandbox_id}`, and `sandbox_org:{organization_id}` | Sandbox lifecycle or bookkeeping changes: create, status transition, stop, delete/terminate, `last_session_at` update, share list change, or workload association update |
 
 **Transitive `updated_at` propagation.** A successful write to a sub-resource bumps its owner's `updated_at` in the same transaction — an agent sub-resource bumps the agent, an environment sub-resource bumps the environment, and an MCP sub-resource bumps the MCP's own owner. Consumers that compare timestamps — for example, the [Agents Orchestrator's Start Decision](agents-orchestrator.md#start-decision), which compares the later of the agent's and its environment's `updated_at` against `failed_workload.removed_at` to decide whether a configuration change warrants a retry — therefore only need to read the two parent records. No traversal of sub-resources is required.
 
 Room subscription authorization is documented in [Notifications — Authorization](notifications.md#authorization). Agent rooms require `member` on the agent's organization. Sandbox owner rooms require the caller identity to match `{owner_id}`; sandbox org rooms require `can_list_sandboxes` on `organization:{organization_id}` so organization owners can maintain list-all views.
 
-`sandbox.updated` payloads include the sandbox ID, organization ID, owner ID, name, environment ID, status, idle timeout, TTL, `last_session_at`, and current workload ID when one exists. Terminated sandboxes are still emitted to both rooms so default lists can remove the row while `--terminated` views retain audit visibility.
+**Three rooms, because no one of them reaches everyone entitled to the event.** The owner room is identity-keyed and carries a member's whole list in one subscription, but cannot reach a [collaborator](authz.md#sandbox) — the sandbox is not theirs. The org room is scoped to `can_list_sandboxes`, which collaborators do not hold either. `sandbox:{sandbox_id}` closes the gap: one room per sandbox, gated by `can_read`, subscribed per shared sandbox by clients that display one.
+
+`sandbox.updated` payloads include the sandbox ID, organization ID, owner ID, name, environment ID, status, idle timeout, TTL, `last_session_at`, and current workload ID when one exists. Terminated sandboxes are still emitted to every room so default lists can remove the row while `--terminated` views retain audit visibility.
 
 ## Authorization
 
@@ -210,11 +240,12 @@ Agent and environment access is split into two layers: organization-level gates 
 | `UpdateEnvironment` (`availability` field), `DeleteEnvironment` | `can_delete` on `environment:<environment_id>` |
 | `SetEnvironmentRole`, `RemoveEnvironmentRole`, `ListEnvironmentRoles` | `can_manage_roles` on `environment:<environment_id>` |
 | `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>` and `can_use` on `environment:<environment_id>`; owner is derived from authenticated context |
-| `GetSandbox` | Sandbox owner or `can_list_sandboxes` on `organization:<sandbox.org_id>` |
-| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters to `owner_id == caller.identity_id` |
+| `GetSandbox` | `can_read` on `sandbox:<id>` — the owner, an identity the owner shared it with, or an org owner |
+| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters to sandboxes the caller owns or collaborates on |
 | `ListSandboxes` (`all=true`) | `can_list_sandboxes` on `organization:<org_id>` |
 | `StopSandbox`, `DeleteSandbox` | `can_stop` / `can_delete` on `sandbox:<id>` |
 | `EnsureSandboxRunning` | `can_connect` on `sandbox:<id>` |
+| `ShareSandbox`, `UnshareSandbox`, `ListSandboxShares` | `can_share` on `sandbox:<id>` — the owner only |
 | `UpdateSandboxLastSession` | Internal only (Terminal Proxy via Istio) |
 
 `SetAgentRole` rejects identities that are not members of the agent's organization. The check is performed against the `member` relation on the agent's org before the role tuple is written.
@@ -241,7 +272,9 @@ The Agents service is the writer of OpenFGA tuples on the `agent` and `sandbox` 
 | `RemoveAgentRole(identity)` | — | `identity:<id>, <role>, agent:<agent_id>` |
 | `DeleteAgent` | — | All tuples on `agent:<id>` (`org`, `internal_access`, every `owner`/`maintainer`/`participant`) |
 | `CreateSandbox` | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | — |
-| Sandbox hard purge (retention policy) | — | All tuples on `sandbox:<id>` (`org`, `owner`). `DeleteSandbox` and TTL expiry only transition status to `terminated` — tuples survive the soft state so owners keep audit read access. See [Authorization — sandbox](authz.md#sandbox) |
+| `ShareSandbox(principal)` | `identity:<principal_id>, collaborator, sandbox:<id>`, or `group:<group_id>#member, collaborator, sandbox:<id>` for a group | — |
+| `UnshareSandbox(principal)` | — | The principal's `collaborator` tuple on `sandbox:<id>` |
+| Sandbox hard purge (retention policy) | — | All tuples on `sandbox:<id>` (`org`, `owner`, every `collaborator`). `DeleteSandbox` and TTL expiry only transition status to `terminated` — tuples survive the soft state so owners keep audit read access. See [Authorization — sandbox](authz.md#sandbox) |
 
 Tuple writes and deletes are issued in the same `Write` call as the underlying DB mutation when atomicity is required (see [Authorization — Relationship Writes](authz.md#relationship-writes)).
 

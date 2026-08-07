@@ -10,7 +10,7 @@ Desired product state for the Agyn platform.
 - CLI: [CLI Login](cli-login/cli-login.md)
 - Port Exposure: [Port Exposure](port-exposure/port-exposure.md)
 - Egress: [Egress Gateway](egress-gateway/egress-gateway.md)
-- Runtime: [Images](images/images.md) -> [Flavors and Environments](environments/environments.md) -> [Sandboxes](sandboxes/sandboxes.md)
+- Runtime: [Images](images/images.md) -> [Flavors and Environments](environments/environments.md) -> [Sandboxes](sandboxes/sandboxes.md) -> [Sandboxes App](sandboxes/sandboxes-app.md)
 - Tracing: [Run Timeline](tracing/run-timeline.md)
 
 ## By domain
@@ -47,6 +47,7 @@ Desired product state for the Agyn platform.
 - [Images](images/images.md)
 - [Flavors and Environments](environments/environments.md)
 - [Sandboxes](sandboxes/sandboxes.md)
+- [Sandboxes App](sandboxes/sandboxes-app.md)
 
 ### Tracing
 

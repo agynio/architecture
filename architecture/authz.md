@@ -219,7 +219,7 @@ Volumes, MCPs, init scripts, and ENVs owned by an environment carry no tuples of
 
 #### sandbox
 
-[Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them. Organization owners can list, stop, and delete every sandbox in the organization, but attaching to one is owner-only: an org owner cannot connect to another user's sandbox unless they are also that sandbox's `owner`.
+[Sandboxes](../product/sandboxes/sandboxes.md) are org-scoped resources owned by the user who created them, and shareable by that owner with other identities in the organization. Organization owners can list, stop, and delete every sandbox in the organization, but attaching to one is never implied by org ownership: an org owner cannot connect to another user's sandbox unless they are that sandbox's `owner` or `collaborator`.
 
 `can_connect` gates every session the [Terminal Proxy](terminal-proxy.md#session-kinds) issues a ticket for, not shells alone — a [workspace sync](sandbox-sync.md) session reaches the same filesystem a shell does and is authorized identically.
 
@@ -228,14 +228,25 @@ type sandbox
   relations
     define org: [organization]
     define owner: [identity]
-    define can_connect: owner
-    define can_stop: owner or owner from org
+    define collaborator: [identity, group#member]
+    define can_read: owner or collaborator or owner from org
+    define can_connect: owner or collaborator
+    define can_stop: owner or collaborator or owner from org
     define can_delete: owner or owner from org
+    define can_share: owner
 ```
+
+**A share is a grant over one sandbox, not over its environment.** `can_use` on an [environment](#environment) governs whether an identity may *create* a sandbox there; `collaborator` governs who may enter a particular one. A collaborator needs only the second, and holding it grants nothing about the environment — they cannot start a second sandbox in it.
+
+The consequence is deliberate: a shell reaches the environment's secret-backed ENVs, its credential-injecting egress rules, and its volumes, so an owner sharing a sandbox hands all three to someone who may hold no role on that environment. The product surface states this at the point of sharing — see [Sandboxes — Sharing](../product/sandboxes/sandboxes.md#sharing).
+
+`can_stop` includes `collaborator` because `EnsureSandboxRunning` is gated by `can_connect`: a collaborator can already restart an idled-out sandbox, and being able to start what you work in without being able to stop it is not a boundary worth drawing. `can_delete` and `can_share` stay with the owner — a collaborator can neither destroy the sandbox nor pass the grant on.
 
 When a sandbox is created, the Agents service writes:
 - `organization:<org_id>, org, sandbox:<sandbox_id>`
 - `identity:<creator_id>, owner, sandbox:<sandbox_id>`
+
+`ShareSandbox` writes `identity:<target_id>, collaborator, sandbox:<sandbox_id>` (or `group:<group_id>#member` for a group principal); `UnshareSandbox` deletes it. Revocation takes effect at the next ticket issuance — a session already attached runs until it ends, as the Terminal Proxy validates tickets at issuance and not continuously.
 
 Tuples are **retained through the `terminated` soft state** and removed only when the record is hard-purged (future retention policy). Terminated sandboxes stay readable for audit — the owner keeps `GetSandbox` on their own terminated sandboxes via the `owner` tuple. What terminated sandboxes can no longer *do* is gated by lifecycle status in the Agents service (`EnsureSandboxRunning`/`StopSandbox` reject `status=terminated`), not by tuple deletion: authorization answers who may act, status answers what is currently possible.
 
@@ -289,7 +300,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 
 - `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
 - `can_create_sandbox` and `can_create_environment` follow `member`; every active organization member can create a sandbox and author an environment.
-- `can_add_member`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` remains owner-only.
+- `can_add_member`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` is held only by a sandbox's `owner` and the identities that owner has shared it with.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
@@ -346,6 +357,7 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
 | Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
 | Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | Agents |
+| Sandbox shared / unshared | `identity:<target_id>, collaborator, sandbox:<id>` (or `group:<group_id>#member`), written on share and deleted on unshare | Agents |
 | Sandbox hard-purged (retention policy; not on soft-`terminated`) | Delete all tuples on `sandbox:<id>` | Agents |
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, agent:<id>` | Agents |
@@ -434,11 +446,12 @@ All agent resources (Agents, Environments, MCPs, Skills, ENVs, InitScripts, Volu
 | Get, List (any resource, internal) | Internal only (Orchestrator via Istio) — used by [workload spec assembly](agents-orchestrator.md#workload-spec-assembly); returns resolved sub-resources across organizations without an org or per-agent check |
 | `ResolveAgentIdentity` | Internal only (Tracing via Istio) |
 | `CreateSandbox` | `can_create_sandbox` on `organization:<org_id>` **and** `can_use` on `environment:<environment_id>`; owner is derived from authenticated context |
-| `GetSandbox` | `owner` on `sandbox:<id>` or `can_list_sandboxes` on `organization:<sandbox.org_id>` |
-| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters `owner_id == caller.identity_id` |
+| `GetSandbox` | `can_read` on `sandbox:<id>` (owner, collaborator, or org owner) |
+| `ListSandboxes` (own) | `member` on `organization:<org_id>` and server filters to sandboxes the caller owns or collaborates on |
 | `ListSandboxes` (`all=true`) | `can_list_sandboxes` on `organization:<org_id>` |
 | `StopSandbox`, `DeleteSandbox` | `can_stop` / `can_delete` on `sandbox:<id>` |
 | `EnsureSandboxRunning` | `can_connect` on `sandbox:<id>` |
+| `ShareSandbox`, `UnshareSandbox`, `ListSandboxShares` | `can_share` on `sandbox:<id>` (the owner); `ShareSandbox` additionally requires the target identity to satisfy `member` on the sandbox's organization |
 | `UpdateSandboxLastSession` | Internal only (Terminal Proxy via Istio) |
 
 Agent workload identities (`identity_type == "agent_instance"`) satisfy `member` on their organization — resolved through the instance's `org` relation on the [`agent_instance` type](#agent_instance) — and may call read APIs needed for self-configuration, including `ListENVs` against their class (via the instance's `class` relation). `ListENVs` never returns resolved secret values — secret-backed ENVs expose only the `secret_id` reference. The Orchestrator injects all ENV values (plain-text and resolved secrets) as container environment variables at assembly time. The per-agent role model gates access by other identities and does not alter instance self-read.
@@ -637,6 +650,7 @@ The internal `Publish` RPC is Istio-only (trusted internal services). The extern
 | `environment:{id}` | `member` on `organization:<environment.org_id>`. Carries `environment.updated`, which every agent and sandbox running the environment is affected by |
 | `agent_instance:{id}` | `member` on `organization:<instance.org_id>`. Carries `instance.updated`. An instance's own identity satisfies `member` through its `org` relation, which is how the Orchestrator watches the instances it reconciles |
 | `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality, no OpenFGA). `:me` is not accepted for this room pattern |
+| `sandbox:{sandbox_id}` | `can_read` on `sandbox:<sandbox_id>`. Carries one sandbox, so collaborators — who the owner-keyed room cannot reach — receive its updates |
 | `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` |
 

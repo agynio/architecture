@@ -194,6 +194,8 @@ Sandboxes are first-class runtime owners: their workload and volume records in t
 
 `ConnectSandbox` flows go through `EnsureSandboxRunning`: a no-op when the sandbox is `running`, a restart when `stopped`, and a fresh user-driven start attempt when `failed` (sandboxes have no background retry loop — nothing demands a sandbox run while nobody is connecting). Terminal tickets are issued only after `EnsureSandboxRunning` succeeds.
 
+A sandbox carries no share list as a field. Collaborators are OpenFGA tuples on the [`sandbox` type](authz.md#sandbox), written and read through `ShareSandbox` / `UnshareSandbox` / `ListSandboxShares` — the same treatment agent and environment roles get, and for the same reason: authorization state has one home. See [Agents Service — Sandbox Sharing](agents-service.md#sandbox-sharing).
+
 ---
 
 ## Volume
