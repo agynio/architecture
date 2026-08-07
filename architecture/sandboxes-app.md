@@ -22,14 +22,14 @@ graph LR
 
     App -->|ConnectRPC / HTTP JSON| Gateway
     App -->|WebSocket, ticket-authenticated| TP
-    App -->|Socket.IO| Notif
+    Gateway -->|ConnectRPC stream| Notif
     Gateway --> Agents
     Gateway --> Runners
     Gateway --> Orgs
     Gateway --> TP
 ```
 
-The app is a static SPA served by its own Kubernetes deployment with no backend. It holds three connections: ConnectRPC to the Gateway for all resource operations, a Socket.IO subscription to [Notifications](notifications.md) for live status, and one WebSocket per open terminal to the [Terminal Proxy](terminal-proxy.md).
+The app is a static SPA served by its own Kubernetes deployment with no backend. It holds three connections: ConnectRPC to the Gateway for all resource operations, a long-lived ConnectRPC server stream to [Notifications](notifications.md) — also through the Gateway — for live status, and one WebSocket per open terminal to the [Terminal Proxy](terminal-proxy.md).
 
 ## Routes
 
@@ -67,7 +67,7 @@ Each attached session drives the sandbox's activity clock through the Terminal P
 
 ## Real-Time Updates
 
-The app subscribes to [Notifications](notifications.md) rooms over Socket.IO:
+The app subscribes to [Notifications](notifications.md) rooms over a `NotificationsGateway.Subscribe` server stream:
 
 | Room | Where | Carries |
 |------|-------|---------|
@@ -85,7 +85,7 @@ Status changes therefore surface whatever their cause — the idle timeout stopp
 | Subdomain | `sandboxes.agyn.dev` | `sandboxes-app:3000` | SPA static assets |
 | Path-based API | `sandboxes.agyn.dev/api/*` | `gateway-gateway:8080` | Gateway API route (prefix `/api/` stripped). Same-origin with the SPA, no CORS required |
 
-The terminal WebSocket and the Notifications Socket.IO connection use their services' own ingress hosts, as they do for every other client.
+The Notifications stream needs no route of its own: it is a Gateway method and rides `/api/*` with every other call. Only the terminal WebSocket leaves this origin, for the [Terminal Proxy](terminal-proxy.md)'s own ingress host, as it does for every other client.
 
 ## Deployment
 

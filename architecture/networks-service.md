@@ -197,7 +197,7 @@ Separately from the service-to-service event bus, the Networks service publishes
 | `private_resource.updated` | A `PrivateResource` is created, updated, or deleted |
 | `private_resource_access.updated` | A `PrivateResourceAccess` is created or deleted |
 
-These are fire-and-forget Socket.IO-style updates for the browser. They are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
+These are fire-and-forget [Notifications](notifications.md) updates for the browser. They are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
 
 ## Authorization
 

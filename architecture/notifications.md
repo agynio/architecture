@@ -25,7 +25,7 @@ graph LR
 
     subgraph Consumers
         IntSub[Internal Subscribers<br/>gRPC stream]
-        ExtSub[External Clients<br/>Socket.IO]
+        ExtSub[Browser Clients<br/>ConnectRPC stream via Gateway]
     end
 
     Threads & Runner & Agents & Other -->|Publish| Server
@@ -40,7 +40,12 @@ graph LR
 | Interface | Protocol | Direction |
 |-----------|----------|-----------|
 | Internal (service-to-service) | gRPC | Publish (unary) + Subscribe (server-streaming) |
-| External (client-facing) | Socket.IO | Bidirectional persistent connection |
+| External (client-facing) | ConnectRPC server stream through the [Gateway](gateway.md) | Subscribe only, one-way after the request |
+
+The service has no ingress of its own and no second protocol: browsers reach the
+same server-streaming `Subscribe` every internal consumer does, proxied by the
+Gateway on the SPA's own origin. Subscriptions are fixed at request time — a
+client changing the rooms it watches opens a new stream.
 
 ## gRPC API
 
@@ -127,7 +132,7 @@ On reconnect, repeat from step 1. The fetch in step 3 guarantees no messages are
 
 The internal `Publish` RPC is Istio-only — only trusted platform services (Threads, Runners, Tracing, etc.) may publish events. No OpenFGA check is performed on publish.
 
-External `Subscribe` (Socket.IO) requires an authenticated caller. Room access is validated per subscription:
+External `Subscribe` (through the Gateway) requires an authenticated caller. Room access is validated per subscription:
 
 | Room pattern | Access check |
 |--------------|-------------|

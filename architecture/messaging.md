@@ -9,7 +9,7 @@ The platform's services communicate via two complementary mechanisms:
 
 The event bus is the platform's source of truth for *what changed*. The producing service's database remains the source of truth for *current state*. Consumers receiving an event re-read the producer's state to act on it — they do not treat the event payload as the authoritative data.
 
-The [Notifications](notifications.md) service is a separate primitive — fire-and-forget Redis pub/sub for *client-facing* real-time updates (Socket.IO to browsers). The two coexist:
+The [Notifications](notifications.md) service is a separate primitive — fire-and-forget Redis pub/sub for *client-facing* real-time updates, reaching browsers as a ConnectRPC server stream through the [Gateway](gateway.md). The two coexist:
 
 | Concern | Mechanism |
 |---|---|
@@ -489,7 +489,7 @@ The authoritative catalog of all event subjects published in the platform. Addin
 
 ## Related Architecture
 
-- [Notifications](notifications.md) — client-facing real-time updates (Socket.IO), distinct from this event bus
+- [Notifications](notifications.md) — client-facing real-time updates (ConnectRPC server stream via the Gateway), distinct from this event bus
 - [API Contracts](api-contracts.md) — synchronous gRPC contracts
 - [Tracing](tracing.md) — distributed tracing across event boundaries via `Agyn-Trace-Id`
 - [Groups Service](groups-service.md) — first producer of group lifecycle events

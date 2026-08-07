@@ -639,7 +639,7 @@ No new OpenFGA types are introduced. Rules use existing organization-level check
 
 ### Notifications Service
 
-The internal `Publish` RPC is Istio-only (trusted internal services). The external `Subscribe` (Socket.IO) validates room access per subscription:
+The internal `Publish` RPC is Istio-only (trusted internal services). The external `Subscribe` (a ConnectRPC server stream through the [Gateway](gateway.md)) validates room access per subscription:
 
 | Room pattern | Access check |
 |--------------|-------------|

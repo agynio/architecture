@@ -31,9 +31,9 @@ Three levels, no sidebar:
 Sandboxes → Sandbox
 ```
 
-A breadcrumb sits top-left on every page. The **User** segment is always present and opens the user menu (profile, sign out). The **Organization** segment lists the organizations the user belongs to; selecting one loads its sandboxes. The **Sandbox** segment appears on a sandbox page as a static label.
+A breadcrumb sits top-left on every page: the product switcher, then a **Sandboxes** segment linking back to the list, then the **Sandbox** name as a static label on a sandbox page. The way out of a page is therefore in the same place on every page rather than inside the page's own actions.
 
-A user belonging to exactly one organization lands directly on its sandboxes.
+The **user menu** sits top-right and carries the organization switcher, as in the [Console](../console/console.md) — it shows who is signed in and which organization, and selecting another loads its sandboxes. Every route here is organization-scoped, so there is no organization picker screen: a caller lands on their last-used organization, or the first one they belong to, and switches from the menu.
 
 The [product switcher](../console/console.md) reaches Chat, Tracing, and the Console.
 
@@ -84,7 +84,9 @@ The picker offers only environments the caller may [use](../environments/environ
 
 Status, environment, both clocks, and a terminal filling the rest of the page.
 
-**Terminal** — a real PTY with no platform-imposed limits: colors through truecolor, alternate screen, mouse reporting, full-screen TUIs, resize, working signals, and the shell's exit code reported on exit. Opening the page in two tabs gives two independent shells; a sandbox supports concurrent sessions. See [Sandboxes — Shell Access](sandboxes.md#shell-access).
+**Terminal** — a real PTY with no platform-imposed limits: colors through truecolor, alternate screen, mouse reporting, full-screen TUIs, resize, working signals, and the shell's exit code reported on exit. It fills the page below the header, because it is what the page is for. See [Sandboxes — Shell Access](sandboxes.md#shell-access).
+
+**Tabs** — several shells in one sandbox, as any terminal emulator gives you: a tab strip above the terminal with a new-shell action, and a close action once more than one is open. Each tab is an independent session, so a background tab keeps running and keeps its scrollback — the [wire protocol](../../architecture/terminal-proxy.md#wire-protocol) has no resume, and a tab that was torn down on leaving it would come back a different shell. Closing a tab ends that session, exactly as closing the page ends them all.
 
 While a session is attached the sandbox cannot idle out. Closing the tab ends that session — like dropping an SSH connection, the foreground process group is signalled and the container keeps running. Work that must outlive a tab belongs under `tmux` or `nohup` from the image.
 

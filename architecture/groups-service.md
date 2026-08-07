@@ -313,7 +313,7 @@ Separately from the service-to-service event bus, the Groups service publishes U
 | `group.updated` | A `Group` is created, updated, or deleted |
 | `group_membership.updated` | A `GroupMembership` is created or deleted |
 
-These are fire-and-forget Socket.IO-style updates for the browser — they are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
+These are fire-and-forget [Notifications](notifications.md) updates for the browser — they are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
 
 ## Authorization
 
