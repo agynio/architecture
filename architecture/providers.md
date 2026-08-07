@@ -86,9 +86,11 @@ The vendor set is closed because each value determines three things the platform
 | `vendor` | Intercepted host | Upstream | Protocol | Injected upstream | Placeholder in the container |
 |---|---|---|---|---|---|
 | `claude` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | `OPENAI_API_KEY` |
+| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | — |
 
-The placeholder is a property of the **vendor**, not of the agent CLI. That is what lets the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) inject it from the resolved subscription alone, without knowing which CLI the environment's agent runtime image carries — a thing it deliberately does not know. See [LLM Proxy — The container still holds a placeholder](llm-proxy.md#the-container-still-holds-a-placeholder).
+The placeholder is a property of the **vendor**, not of the agent CLI. That is what lets the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) inject it without knowing which CLI the environment's agent runtime image carries — a thing it deliberately does not know. The name is returned by the [LLM service](llm.md#subscription-resolution) rather than held in a table the orchestrator maintains, so this table stays the one place a vendor is described. See [LLM Proxy — The container still holds a placeholder](llm-proxy.md#the-container-still-holds-a-placeholder).
+
+**`codex` has no placeholder and `CreateSubscription` rejects it with `UNIMPLEMENTED`.** The row records the intended binding, but no coherent placeholder exists for it yet: the environment variable a Codex CLI reads (`OPENAI_API_KEY`) selects its API-key mode, and a Codex CLI in API-key mode addresses `api.openai.com` — not the `chatgpt.com` this row intercepts. The two describe mutually exclusive configurations. A working Codex subscription needs its credential delivered the way the CLI's subscription mode actually reads one, which is a file rather than an environment variable, and that is not specified here.
 
 Adding a vendor is a platform change — a new enum value, a new intercept service, and a row here — not a configuration surface. An operator cannot point native mode at an arbitrary host, because native mode's whole premise is that the agent CLI is unmodified and therefore addresses only the hosts its vendor built it to address.
 

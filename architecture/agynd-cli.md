@@ -70,7 +70,9 @@ What `agynd` writes depends on the environment's [`llm_mode`](resource-definitio
 | `LLM_MODE` | What `agynd` writes |
 |---|---|
 | `platform` | Full endpoint configuration pointing the agent CLI at the LLM Proxy, plus the platform [Model](providers.md#model) UUID as the model name — the per-CLI recipes below |
-| `native` | Nothing about the endpoint, and no credential. Only the model name from `LLM_MODEL_NAME`, through the CLI's own model setting, when one is set — see [Native Mode](#native-mode-configuration) |
+| `native` | The same configuration files, **minus the keys that name an endpoint or a credential**. The model name from `LLM_MODEL_NAME` when one is set — see [Native Mode](#native-mode-configuration) |
+
+The mode gates **keys, not files**. Each CLI's configuration file is a mixed concern: the endpoint sits in the same file as MCP wiring and tool permissions, which every mode needs.
 
 ##### `platform` mode
 
@@ -136,9 +138,18 @@ Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` 
 
 ##### Native Mode Configuration
 
-In `native` mode `agynd` writes **no endpoint configuration at all**. The agent CLI addresses its vendor exactly as it would outside the platform; interception happens at the network layer and the container is never told about it. Everything in the recipes above — base URLs, custom model providers, platform model UUIDs — is skipped.
+In `native` mode `agynd` writes **no endpoint configuration**. The agent CLI addresses its vendor exactly as it would outside the platform; interception happens at the network layer and the container is never told about it. Base URLs, custom model providers, and platform model UUIDs are all omitted.
 
-One thing is still written: the agent's [`model_name`](resource-definitions.md#agent), arriving as `LLM_MODEL_NAME`, through the CLI's own model setting. That pins a model for reproducibility. Unset — the common case, and always the case for a [sandbox](../product/sandboxes/sandboxes.md) — leaves the CLI on its own default and its own picker.
+**The configuration files are still written.** What changes is which keys they contain, because a CLI's config file is not only about the endpoint — Claude Code's `~/.claude/settings.json` carries `permissions` and `mcpServers` in the same document as `env`, and Codex's `config.toml` carries `mcp_servers` alongside `model_provider`. Dropping the file to satisfy "no endpoint configuration" would take the environment's MCP sidecar wiring with it and restore interactive tool approval, which stalls a turn waiting for a human who is not there.
+
+| Key group | `platform` | `native` |
+|---|---|---|
+| Endpoint and credential (`env` block, `model_providers`, `llm.endpoint`) | Written | **Omitted** |
+| Tool permissions | Written | Written |
+| MCP server wiring | Written | Written |
+| Model name | Platform [Model](providers.md#model) UUID | `LLM_MODEL_NAME`, when set |
+
+The model name pins a model for reproducibility. Unset — the common case, and always the case for a [sandbox](../product/sandboxes/sandboxes.md) — leaves the CLI on its own default and its own picker.
 
 **The placeholder credential is not `agynd`'s to write.** Agent CLIs refuse to start, or prompt interactively, with no credential present, so one must be in the container's environment — but it must be in the *container's* environment, injected by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), not in a subprocess environment `agynd` constructs. In a [sandbox](../product/sandboxes/sandboxes.md) `agynd` spawns nothing, and the engineer's shell is started by the runner's `Exec` against the pod, inheriting the container spec's environment rather than anything PID 1 assembled. A placeholder written by `agynd` would be invisible to exactly the session that needs it.
 

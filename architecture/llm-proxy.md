@@ -317,12 +317,14 @@ The LLM Proxy participates in the OpenZiti overlay. It obtains its identity at r
 
 ### Vendor Intercept Services
 
-One OpenZiti service per vendor, provisioned at bootstrap alongside the policies above. Each carries an `intercept.v1` naming the vendor's hostname on port 443, and a `host.v1` terminating on the LLM Proxy:
+One OpenZiti service per vendor, provisioned at bootstrap alongside the policies above. Each carries an `intercept.v1` naming the vendor's hostname on port 443, and no `host.v1` — the proxy binds them through the SDK exactly as it binds `llm-proxy`:
 
 | Service | Role attribute | Intercepts |
 |---|---|---|
 | `llm-intercept-claude` | `llm-intercept-services` | `api.anthropic.com:443` |
 | `llm-intercept-codex` | `llm-intercept-services` | `chatgpt.com:443` |
+
+The [Egress Gateway](egress-gateway.md)'s per-rule services carry a `host.v1` with `forwardAddress: true` because one gateway terminates many rules and must recover which destination each connection was aimed at. That does not apply here: a per-vendor service has exactly one upstream, fixed by the vendor, so there is no original destination to recover and nothing for `host.v1` to contribute.
 
 **These are static, not per-rule.** The vendor set is closed, so nothing is provisioned per organization, per environment, or per attachment — unlike [egress rules](egress-rules-service.md#openziti-resources), which mint a service per rule because their destinations are user-authored. What varies per workload is only *which* of these services it may dial, and that is expressed by the `llm-native-<vendor>` role attributes the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps on the workload identity when the environment is in `native` mode and a subscription for that vendor resolves. No dynamic OpenZiti resource exists anywhere in this feature.
 

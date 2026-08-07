@@ -84,7 +84,10 @@ Both identifiers come from the caller's OpenZiti identity via [`ResolveIdentity`
 | `account_id` | string | Vendor account identifier, when the vendor requires one; empty otherwise |
 | `upstream_endpoint` | string | Where the proxy forwards — fixed per vendor |
 | `protocol` | string | `responses` or `anthropic_messages` — fixed per vendor |
+| `placeholder_env` | string | Name of the environment variable holding the container's placeholder credential — fixed per vendor, empty for a vendor that has none |
 | `organization_id` | string (UUID) | Organization that owns the subscription |
+
+Everything fixed-per-vendor is returned rather than looked up by the caller. The [vendor table](providers.md#vendors) is the single description of a vendor, and the LLM service is the single thing that reads it: the proxy learns the upstream and protocol from this response, and the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) learns `placeholder_env` from the [attachment listing](#subscription-management). Neither carries a copy. Adding a vendor stays a new enum value, a new bootstrap intercept service, and a row in that table.
 
 Returns `NOT_FOUND` when no subscription for that vendor is attached at either scope. The LLM Proxy turns this into a platform error the caller can read, rather than forwarding an unauthenticated request.
 
@@ -143,13 +146,13 @@ CRUD operations for subscriptions and their attachments. See [Providers, Models,
 
 | Method | Description |
 |---|---|
-| `CreateSubscription` | Create a subscription. Validates the vendor against the closed set and the `secret_id` via `Secrets.ResolveSecretExists` |
+| `CreateSubscription` | Create a subscription. Validates the vendor against the closed set and the `secret_id` via `Secrets.ResolveSecretExists`. Returns `UNIMPLEMENTED` for a vendor whose binding is [not yet closed](providers.md#vendors) — better a clear refusal than a record that can never produce a working workload |
 | `GetSubscription` / `ListSubscriptions` | Read. The referenced secret is reported as a reference, never a resolved value |
 | `UpdateSubscription` | Change `name`, `secret_id`, or `account_id`. `vendor` is immutable — changing it would silently redirect every workload the subscription is attached to |
 | `DeleteSubscription` | Refused while any attachment exists; the error names them |
 | `CreateSubscriptionAttachment` | Attach to an agent or an environment (exactly one). Rejects a target in another organization, and rejects a second subscription for the same vendor on that target |
 | `DeleteSubscriptionAttachment` | Detach |
-| `ListSubscriptionAttachments` | Filterable by `subscription_id`, `agent_id`, or `environment_id` |
+| `ListSubscriptionAttachments` | Filterable by `subscription_id`, `agent_id`, or `environment_id`. Each entry carries the subscription's `vendor` and its `placeholder_env`, which is everything the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) needs at workload assembly — role attributes and the placeholder — without a second call or a vendor table of its own |
 | `CountSubscriptionsReferencingSecret` | **Internal only.** Called by the [Secrets](secrets.md) service before deleting a secret |
 
 Unlike [egress rule attachments](egress-rules-service.md#openziti-resources), a subscription attachment provisions no OpenZiti resources. Native-mode interception is static infrastructure gated by role attributes the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps at workload identity creation — so this service owns credential lifecycle only, with no reconciliation loop and no Ziti Management dependency.
