@@ -14,6 +14,8 @@
 - [OpenZiti — Static Policies](../architecture/openziti.md#static-policies)
 - [agynd — Native Mode Configuration](../architecture/agynd-cli.md#native-mode-configuration)
 - [Agents Orchestrator — Workload Spec Assembly](../architecture/agents-orchestrator.md#workload-spec-assembly)
+- [Agent Init Container — Environment Variable Contract](../architecture/agent-init.md#environment-variable-contract)
+- [Metering](../architecture/metering.md)
 - [Secrets — Referential Integrity](../architecture/secrets.md#referential-integrity)
 - [agyn CLI — Subscription Commands](../architecture/agyn-cli.md#subscription-commands)
 
@@ -63,11 +65,17 @@ The proxy serves one plain-HTTP surface today. It must additionally bind the ven
 
 ### agynd writes less
 
-In `native` mode `agynd` must write **no** endpoint configuration — no base URL, no custom model provider, no platform model UUID. It writes a correctly-shaped placeholder credential into the subprocess environment so the agent CLI will start, and the agent's `model_name` through the CLI's own model setting when one is set.
+In `native` mode `agynd` must write **no** endpoint configuration — no base URL, no custom model provider, no platform model UUID. The only thing it writes is the model name, when one is pinned.
+
+It learns the mode from a new `LLM_MODE` environment variable rather than by fetching anything. `agynd` has no `GetEnvironment` call today — the endpoint already arrives statically as `LLM_BASE_URL`, injected by the assembler for agent workloads and sandboxes alike — and holder mode has nothing prepared to hang a fetch off. `LLM_MODE` and `LLM_MODEL_NAME` follow the variable that is already there.
+
+**`agynd` must not write the placeholder credential.** An earlier reading of this put it in the subprocess environment `agynd` builds; that cannot work for a sandbox. The runner's `Exec` builds a `PodExecOptions` carrying no environment of its own, so an interactive session inherits the *container spec's* environment — and in holder mode `agynd` spawns no subprocess at all. A placeholder written by `agynd` is invisible to the only session that needs it.
 
 ### Orchestrator
 
-Workload spec assembly must resolve the environment's `llm_mode`, ask the LLM service which vendors have a subscription attached, and stamp an `llm-native-<vendor>` role attribute per vendor on the workload identity. A `native` environment with no subscription attached for any vendor must fail assembly with a descriptive error rather than start a workload whose first model call would fail.
+Workload spec assembly must resolve the environment's `llm_mode`, ask the LLM service which vendors have a subscription attached, and for each one stamp an `llm-native-<vendor>` role attribute on the workload identity **and inject that vendor's placeholder credential into the main container**, alongside `LLM_MODE` and `LLM_MODEL_NAME`. The placeholder is keyed on the vendor rather than the agent CLI, which is what makes it injectable here — the orchestrator treats the agent runtime image as opaque and does not know which CLI it carries.
+
+A `native` environment with no subscription attached for any vendor must fail assembly with a descriptive error rather than start a workload whose first model call would fail.
 
 ### Agent model reference
 
@@ -77,10 +85,17 @@ Workload spec assembly must resolve the environment's `llm_mode`, ask the LLM se
 
 Native-mode records have no `model_id` to attribute to. `resource`/`resource_id` become `subscription` and the subscription UUID, with new `vendor` and `model_name` labels carrying what the Model UUID carried. Native-mode token counts must not be aggregated as spend — a subscription is a flat fee, and summing its tokens alongside API tokens produces a bill that does not exist.
 
+Keeping them apart depends on two things that are **already broken** and are part of this delta, not assumptions it rests on:
+
+- The proxy writes the provider's remote model name into the `resource` label, where [Metering](../architecture/metering.md) specifies a resource *type*. Until that is a type, `resource=subscription` cannot distinguish anything.
+- The Console's usage query carries no `resource` filter at all, so there is currently no aggregation boundary to put native-mode tokens outside of.
+
+Both are pre-existing defects. This change is the first thing that depends on them being correct.
+
 ## Acceptance Signal
 
-- An environment created with `--llm-mode native` and a Claude subscription attached runs a sandbox in which `claude` starts, answers a prompt, and shows its own model picker — with nothing written to `~/.claude/settings.json` about an endpoint.
-- `cat` of every credential path in that sandbox yields the placeholder, never the subscription token.
+- An environment created with `--llm-mode native` and a Claude subscription attached runs a sandbox in which `claude` starts, answers a prompt, and shows its own model picker — with nothing written to `~/.claude/settings.json` about an endpoint. The session that does this is an ordinary `agyn sandbox connect`, so the placeholder must be visible in `env` from that shell: it comes from the container spec, not from `agynd`.
+- `cat` of every credential path in that sandbox, and `env`, yield the placeholder — never the subscription token.
 - The call appears in tracing and metering, labelled `resource=subscription` with the vendor model name, and does not appear in any spend aggregation.
 - Detaching the subscription stops the next call on an already-open connection, without restarting the sandbox.
 - An environment in `native` mode with no subscription attached refuses to start a sandbox, and `agyn environments show` flags it before anyone tries.
@@ -93,7 +108,8 @@ Native-mode records have no `model_id` to attribute to. `resource`/`resource_id`
 ## Notes
 
 - **Obtaining the token is out of scope.** A subscription references a [Secret](../architecture/providers.md#secret) an operator created by whatever means the vendor offers. Capturing it through the `agyn` CLI is a separate change and does not block this one.
-- **Claude first.** The `claude` vendor is a static bearer and closes end to end. The `codex` vendor's ChatGPT-plan credential is a short-lived, refreshing token pair, and the platform refreshes nothing — the same limitation [egress rule injection](../product/egress-gateway/egress-gateway.md#constraints) already documents. `codex` is specified here so the shape is fixed, but a usable Codex subscription needs either an external refresher or a vendor-side long-lived credential, and that question is not answered by this change.
+- **Claude first.** The `claude` vendor is a static bearer and closes end to end. The `codex` vendor's ChatGPT-plan credential is a short-lived, refreshing token pair, and the platform refreshes nothing — the same limitation [egress rule injection](../product/egress-gateway/egress-gateway.md#constraints) already documents. `codex` is specified here so the shape is fixed, but a usable Codex subscription needs either an external refresher or a vendor-side long-lived credential, and that question is not answered by this change. It has a second, separate gap: Codex reads its subscription credential from `~/.codex/auth.json` rather than the environment, and the container-level placeholder mechanism specified here places environment variables only. A vendor whose CLI takes its credential from a file needs the placeholder written as a file, which nothing in this change does.
+- **Sequencing.** `agyn environments subscriptions` extends the `agyn environments` command group, which is itself still an open change — this cannot land before it. The `agynio/llm` service repository is not checked out in the current workspace, so the resource and resolution work there has not been sized against real code the way the orchestrator, runner, and proxy sides have.
 - **Prototype before building the proxy side.** Three unknowns are cheaper to settle with a throwaway intercepting proxy than with a design argument: whether Claude Code accepts a placeholder credential without a local or preflight validation call; whether it addresses hosts beyond `api.anthropic.com` that would also need intercepting for quota and status to work; and whether vendor abuse heuristics tolerate sandbox-concurrency traffic from cluster egress IPs.
 - **Guardrails are a stub here.** `llm_allowed_models` is the only one specified, because it is the one that falls out of the proxy already reading the model name. Content inspection and spend caps need their own design, and output-side inspection on streaming responses in particular has a real fork — buffer and lose the streaming UX, or scan incrementally and only ever cut off mid-stream.
 - **Per-initiator credentials are deliberately absent.** A subscription attaches to an agent or an environment, never to a user, so an environment shared by several engineers uses one credential for all of them. Attaching per initiator extends the resolution key with a third term rather than changing its shape — the `(vendor, target)` uniqueness constraint is what keeps that door open.

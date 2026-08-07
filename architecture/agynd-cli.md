@@ -65,12 +65,12 @@ The configuration strategy per agent CLI (where skills are placed, how MCP serve
 
 #### LLM Endpoint Configuration
 
-What `agynd` writes depends on the environment's [`llm_mode`](resource-definitions.md#environment), which it reads from the environment configuration it already fetches:
+What `agynd` writes depends on the environment's [`llm_mode`](resource-definitions.md#environment), which reaches it as the `LLM_MODE` environment variable — injected by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) into the container alongside `LLM_BASE_URL`, which is how the endpoint already arrives. `agynd` makes no call to read it: mode must be knowable in holder mode, where the container is idle and no agent is being prepared.
 
-| `llm_mode` | What `agynd` writes |
+| `LLM_MODE` | What `agynd` writes |
 |---|---|
 | `platform` | Full endpoint configuration pointing the agent CLI at the LLM Proxy, plus the platform [Model](providers.md#model) UUID as the model name — the per-CLI recipes below |
-| `native` | Nothing about the endpoint. A placeholder credential in the subprocess environment, and the agent's [`model_name`](resource-definitions.md#agent) through the CLI's own model setting when one is set — see [Native Mode](#native-mode-configuration) |
+| `native` | Nothing about the endpoint, and no credential. Only the model name from `LLM_MODEL_NAME`, through the CLI's own model setting, when one is set — see [Native Mode](#native-mode-configuration) |
 
 ##### `platform` mode
 
@@ -138,16 +138,11 @@ Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` 
 
 In `native` mode `agynd` writes **no endpoint configuration at all**. The agent CLI addresses its vendor exactly as it would outside the platform; interception happens at the network layer and the container is never told about it. Everything in the recipes above — base URLs, custom model providers, platform model UUIDs — is skipped.
 
-Two things are still written:
+One thing is still written: the agent's [`model_name`](resource-definitions.md#agent), arriving as `LLM_MODEL_NAME`, through the CLI's own model setting. That pins a model for reproducibility. Unset — the common case, and always the case for a [sandbox](../product/sandboxes/sandboxes.md) — leaves the CLI on its own default and its own picker.
 
-| What | Why |
-|---|---|
-| A placeholder credential (`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, …) in the subprocess environment | Agent CLIs refuse to start, or prompt interactively, with no credential present. The value is never used: the [LLM Proxy](llm-proxy.md#the-container-still-holds-a-placeholder) strips the `Authorization` header it produces and injects the real subscription token. It must be shaped like a real credential for the CLI's own local validation to pass |
-| The agent's [`model_name`](resource-definitions.md#agent), through the CLI's own model setting, when one is set | Pinning a model for reproducibility. Unset — the common case, and always the case for a [sandbox](../product/sandboxes/sandboxes.md) — leaves the CLI on its own default and its own picker |
+**The placeholder credential is not `agynd`'s to write.** Agent CLIs refuse to start, or prompt interactively, with no credential present, so one must be in the container's environment — but it must be in the *container's* environment, injected by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), not in a subprocess environment `agynd` constructs. In a [sandbox](../product/sandboxes/sandboxes.md) `agynd` spawns nothing, and the engineer's shell is started by the runner's `Exec` against the pod, inheriting the container spec's environment rather than anything PID 1 assembled. A placeholder written by `agynd` would be invisible to exactly the session that needs it.
 
-The placeholder is a platform-managed value, not a user-set [ENV](resource-definitions.md#env): `agynd` writes it into the subprocess environment rather than the orchestrator injecting it into the container, so it does not appear in the environment's configuration and cannot be mistaken for a credential someone provided.
-
-This mode gives `agynd` strictly less to do, which is the point. The platform's leverage moves from configuring the CLI correctly to carrying its traffic, and a CLI whose configuration conventions change costs nothing here.
+This mode therefore gives `agynd` strictly less to do than `platform` mode, which is the point. The platform's leverage moves from configuring the CLI correctly to carrying its traffic, and a CLI whose configuration conventions change costs nothing here.
 
 ### 4. Agent Process Management
 

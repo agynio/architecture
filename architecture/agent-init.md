@@ -211,8 +211,11 @@ What the Orchestrator passes to the main container:
 | `WORKLOAD_ID` | Reconciler | Workload UUID for activity keepalives and span attribution |
 | `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.ziti`) |
 | `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs. See [MCP — Port Allocation](mcp.md#port-allocation) |
+| `LLM_MODE` | Environment | `platform` or `native`. Whether `agynd` writes LLM endpoint configuration at all |
+| `LLM_MODEL_NAME` | Agent resource | Vendor model name to pin in `native` mode. Absent otherwise, and absent for sandboxes |
+| Vendor placeholder credential | Resolved [Subscription](providers.md#subscription) | A dummy credential per resolving vendor, so the agent CLI starts. Set on the container because a sandbox's interactive session inherits the container's environment, not `agynd`'s |
 
-Nothing identifies the agent CLI. `agynd` reads that from `config.json`.
+Nothing identifies the agent CLI. `agynd` reads that from `config.json`, and the placeholder credential is keyed on the vendor rather than the CLI so the orchestrator does not have to know either.
 
 ## Pod Structure
 

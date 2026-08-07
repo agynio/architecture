@@ -177,13 +177,16 @@ sequenceDiagram
 ```
 
 1. The sidecar's DNS resolves the vendor hostname to a synthetic `100.64.0.0/10` address and tunnels the connection over the vendor's [intercept service](#static-policies) — the workload's own identity, on the connection.
-2. The proxy peeks the TLS ClientHello for the SNI, mints a leaf certificate for that hostname signed by the [Egress CA](egress-gateway.md#egress-ca), and completes the handshake. Workload containers already trust that CA — the [Agents Orchestrator](agents-orchestrator.md) mounts it and sets the standard trust env vars into every workload.
-3. On the first request of the connection, the proxy resolves the binding and holds it for the connection's life.
-4. The request is forwarded to the vendor with the credential replaced.
+2. The proxy accepts on the listener bound to that service. **The vendor is the listener's own service name** — known before the TLS handshake begins, and not derived from anything the connection asserts.
+3. The proxy peeks the TLS ClientHello for the SNI, mints a leaf certificate for that hostname signed by the [Egress CA](egress-gateway.md#egress-ca), and completes the handshake. SNI is used for the certificate only; it does not select the vendor. Workload containers already trust that CA — the [Agents Orchestrator](agents-orchestrator.md) mounts it and sets the standard trust env vars into every workload.
+4. On the first request of the connection, the proxy resolves the binding and holds it for the connection's life.
+5. The request is forwarded to the vendor with the credential replaced.
 
 ### The mode is never inferred
 
-The proxy does not inspect a request to decide which mode it is in. The two modes arrive on **different binds**: `platform` on the plain-HTTP `llm-proxy` service, `native` on a per-vendor intercept service carrying TLS. A request that arrived with SNI `api.anthropic.com` is a native-mode request by construction, and the vendor is known before a byte of the body is read.
+The proxy does not inspect a request to decide which mode it is in, and does not read the connection to decide which vendor it is talking to. Both fall out of **which listener accepted**: `platform` on the plain-HTTP `llm-proxy` service, `native` on one listener per vendor intercept service. A connection accepted on `llm-intercept-claude` is a Claude native-mode connection by construction — before the ClientHello is parsed, and long before a byte of the body is read.
+
+This is stronger than reading SNI. SNI is a value the client sends; the bound service is a fact about which OpenZiti service the platform's own policies routed the connection to. A workload that lies in its ClientHello changes which certificate it is offered and nothing else.
 
 ### What the proxy does and does not touch
 
@@ -199,7 +202,11 @@ Native mode is a passthrough. The proxy parses the body only to read the model n
 
 ### The container still holds a placeholder
 
-Agent CLIs refuse to start without a credential. [`agynd`](agynd-cli.md#llm-endpoint-configuration) therefore writes a correctly-shaped placeholder into the container's environment, and the proxy replaces the `Authorization` header it produces. The real token never enters the workload: it cannot be read from a shell in a [sandbox](../product/sandboxes/sandboxes.md), and revoking it takes effect without restarting anything.
+Agent CLIs refuse to start without a credential. The [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) therefore injects a correctly-shaped placeholder into the **container's** environment — keyed on the resolved [vendor](providers.md#vendors), not on the agent CLI — and the proxy replaces the `Authorization` header the CLI builds from it.
+
+It has to be container-level rather than something [`agynd`](agynd-cli.md#native-mode-configuration) assembles for a subprocess. In a [sandbox](../product/sandboxes/sandboxes.md) `agynd` spawns nothing at all: the engineer's shell comes from the runner's `Exec` against the pod, which inherits the container spec's environment. A placeholder living anywhere else would be missing from precisely the session that types `claude`.
+
+The real token never enters the workload: it cannot be read from a shell in a sandbox, and revoking it takes effect without restarting anything.
 
 ### Guardrails
 

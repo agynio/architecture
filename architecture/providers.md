@@ -83,10 +83,12 @@ This leaves the LLM service holding credentials two ways, inline for providers a
 
 The vendor set is closed because each value determines three things the platform must know without configuration — what to intercept, where to send it, and what to inject:
 
-| `vendor` | Intercepted host | Upstream | Protocol | Injected |
-|---|---|---|---|---|
-| `claude` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` |
-| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` |
+| `vendor` | Intercepted host | Upstream | Protocol | Injected upstream | Placeholder in the container |
+|---|---|---|---|---|---|
+| `claude` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | `OPENAI_API_KEY` |
+
+The placeholder is a property of the **vendor**, not of the agent CLI. That is what lets the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) inject it from the resolved subscription alone, without knowing which CLI the environment's agent runtime image carries — a thing it deliberately does not know. See [LLM Proxy — The container still holds a placeholder](llm-proxy.md#the-container-still-holds-a-placeholder).
 
 Adding a vendor is a platform change — a new enum value, a new intercept service, and a row here — not a configuration surface. An operator cannot point native mode at an arbitrary host, because native mode's whole premise is that the agent CLI is unmodified and therefore addresses only the hosts its vendor built it to address.
 
