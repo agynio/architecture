@@ -2,9 +2,16 @@
 
 ## Overview
 
-The LLM Proxy is a standalone HTTP service that exposes LLM API endpoints for agents. It serves two LLM API protocols: the OpenAI Responses API (`POST /v1/responses`) and the Anthropic Messages API (`POST /v1/messages`). It authenticates callers, resolves the requested model to an LLM provider via the [LLM service](llm.md), and forwards the request to the external provider with injected credentials using the provider's declared protocol and auth method. Responses — including streaming — are passed back to the caller.
+The LLM Proxy is a standalone HTTP service that carries every LLM call a workload makes. It serves two LLM API protocols: the OpenAI Responses API (`POST /v1/responses`) and the Anthropic Messages API (`POST /v1/messages`). It authenticates callers, resolves credentials via the [LLM service](llm.md), and forwards the request to the external provider with injected credentials. Responses — including streaming — are passed back to the caller.
 
-Agents point their standard LLM client (OpenAI or Anthropic) at the LLM Proxy and use it like any compatible API. No custom client logic is required.
+Traffic reaches it two ways, corresponding to the [environment's](resource-definitions.md#environment) `llm_mode`:
+
+| Mode | How the agent CLI is configured | How traffic arrives | What identifies the credential |
+|---|---|---|---|
+| `platform` | Pointed at `llm-proxy.ziti` by [`agynd`](agynd-cli.md#llm-endpoint-configuration); models are platform [Model](providers.md#model) IDs | Plain HTTP on the `llm-proxy` OpenZiti service | The `model` field in the request body |
+| `native` | Not configured at all — the CLI addresses its vendor directly, with the vendor's model names | TLS on a per-vendor intercept OpenZiti service, terminated here | The caller's identity plus the vendor it addressed |
+
+In `platform` mode agents point their standard LLM client at the proxy and use it like any compatible API. In `native` mode they point at nothing — the CLI runs in its stock configuration and never learns the proxy exists. Both land on the same forwarding, metering, and guardrail path, which is the point: there is one place that sees LLM traffic regardless of how a customer pays for it.
 
 ## Motivation
 
@@ -18,10 +25,12 @@ The LLM Proxy bridges this gap: it speaks the standard LLM API formats externall
 |---------------|-------------|
 | **Responses API endpoint** | Serve `POST /v1/responses` with the OpenAI Responses API request/response format |
 | **Messages API endpoint** | Serve `POST /v1/messages` with the Anthropic Messages API request/response format |
+| **Vendor interception** | Bind one OpenZiti service per [vendor](providers.md#vendors), terminate TLS for the vendor's hostname using the [Egress CA](egress-gateway.md#egress-ca), and serve the vendor's own API surface transparently. See [Native Mode](#native-mode) |
 | **Authentication** | Authenticate callers via [OpenZiti](#openziti-identity) network identity or [API token](api-tokens.md) |
-| **Authorization** | Call the [Authorization](authz.md) service to check access before forwarding |
-| **Model resolution** | Call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
-| **Request forwarding** | Forward the request body and caller headers to the external LLM provider with injected credentials (Bearer, x-api-key, or a custom-headers map, per the provider's auth method) and substituted model name, using the provider's declared protocol. See [Header Forwarding](#header-forwarding) for which caller headers are passed through |
+| **Authorization** | In `platform` mode, call the [Authorization](authz.md) service to check access before forwarding. In `native` mode the [attachment is the authorization](llm.md#authorization) |
+| **Model resolution** | In `platform` mode, call the [LLM service](llm.md) over gRPC to resolve model ID → provider endpoint, token, and remote model name |
+| **Subscription resolution** | In `native` mode, call the [LLM service](llm.md) to resolve caller + vendor → token, upstream, and headers. Resolved once per connection, not per request |
+| **Request forwarding** | Forward the request body and caller headers to the external LLM provider with injected credentials. See [Header Forwarding](#header-forwarding) for which caller headers are passed through |
 | **Streaming** | Support SSE streaming (`stream: true`) — stream the provider's response back to the caller without buffering |
 
 ## Classification
@@ -135,6 +144,76 @@ curl -X POST https://llm.agyn.dev/v1/messages \
 
 The LLM Proxy does not interpret message content, tool definitions, thinking blocks, or any other request/response fields beyond extracting the `model` field for resolution. The body is forwarded to the provider as-is.
 
+## Native Mode
+
+In `native` mode the agent CLI is left in its stock configuration. It resolves `api.anthropic.com`, opens a TLS connection, and sends the request its vendor's API expects. The platform captures that connection at the network layer and terminates it here.
+
+### Why this exists
+
+The `platform` path requires the CLI to accept a base-URL override and a platform model ID in place of a vendor model name. That works, but it puts the platform inside a contract it does not own: a CLI configured against a foreign endpoint may behave differently from one talking to its vendor — model pickers, quota display, and rate-limit handling are all features of the vendor relationship the override discards. Native mode removes the question. The CLI is unmodified, so its behavior is whatever it normally is.
+
+It is also the only shape that works for a credential the CLI must believe is its own.
+
+### How a request arrives
+
+```mermaid
+sequenceDiagram
+    participant C as Agent CLI
+    participant Z as Ziti Sidecar
+    participant P as LLM Proxy
+    participant L as LLM Service (gRPC)
+    participant V as Vendor API (external)
+
+    C->>Z: TLS connect api.anthropic.com:443
+    Z->>P: Tunnel via llm-intercept-claude (mTLS, workload identity)
+    P->>P: Peek ClientHello → SNI → vendor
+    P->>P: Present Egress-CA leaf for that hostname
+    C->>P: POST /v1/messages (vendor model name, CLI's own headers)
+    P->>L: ResolveSubscription(agent_id, environment_id, vendor)
+    L-->>P: token, account_id, upstream, protocol
+    P->>V: Same request, Authorization replaced
+    V-->>P: Response (or SSE stream)
+    P-->>C: Response (or SSE stream)
+```
+
+1. The sidecar's DNS resolves the vendor hostname to a synthetic `100.64.0.0/10` address and tunnels the connection over the vendor's [intercept service](#static-policies) — the workload's own identity, on the connection.
+2. The proxy peeks the TLS ClientHello for the SNI, mints a leaf certificate for that hostname signed by the [Egress CA](egress-gateway.md#egress-ca), and completes the handshake. Workload containers already trust that CA — the [Agents Orchestrator](agents-orchestrator.md) mounts it and sets the standard trust env vars into every workload.
+3. On the first request of the connection, the proxy resolves the binding and holds it for the connection's life.
+4. The request is forwarded to the vendor with the credential replaced.
+
+### The mode is never inferred
+
+The proxy does not inspect a request to decide which mode it is in. The two modes arrive on **different binds**: `platform` on the plain-HTTP `llm-proxy` service, `native` on a per-vendor intercept service carrying TLS. A request that arrived with SNI `api.anthropic.com` is a native-mode request by construction, and the vendor is known before a byte of the body is read.
+
+### What the proxy does and does not touch
+
+| | `platform` | `native` |
+|---|---|---|
+| `model` field in the body | Replaced with the provider's `remoteName` | **Untouched** — the vendor owns the namespace |
+| Caller endpoint vs. provider protocol | Validated; mismatch is `400` | Not validated — there is no Model to validate against |
+| `Authorization` / `x-api-key` | Stripped, provider credential injected | Stripped, subscription token injected |
+| Every other caller header | Forwarded verbatim | Forwarded verbatim |
+| Request body | Forwarded as-is apart from `model` | Forwarded byte-for-byte |
+
+Native mode is a passthrough. The proxy parses the body only to read the model name and the `usage` object — for [metering](#metering) and guardrails — and never to rewrite it.
+
+### The container still holds a placeholder
+
+Agent CLIs refuse to start without a credential. [`agynd`](agynd-cli.md#llm-endpoint-configuration) therefore writes a correctly-shaped placeholder into the container's environment, and the proxy replaces the `Authorization` header it produces. The real token never enters the workload: it cannot be read from a shell in a [sandbox](../product/sandboxes/sandboxes.md), and revoking it takes effect without restarting anything.
+
+### Guardrails
+
+Because native mode reads the model name out of the body, restricting which models a workload may use is enforced here rather than through resource permissions. An environment may carry a model allowlist; a request naming a model outside it is refused by the platform with a message identifying the platform as the source, in the vendor's own error format so the CLI renders it.
+
+### Failure modes
+
+| Condition | Result |
+|---|---|
+| No subscription attached for the vendor | `ResolveSubscription` returns `NOT_FOUND`; the proxy refuses the request with a platform error naming the missing vendor, rather than forwarding an unauthenticated request the vendor would reject opaquely |
+| Model outside the environment's allowlist | Refused by the proxy, in the vendor's error format |
+| Vendor rejects the credential | Passed through unchanged — an expired subscription must look like an expired subscription |
+| Vendor rate-limits or reports quota exhaustion | Passed through unchanged, including headers, so the CLI's own handling works |
+
 ## Header Forwarding
 
 LLM client libraries inject headers that carry API versioning and feature flags (`anthropic-version`, `anthropic-beta`, `openai-beta`, etc.). The LLM Proxy forwards all caller request headers to the provider so that these features work transparently, except for three classes that are stripped:
@@ -150,6 +229,8 @@ There is no allowlist — any header outside the three classes above is passed t
 When the proxy injects a header — provider credentials per `authMethod`, or an entry from the provider's `custom_headers` map — the injected value takes precedence over any caller-supplied value for the same header name.
 
 ## Request Flow
+
+The `platform`-mode flow. For `native` mode see [How a request arrives](#how-a-request-arrives).
 
 ```mermaid
 sequenceDiagram
@@ -192,6 +273,10 @@ When an agent connects to `llm-proxy.ziti`, the Ziti sidecar resolves the hostna
 
 Both methods resolve to an `identity_id` and `identity_type`. The `identity_id` is passed to the [Authorization](authz.md) service for permission checks.
 
+In `native` mode there is no caller credential to authenticate — the connection carries the CLI's placeholder, which the proxy discards. Authentication is the OpenZiti mTLS identity alone, which is why native mode is reachable only from inside the platform and not over the public [ingress](#ingress).
+
+The proxy additionally needs the caller's **agent class and environment** to resolve a subscription. Both are returned by [`ResolveIdentity`](openziti.md#identity-resolution) for workload identities — `agent_id` empty for a sandbox, `environment_id` always set — so they are bound to the identity by the platform at identity creation rather than asserted by the workload, and the proxy gains no dependency on the [Agents](agents-service.md) service on the request path.
+
 ## Authorization
 
 After resolving the model, the LLM Proxy checks that the caller has explicit use permission on the model resource:
@@ -209,18 +294,32 @@ The LLM Proxy participates in the OpenZiti overlay. It obtains its identity at r
 | Aspect | Detail |
 |--------|--------|
 | Role attributes | `["llm-proxy-hosts"]` |
-| Service name | `llm-proxy` |
+| Service names | `llm-proxy`, plus one intercept service per [vendor](providers.md#vendors) |
 | Enrollment | Self-enrollment via Ziti Management at pod startup |
-| SDK usage | `zitiContext.ListenWithOptions("llm-proxy", ...)` — binds the `llm-proxy` service |
+| SDK usage | `zitiContext.ListenWithOptions("llm-proxy", ...)` for the platform path; `ListenWithOptions("@llm-intercept-services", ...)` to bind every vendor intercept service by role |
 
 ### Static Policies
-
-Two new static policies at bootstrap:
 
 | Policy | Type | Identity Roles | Service Roles | Purpose |
 |--------|------|---------------|---------------|---------|
 | `agents-dial-llm-proxy` | Dial | `#agents` | `@llm-proxy` | Agents can reach LLM Proxy |
 | `llm-proxy-bind` | Bind | `#llm-proxy-hosts` | `@llm-proxy` | LLM Proxy hosts the `llm-proxy` service |
+| `llm-proxy-bind-intercept` | Bind | `#llm-proxy-hosts` | `#llm-intercept-services` | LLM Proxy hosts every vendor intercept service |
+| `native-claude-dial` | Dial | `#llm-native-claude` | `@llm-intercept-claude` | Workloads with a Claude subscription intercept `api.anthropic.com` |
+| `native-codex-dial` | Dial | `#llm-native-codex` | `@llm-intercept-codex` | Workloads with a Codex subscription intercept `chatgpt.com` |
+
+### Vendor Intercept Services
+
+One OpenZiti service per vendor, provisioned at bootstrap alongside the policies above. Each carries an `intercept.v1` naming the vendor's hostname on port 443, and a `host.v1` terminating on the LLM Proxy:
+
+| Service | Role attribute | Intercepts |
+|---|---|---|
+| `llm-intercept-claude` | `llm-intercept-services` | `api.anthropic.com:443` |
+| `llm-intercept-codex` | `llm-intercept-services` | `chatgpt.com:443` |
+
+**These are static, not per-rule.** The vendor set is closed, so nothing is provisioned per organization, per environment, or per attachment — unlike [egress rules](egress-rules-service.md#openziti-resources), which mint a service per rule because their destinations are user-authored. What varies per workload is only *which* of these services it may dial, and that is expressed by the `llm-native-<vendor>` role attributes the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps on the workload identity when the environment is in `native` mode and a subscription for that vendor resolves. No dynamic OpenZiti resource exists anywhere in this feature.
+
+A workload whose environment is in `platform` mode carries neither attribute, so its vendor traffic is not intercepted at all — it leaves the pod directly, as any unmatched destination does.
 
 ## Ingress
 
@@ -231,6 +330,8 @@ The LLM Proxy is accessible via a public subdomain, similar to the Gateway:
 | `llm.agyn.dev` | `llm-proxy:8080` | Direct access for API token authentication |
 
 Traffic from agents inside the platform goes through OpenZiti (no ingress). The public subdomain serves external callers using API tokens — local development, CI, external integrations.
+
+[Native mode](#native-mode) is not exposed here and has no public equivalent. It authenticates by workload identity on the OpenZiti connection alone, and a subscription credential is not something an external caller should be able to borrow by presenting an API token.
 
 The ingress route is defined as an Istio VirtualService in `agynio/bootstrap` (same pattern as the Gateway's subdomain route).
 
@@ -247,9 +348,24 @@ The LLM Proxy emits usage records to the [Metering Service](metering.md) after e
 
 The cached tokens record is omitted if the value is zero. On failure, only the `COUNT` record is emitted — no token records.
 
-Token counts are extracted from the provider response: from the `usage` object in non-streaming responses, or from the final SSE event in streaming responses (`message_delta` for Anthropic, `response.completed` for OpenAI).
+Token counts are extracted from the provider response: from the `usage` object in non-streaming responses, or from the final SSE event in streaming responses (`message_delta` for Anthropic, `response.completed` for OpenAI). This works identically in both modes — the response body is the vendor's either way.
 
 The `thread_id` label is populated from the `x-agyn-thread-id` request header, injected by [`agynd`](agynd-cli.md) when the LLM call is made on behalf of a thread.
+
+### Native-mode labels
+
+A native-mode call has no [Model](providers.md#model) resource behind it, so `resource_id=model_id, resource=model` has nothing to point at. Those labels are replaced:
+
+| Label | `platform` | `native` |
+|---|---|---|
+| `resource` | `model` | `subscription` |
+| `resource_id` | Model UUID | Subscription UUID |
+| `vendor` | absent | `claude` \| `codex` |
+| `model_name` | absent | The vendor model name read from the request body |
+
+`vendor` and `model_name` carry the information a Model UUID carried in the other mode — which model actually ran — so usage views stay answerable without a resource to join against.
+
+**Native-mode token counts must not be aggregated as spend.** A subscription is a flat fee; its tokens have no marginal cost, and summing them alongside API tokens produces a bill that does not exist. The distinct `resource` value is what keeps the two apart at the aggregation layer. See [Metering](metering.md).
 
 ## Configuration
 
@@ -260,6 +376,7 @@ The `thread_id` label is populated from the `x-agyn-thread-id` request header, i
 | `USERS_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Users](users.md) service (for API token resolution) |
 | `AUTHORIZATION_SERVICE_ADDRESS` | Deployment config | gRPC address of the [Authorization](authz.md) service |
 | `LISTEN_ADDRESS` | Deployment config | HTTP listen address (e.g., `:8080`) |
+| `EGRESS_CA_CERT` / `EGRESS_CA_KEY` | cert-manager `egress-ca` Secret | The [Egress CA](egress-gateway.md#egress-ca) keypair, mounted for minting leaf certificates in [native mode](#native-mode). The same CA the Egress Gateway uses and the orchestrator already distributes to workloads — a second CA would mean a second trust bundle in every image for no gain |
 
 ## Implementation
 
@@ -268,5 +385,7 @@ The `thread_id` label is populated from the `x-agyn-thread-id` request header, i
 | Repository | `agynio/llm-proxy` |
 | Language | Go |
 | HTTP framework | Standard `net/http` |
-| OpenZiti | Embedded SDK (`openziti/sdk-golang`) for binding the `llm-proxy` service and extracting caller identity |
-| Internal calls | Standard gRPC clients for LLM service, Ziti Management, Users, Authorization |
+| OpenZiti | Embedded SDK (`openziti/sdk-golang`) for binding the `llm-proxy` service and the vendor intercept services, and extracting caller identity |
+| TLS | Leaf certificates minted per SNI hostname from the [Egress CA](egress-gateway.md#egress-ca), cached LRU with a short TTL — the same approach the [Egress Gateway](egress-gateway.md#leaf-certificate-generation) uses |
+| State | Per-connection subscription bindings; leaf certificate cache. Bindings are dropped on `subscription.updated` / `subscription_attachment.updated` from [Notifications](notifications.md), so a detached or rotated credential stops working without waiting for long-lived connections to close |
+| Internal calls | Standard gRPC clients for LLM service, Ziti Management, Users, Authorization, Notifications |

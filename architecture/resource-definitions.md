@@ -46,7 +46,12 @@ erDiagram
     MCP ||--o{ InitScript : "mcp_id"
     MCP ||--o{ Volume : "mcp_id"
 
+    Environment ||--o{ SubscriptionAttachment : "environment_id"
+    Agent ||--o{ SubscriptionAttachment : "agent_id"
+    Subscription ||--o{ SubscriptionAttachment : "subscription_id"
+
     Secret ||--o{ ENV : "secret_id"
+    Secret ||--o{ Subscription : "secret_id"
 ```
 
 ---
@@ -60,7 +65,8 @@ An agent definition that determines how an agent workload behaves when processin
 | `name` | string | | Agent identity name (max 64 chars). Injected into the agent runtime |
 | `nickname` | string | `null` | Optional `@mention` handle within the organization (max 32 chars, pattern: `^[a-z0-9_-]+$`). Set via the Agents service; uniqueness enforced by the [Identity](identity.md) service |
 | `role` | string | | Agent role label (max 64 chars). Injected into the agent runtime |
-| `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service |
+| `model` | string (UUID) | | Reference to a [Model](providers.md#model) resource in the LLM service. Required when the environment's [`llm_mode`](#environment) is `platform`; rejected when it is `native`, where the platform owns no model namespace |
+| `model_name` | string | `null` | Vendor model name (e.g., `claude-sonnet-4-6`) passed to the agent CLI through its own model setting. Accepted only when the environment's `llm_mode` is `native`, and optional there — `null` leaves the CLI on its own default, which is usually the right answer. Opaque to the platform: it is the vendor's namespace, so a wrong value fails at the vendor rather than at create time |
 | `configuration` | JSON string | `"{}"` | Agent behavioral configuration. Opaque to the Agents service — interpreted by the agent runtime |
 | `environment_id` | string (UUID) | | Reference to the [Environment](#environment) this agent runs in. Supplies the workspace image, the agent runtime image, the runner, the workload's [storage](#volume), and — via the environment's [flavor name](#flavor), resolved at workload start — the compute resources, plus any MCPs, init scripts, and ENVs attached to it. Must name an environment that has an agent runtime image; an agent has no agent CLI otherwise. See [Runner Selection](runners.md#runner-selection) |
 | `idle_timeout` | duration string | `"5m"` | How long an agent workload can remain idle before the [Agents Orchestrator](agents-orchestrator.md) stops it. Measured from the last activity reported by [`agynd`](agynd-cli.md) via the [Runners](runners.md) service. Format: Go-style duration (e.g., `"30s"`, `"5m"`, `"1h"`) |
@@ -155,6 +161,12 @@ An organization-scoped runtime definition: a runner, a flavor name on that runne
 | `agent_runtime_image_id` | string (UUID) | `null` | Reference to an [Image](#image) of type `agent_runtime`. Runs as an init container and supplies the agent CLI. `null` means a workspace-only environment — usable by [sandboxes](#sandbox), rejected by `CreateAgent` |
 | `agent_runtime_image_tag` | string | `null` | Tag within that image. Same validation and resolution as the workspace tag |
 | `availability` | enum | | `internal` or `private`. Controls who may **run** workloads in the environment — start a sandbox in it, or point an agent at it. `internal` — any org member. `private` — only identities holding an [environment role](agents-service.md#environment-roles) (`owner`, `maintainer`, or `user`). Required on `CreateEnvironment` — the API has no default. Same values, and the same `internal_access` mechanism, as [Agent](#agent) availability. See [Authorization — environment](authz.md#environment) |
+| `llm_mode` | enum | `platform` | How workloads in this environment reach an LLM. `platform` — [`agynd`](agynd-cli.md#llm-endpoint-configuration) points the agent CLI at the [LLM Proxy](llm-proxy.md) and models are platform [Model](providers.md#model) IDs. `native` — the CLI is left in its stock configuration and its vendor traffic is intercepted onto the proxy, which injects the credential from an attached [Subscription](providers.md#subscription). See [LLM Access](../product/environments/environments.md#llm-access) |
+| `llm_allowed_models` | list<string> | `[]` | Vendor model names a `native`-mode workload may request, enforced by the [LLM Proxy](llm-proxy.md#guardrails) against the model name in each request body. Empty means no restriction. Ignored in `platform` mode, where model access is governed by `can_use` on the [Model](providers.md#model) resource instead |
+
+`llm_mode` is a property of the environment rather than of the agent for three reasons: a [sandbox](#sandbox) has no agent and would otherwise have nowhere to read it from; it is a mode rather than an additive attachment, so the union semantics that let egress rules live on both would be a contradiction rather than a merge; and it decides what the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps on the workload identity, which is assembly-time infrastructure in the same class as the agent runtime image. Two agents needing different modes need two environments — the same duplication the agent runtime image already implies.
+
+Changing `llm_mode` on an environment referenced by any agent is **rejected**: every such agent's `model` / `model_name` becomes invalid in the other mode, and unlike an unresolvable flavor name this is something the platform can check at the moment of the change rather than discovering at workload start.
 
 Environments hold no registry addresses. Both references resolve through the [Images](images-service.md) service, and the [Agents Orchestrator](agents-orchestrator.md) rewrites them to [image proxy](image-proxy.md) references at workload assembly.
 
@@ -167,6 +179,7 @@ An environment defines **what a workload in it contains**, through sub-resources
 | [InitScript](#initscript) | Executed by [`agynd`](agynd-cli.md) during container initialization |
 | [ENV](#env) | Injected into the main container |
 | [EgressRuleAttachment](#egress-rule-attachment) | Applied to the workload's outbound traffic |
+| [SubscriptionAttachment](#subscription-attachment) | Supplies the vendor credential for `native` mode. At most one per vendor |
 
 All of them apply to agent workloads and [sandboxes](#sandbox) alike — a sandbox is the environment's contents without the agent loop. [Agents](#agent) may add MCPs, init scripts, and ENVs of their own; volumes are environment-level only. An environment referenced by any agent or sandbox cannot be deleted.
 
@@ -331,6 +344,18 @@ A connection to an external LLM service. Managed by the [LLM](llm.md) service. S
 ## Model
 
 An internal model definition mapped to a remote model on an LLM provider. Managed by the [LLM](llm.md) service. See [Providers, Models, and Secrets](providers.md#model) for the resource definition.
+
+---
+
+## Subscription
+
+A credential for an LLM vendor's own consumer plan, used by workloads whose environment is in `native` [LLM mode](#environment). Org-scoped. Managed by the [LLM](llm.md) service. Attached to [Agents](#agent) or [Environments](#environment) via [SubscriptionAttachment](#subscription-attachment). See [Providers, Models, and Secrets](providers.md#subscription) for the resource definition.
+
+---
+
+## Subscription Attachment
+
+Binds a [Subscription](#subscription) to an agent or an environment. Managed by the [LLM](llm.md) service. Unique on `(vendor, target)` — a target carries at most one subscription per vendor. See [Providers, Models, and Secrets](providers.md#subscription-attachment) for the resource definition.
 
 ---
 

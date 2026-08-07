@@ -341,8 +341,8 @@ An environment is a composite: a runner, a flavor, images, and the volumes, MCP 
 |---------|-------------|
 | `agyn environments list [--mine]` | Environments in the organization: name, runner, flavor, images, availability, and an **unschedulable** marker naming the unresolved reference when one exists. `--mine` filters to those the caller holds a role on |
 | `agyn environments show NAME` | Full configuration plus contents — volumes, MCPs, init scripts, ENVs, attached egress rules, and roles. Callers without `can_read_config` get the metadata header and a line stating the rest is not visible to them, rather than an empty listing that reads as "nothing configured" |
-| `agyn environments create NAME --runner RUNNER --workspace-image IMG:TAG [--agent-runtime-image IMG:TAG] [--flavor FLAVOR] --availability internal\|private` | Create an environment. The caller becomes its `owner`. An unreported flavor name warns and proceeds — it is [late-bound](../product/environments/environments.md#placement), and rejecting it would forbid applying platform resources before runner config |
-| `agyn environments update NAME [...same flags]` | Change any field. Flags not given are left as they are |
+| `agyn environments create NAME --runner RUNNER --workspace-image IMG:TAG [--agent-runtime-image IMG:TAG] [--flavor FLAVOR] [--llm-mode platform\|native] --availability internal\|private` | Create an environment. The caller becomes its `owner`. An unreported flavor name warns and proceeds — it is [late-bound](../product/environments/environments.md#placement), and rejecting it would forbid applying platform resources before runner config |
+| `agyn environments update NAME [...same flags]` | Change any field. Flags not given are left as they are. `--llm-mode` is refused while any agent references the environment, naming them — see [LLM Access](../product/environments/environments.md#llm-access) |
 | `agyn environments delete NAME` | Delete. Refused while any agent or sandbox references it; the error names them |
 
 ### Contents
@@ -355,8 +355,11 @@ An environment is a composite: a runner, a flavor, images, and the volumes, MCP 
 | `agyn environments mcps list \| add \| update \| remove ENV [NAME]` | MCP servers that run in every workload of the environment. `add` takes `--image IMG:TAG`, `--command CMD`, optional `--requests-cpu` / `--requests-memory` / `--limits-cpu` / `--limits-memory`, and `--share VOLUME` (repeatable) naming environment volumes to mount at the paths the main container uses |
 | `agyn environments init-scripts list \| add \| remove ENV [NAME]` | Scripts run in the main container before the agent CLI, or before a sandbox shell becomes available. `add` reads the body from `--file PATH` or stdin. Listed in execution order |
 | `agyn environments vars list \| set \| unset ENV [NAME]` | Environment variables injected into the main container. `set` takes `--value TEXT` or `--secret SECRET`, never both. `list` prints secret-backed entries as a reference, never a resolved value |
+| `agyn environments subscriptions list \| attach \| detach ENV [NAME]` | [Subscriptions](../product/environments/environments.md#subscriptions) supplying vendor credentials in `native` mode. `attach` refuses a second subscription for a vendor already attached, naming the existing one. Listed by vendor, so the gap in a `native` environment reads as a gap |
 
 `vars` rather than `env` — `agyn environments env` would read as a tautology, and the `--env` flag on [`sandbox start`](#sandbox-commands) already means the environment itself.
+
+`agyn environments show` reports the LLM mode in its metadata header, and — for a `native` environment — which vendors have a subscription attached. An environment in `native` mode with none is flagged the same way an unresolvable flavor is: it will not start workloads, and saying so at read time beats discovering it at start.
 
 ### Roles
 
@@ -371,6 +374,21 @@ An environment is a composite: a runner, a flavor, images, and the volumes, MCP 
 ### Declarative management
 
 This group is for inspecting and adjusting environments from a terminal. Defining them as version-controlled configuration is the [Terraform provider](operations/terraform-provider.md)'s job, and the two are not alternatives: `agyn environments show` is how an operator sees what is actually in place, including the provisioned state Terraform does not track.
+
+---
+
+## Subscription Commands
+
+The `subscriptions` command group manages [Subscriptions](../product/environments/environments.md#subscriptions) — vendor credentials used by environments in `native` LLM mode. They are organization resources rather than environment sub-resources because one subscription is normally attached to several environments; attaching is done from [`agyn environments subscriptions`](#contents).
+
+| Command | Description |
+|---------|-------------|
+| `agyn subscriptions list` | Subscriptions in the organization: name, vendor, referenced secret, and where each is attached |
+| `agyn subscriptions create NAME --vendor claude\|codex --secret SECRET [--account-id ID]` | Create a subscription from an existing [secret](resource-definitions.md#secret). The secret must exist; the value is never read by the CLI |
+| `agyn subscriptions update NAME [--secret SECRET] [--account-id ID]` | Repoint at a different secret — how a rotated token is adopted. `--vendor` is not settable: changing it would silently redirect every workload the subscription serves |
+| `agyn subscriptions delete NAME` | Delete. Refused while attached to any environment or agent; the error names them |
+
+No command prints a token, and none accepts one — a credential enters the platform as a [Secret](resource-definitions.md#secret), and a subscription only ever references it. Rotating a token is `agyn secrets set`, not a subscription operation, and takes effect on the next connection each workload opens.
 
 ---
 

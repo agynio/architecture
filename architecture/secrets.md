@@ -9,7 +9,7 @@ The Secrets service manages secret providers and secrets as internal resources. 
 | Responsibility | Description |
 |---------------|-------------|
 | **Secret Provider CRUD** | Create, read, update, delete secret provider resources |
-| **Secret CRUD** | Create, read, update, delete secret resources. Delete is rejected if the secret is referenced by an active [EgressRule.effect.inject](resource-definitions.md#egress-rule) |
+| **Secret CRUD** | Create, read, update, delete secret resources. Delete is rejected if the secret is referenced by an active [EgressRule.effect.inject](resource-definitions.md#egress-rule) or by a [Subscription](providers.md#subscription) |
 | **Secret Resolution** | Resolve a secret ID to its actual value (local decryption or remote fetch) |
 | **Secret Existence Check** | `ResolveSecretExists(secret_id)` — verify a secret exists, used to validate a `secret_id` reference before it is persisted |
 
@@ -67,11 +67,16 @@ All secret resources are org-scoped. Resolution calls are split between an inter
 | `ResolveSecretValue` (internal) | Internal only — via Istio, no OpenFGA check |
 | `ResolveSecretExists` (internal) | Internal only — via Istio, no OpenFGA check |
 
-### Referential Integrity with EgressRules
+### Referential Integrity
 
-`DeleteSecret` calls the [EgressRules service](egress-rules-service.md) `CountRulesReferencingSecret(secret_id)` before deleting. If any active rule references the secret, the delete is rejected with a clear error pointing to the referencing rule(s). The caller must detach or update those rules first.
+`DeleteSecret` checks for live references before deleting, and is rejected with an error naming the referencing resources when any exist:
 
-This is the one place the Secrets service makes an outbound call to EgressRules. It is not a dependency cycle: Secrets calls EgressRules only on `DeleteSecret`, and EgressRules calls Secrets only on rule create/update (existence check) — the two calls never recurse into each other.
+| Referencing resource | Check | Owner |
+|---|---|---|
+| [EgressRule.effect.inject](resource-definitions.md#egress-rule) | `CountRulesReferencingSecret(secret_id)` | [EgressRules service](egress-rules-service.md) |
+| [Subscription.secret_id](providers.md#subscription) | `CountSubscriptionsReferencingSecret(secret_id)` | [LLM service](llm.md#referential-integrity-with-secrets) |
+
+These are the only places the Secrets service makes outbound calls. Neither is a dependency cycle: Secrets calls out only on `DeleteSecret`, and each referencing service calls in only on create/update (existence check via `ResolveSecretExists`) — the two directions never recurse into each other.
 
 See [Authorization — Secrets Service](authz.md#secrets-service) for the full reference.
 

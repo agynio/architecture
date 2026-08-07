@@ -156,7 +156,7 @@ When Ziti Management creates an agent identity, it sends:
   "name": "agent-<agentId>-<shortUuid>",
   "type": "Device",
   "isAdmin": false,
-  "roleAttributes": ["agents", "agent-<agentId>", "workload-<workloadId>"],
+  "roleAttributes": ["agents", "agent-<agentId>", "workload-<workloadId>", "environment-<environmentId>", "llm-native-<vendor>"],
   "externalId": "<workloadId>",
   "enrollment": { "ott": true }
 }
@@ -166,7 +166,7 @@ When Ziti Management creates an agent identity, it sends:
 |-------|---------|
 | `name` | Human-readable, unique per identity. Includes agent ID for debugging |
 | `type` | `Device` — represents a non-human endpoint |
-| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `agent-<agentId>` for per-agent policies, `workload-<workloadId>` for per-workload policies (used by port exposure Bind policies) |
+| `roleAttributes` | Tags for ABAC policy matching. `agents` for static policies, `agent-<agentId>` for per-agent policies, `workload-<workloadId>` for per-workload policies (used by port exposure Bind policies), `environment-<environmentId>` for per-environment attachments (used by [egress rule](egress-rules-service.md) Dial policies), and one `llm-native-<vendor>` per vendor whose [Subscription](providers.md#subscription) resolves for this workload (used by the [LLM Proxy](llm-proxy.md#static-policies) intercept Dial policies). The set is computed by the Orchestrator at [workload spec assembly](agents-orchestrator.md#workload-spec-assembly) |
 | `externalId` | Workload UUID — unique per workload, prevents collision when the same agent serves multiple threads concurrently |
 | `enrollment.ott` | One-time-token enrollment. Controller generates a JWT valid for 24 hours |
 
@@ -255,7 +255,7 @@ OpenZiti uses an ABAC (Attribute-Based Access Control) model. Service policies m
 
 | Identity Type | Role Attributes |
 |---|---|
-| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>", "group-<groupId>"...]` |
+| Agent pod (Ziti sidecar) | `["agents", "agent-<agentId>", "workload-<workloadId>", "environment-<environmentId>", "llm-native-<vendor>"..., "group-<groupId>"...]` |
 | Runner | `["runners"]` |
 | Orchestrator | `["orchestrators"]` |
 | App | `["apps", "app-<appId>", "group-<groupId>"...]` |
@@ -270,6 +270,8 @@ The `agent-<agentId>` attribute is assigned at creation time and used by per-exp
 The `group-<groupId>` attribute is added to a member's identity when the member is added to a group via the [Groups service](groups-service.md). Multiple `group-<groupId>` attributes can coexist on a single identity (one per group). Group attributes power group-based access grants in [Private Networks](private-networks.md#dial-policy-per-access-grant) and any other dial/bind policy that scopes by group.
 
 The `network-<networkId>` attribute is assigned to tunnel identities at enrollment time and used by the per-network Bind policy in [Private Networks](private-networks.md#bind-policy-per-network). All tunnels within a network share this attribute, which is how multiple tunnel hosts provide HA for the network's resources.
+
+The `llm-native-<vendor>` attributes are stamped by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) when the workload's environment is in `native` [LLM mode](resource-definitions.md#environment) and a [Subscription](providers.md#subscription) for that vendor resolves — one attribute per vendor, so a workload with only a Claude subscription does not intercept OpenAI traffic. They are what makes [native-mode interception](llm-proxy.md#static-policies) work with entirely static services and policies: the per-workload decision lives in the identity's attributes rather than in a per-resource OpenZiti object, so nothing about that feature is dynamically provisioned or reconciled.
 
 ### Static Policies
 
@@ -290,6 +292,9 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `gateway-dial-apps` | Dial | `#gateway-hosts` | `#app-services` | Gateway can reach apps |
 | `agents-host-exposed` | Host | `#agents` | `#exposed-services` | Agent sidecars can host exposed services (traffic forwarded to localhost) |
 | `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service |
+| `llm-proxy-bind-intercept` | Bind | `#llm-proxy-hosts` | `#llm-intercept-services` | The LLM Proxy hosts every vendor intercept service |
+| `native-claude-dial` | Dial | `#llm-native-claude` | `@llm-intercept-claude` | Workloads with a Claude subscription intercept `api.anthropic.com` |
+| `native-codex-dial` | Dial | `#llm-native-codex` | `@llm-intercept-codex` | Workloads with a Codex subscription intercept `chatgpt.com` |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
@@ -301,6 +306,8 @@ The [Expose Service](expose-service.md) and the [EgressRules service](egress-rul
 
 - [Expose Service — Add Exposure Flow](expose-service.md#add-exposure-flow): per-exposure service + Bind policy + Dial policy.
 - [EgressRules service — OpenZiti Resources](egress-rules-service.md#openziti-resources): per-rule service + per-attachment Dial policy.
+
+[Native-mode LLM interception](llm-proxy.md#vendor-intercept-services) is deliberately **not** among them. Its destinations are a closed set the platform ships rather than user-authored patterns, so its services and policies are static and the per-workload decision is carried by identity role attributes instead.
 
 | Policy | Type | Identity Roles | Service Roles | Lifecycle |
 |--------|------|---------------|---------------|-----------|
@@ -357,10 +364,12 @@ Ziti Management can cache resolved identities in-memory with a short TTL. Identi
 The canonical resolution path for OpenZiti identities is:
 
 ```
-OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type, workload_id)
+OpenZiti identity ID → ZitiManagement.ResolveIdentity() → PostgreSQL → (identity_id, identity_type, workload_id, agent_id, environment_id)
 ```
 
-`workload_id` is populated only for agent identities — Ziti Management stores it alongside `identity_id` and `identity_type` when `CreateAgentIdentity(agentId, workloadId)` is called. For all other identity types (runner, app, service) `workload_id` is null.
+`workload_id`, `agent_id`, and `environment_id` are populated only for workload identities — Ziti Management stores them alongside `identity_id` and `identity_type` when `CreateAgentIdentity(agentId, workloadId, environmentId)` is called. For all other identity types (runner, app, service) they are null. `agent_id` is additionally null for a [sandbox](resource-definitions.md#sandbox) workload, which runs an environment with no agent behind it.
+
+Recording the environment on the identity is what lets a data-plane service answer "what is this workload configured to do" from the connection alone. The [LLM Proxy](llm-proxy.md#authentication) uses it to resolve a workload's [Subscription](providers.md#subscription) without calling the [Agents](agents-service.md) service on the request path — and, because the values are written by the platform at identity creation, without trusting anything the workload asserts about itself.
 
 Organization context is not part of the OpenZiti identity. Services that need organization context accept `organization_id` as a request parameter. See [Organizations — Request Flow](organizations.md#request-flow).
 

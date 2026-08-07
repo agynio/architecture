@@ -56,6 +56,67 @@ Agent.model → Model.id → Model.llmProvider → LLM Provider (endpoint + toke
 
 The platform resolves: agent → model → LLM provider, then makes API calls using the provider's endpoint, token, and the model's remote name.
 
+This chain applies to workloads in `platform` [LLM mode](resource-definitions.md#environment). In `native` mode there is no Model and no LLM Provider — see [Subscription](#subscription).
+
+---
+
+## Subscription
+
+A subscription is a credential for an LLM vendor's own consumer plan, used by an agent CLI running in its **native** configuration: talking to the vendor's public API, with the vendor's model names, exactly as it would outside the platform. The [LLM Proxy](llm-proxy.md) still carries the traffic — a workload in `native` [LLM mode](resource-definitions.md#environment) has its vendor-bound traffic intercepted and terminated on the proxy, which replaces the placeholder credential in the container with the real one. See [LLM Proxy — Native Mode](llm-proxy.md#native-mode).
+
+Managed by the [LLM](llm.md) service, alongside [LLM Providers](#llm-provider) and [Models](#model). A subscription is the same class of thing as a provider — a credential plus an upstream — differing in where the credential comes from and in the fact that the model namespace belongs to the vendor rather than to the platform.
+
+### Resource Definition
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Internal name used for display and reference. Unique within the organization |
+| `vendor` | enum | Which vendor's plan the credential belongs to. Supported: `claude`, `codex`. A closed set — each value fixes an intercepted host, an upstream, a protocol, and a header set (see [Vendors](#vendors)) |
+| `secret_id` | string (UUID) | Reference to a [Secret](#secret) holding the token. Existence is validated on create/update; the value is resolved at binding time and never stored by the LLM service |
+| `account_id` | string | `null` unless the vendor's API requires an account identifier alongside the token. Not a secret |
+
+The token is held **by reference** rather than inline — unlike an [LLM Provider](#llm-provider)'s `token` — so it can live in Vault behind a [Secret Provider](#secret-provider), rotate in one place, and reuse the Secrets service's encryption at rest rather than a second copy of that machinery. The extra resolution hop costs nothing on the request path: a native-mode binding is resolved once per connection, not per request.
+
+This leaves the LLM service holding credentials two ways, inline for providers and by reference for subscriptions. The divergence is accepted rather than allowed to propagate backwards; converging `LLMProvider.token` onto `secret_id` is a data migration, not a design question.
+
+### Vendors
+
+The vendor set is closed because each value determines three things the platform must know without configuration — what to intercept, where to send it, and what to inject:
+
+| `vendor` | Intercepted host | Upstream | Protocol | Injected |
+|---|---|---|---|---|
+| `claude` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` |
+| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` |
+
+Adding a vendor is a platform change — a new enum value, a new intercept service, and a row here — not a configuration surface. An operator cannot point native mode at an arbitrary host, because native mode's whole premise is that the agent CLI is unmodified and therefore addresses only the hosts its vendor built it to address.
+
+The platform does not refresh subscription tokens. A credential that expires stops working until its [Secret](#secret) is updated — the same limitation [egress rule injection](../product/egress-gateway/egress-gateway.md#constraints) documents for OAuth secrets. Vendors differ in how much this matters: a long-lived token is set once, a short-lived one needs an external refresher.
+
+### Provisioning Flow
+
+1. User obtains a token from the vendor for their own plan.
+2. User creates a [Secret](#secret) holding it.
+3. User creates a Subscription naming the vendor and the secret.
+4. User attaches it to an [Environment](resource-definitions.md#environment) whose `llm_mode` is `native`, or to an [Agent](resource-definitions.md#agent) running in one.
+
+---
+
+## Subscription Attachment
+
+Binds a [Subscription](#subscription) to an [Agent](resource-definitions.md#agent) or an [Environment](resource-definitions.md#environment). One subscription may be attached to many targets. Managed by the [LLM](llm.md) service.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `subscription_id` | string (UUID) | The subscription being attached |
+| `agent_id` | string (UUID) | Target agent. Mutually exclusive with `environment_id` |
+| `environment_id` | string (UUID) | Target environment. Mutually exclusive with `agent_id` |
+
+Exactly one of `agent_id` or `environment_id` is set. Attachments are immutable — create and delete only — and a subscription cannot be deleted while any attachment exists.
+
+**Uniqueness is on `(vendor, target)`, not `(subscription, target)`.** A target cannot accumulate two subscriptions for the same vendor. This is what makes `(caller, vendor)` a total function at resolution time: an intercepted request carries nothing that identifies a credential, so the request must never have to choose between two. Per-initiator credentials, when they arrive, extend that key with a third term rather than changing its shape.
+
+An agent's attachment shadows its environment's for the same vendor — the same precedence [ENVs and MCP servers](../product/environments/environments.md#what-an-environment-contains) already follow. A [sandbox](resource-definitions.md#sandbox) has no agent, so it sees the environment's attachments and nothing else.
+
 ---
 
 ## Secret Provider

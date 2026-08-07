@@ -88,6 +88,10 @@ Status, environment, both clocks, and a terminal filling the rest of the page.
 
 **Tabs** — several shells in one sandbox, as any terminal emulator gives you: a tab strip above the terminal with a new-shell action, and a close action once more than one is open. Each tab is an independent session, so a background tab keeps running and keeps its scrollback — the [wire protocol](../../architecture/terminal-proxy.md#wire-protocol) has no resume, and a tab that was torn down on leaving it would come back a different shell. Closing a tab ends that session, exactly as closing the page ends them all.
 
+A tab is named by what its shell announces — the title it sets, or failing that the directory it reports — and falls back to the number it opened with. That number is fixed at open and never reused: renumbering by position would rename the shells that were kept when one is closed.
+
+Tabs are reordered by dragging, and with `Alt`+`←`/`→` for anyone not using a mouse.
+
 While a session is attached the sandbox cannot idle out. Closing the tab ends that session — like dropping an SSH connection, the foreground process group is signalled and the container keeps running. Work that must outlive a tab belongs under `tmux` or `nohup` from the image.
 
 **Stopped, starting, or failed** — the terminal area is replaced by the state and a **Start** action. Starting is a no-op when already running, a restart when stopped, and a fresh attempt when failed; the terminal appears once the workload runs. A `failed` sandbox stays failed until someone acts — nothing retries it in the background, because nothing needs a sandbox to run while nobody is connecting.

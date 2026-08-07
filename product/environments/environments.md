@@ -19,6 +19,8 @@ Storage followed the same path later. Volumes used to be free-standing organizat
 - As an organization owner, I want to define an environment (image + size) once and have many agents — and engineers' sandboxes — run in it.
 - As a platform admin, I want to apply platform resources and runner configuration in either order — an environment may name a flavor before the runner first reports it.
 - As an operator, I want to attach egress rules and secret-backed environment variables to an environment, so everything running in it (agent or sandbox) gets the same network policy and credentials.
+- As an operator paying for an LLM vendor's subscription rather than an API key, I want agents and sandboxes in my environment to be able to call models without me configuring each agent CLI by hand — and without the credential being readable from a shell.
+- As an operator, I want that traffic to go through the platform whichever way I pay, so usage is metered and guardrails apply in one place.
 - As an operator, I want to declare where a workload's disks are mounted and how big they are on the environment, so an agent and a sandbox running it get the same layout — and so an environment that needs no persistence declares none.
 - As an operator, I want an MCP server to read files the agent writes, without a separate resource standing between them.
 - As an engineer, I want to author my own environment without being an organization owner, and to decide who else may run in it.
@@ -93,6 +95,7 @@ An environment answers "what does a workload in this environment contain," and i
 | **Init scripts** | ✓ | ✓ | Environment's run first, then the agent's |
 | **ENV variables** | ✓ | ✓ | Union, agent wins on name |
 | **Egress rules** | ✓ | ✓ | Union |
+| **Subscriptions** | ✓ | ✓ | At most one per vendor; agent wins on vendor |
 
 Everything in the first column applies to every workload running the environment — agent workloads and [sandboxes](../sandboxes/sandboxes.md) alike. It is how sandboxes get network policy and credentials at all: they have no agent to attach anything to. It is also why a sandbox is a genuine copy of an agent's runtime rather than an approximation — the same sidecars, the same init, the same disks.
 
@@ -134,6 +137,45 @@ Both can be declared on the environment or on an agent. The distinction is about
 - **On the agent** — only that agent's workloads. This is where an agent's own tools and setup belong.
 
 An agent-level MCP with the same name as an environment-level one replaces it; init scripts never collide — the environment's run first, then the agent's, each in creation order.
+
+## LLM Access
+
+An agent CLI is useless without a way to call a model, and organizations pay for models two different ways. Some hold an API key and want the platform's model catalog, its access control, and its per-token accounting. Others pay for a vendor's own plan — a Claude or ChatGPT subscription — where there is no API key to hand out and no platform model to reference.
+
+The environment says which:
+
+| `llm_mode` | The agent CLI | Models are | Credential comes from |
+|---|---|---|---|
+| `platform` (default) | Pointed at the platform's LLM endpoint by the runtime | Platform [models](../../architecture/providers.md#model), by reference | The [LLM provider](../../architecture/providers.md#llm-provider) behind the model |
+| `native` | Left in its stock configuration, addressing its vendor directly | The vendor's own names | A **subscription** attached to the environment or agent |
+
+In `native` mode the platform does not reconfigure the CLI at all. It captures the CLI's outbound calls to its vendor and routes them through the platform's LLM gateway, which swaps in the real credential before forwarding. From inside the container it looks exactly like running the CLI on a laptop: the same model picker, the same quota messages, the same everything — because it is the same configuration.
+
+Two consequences follow, and both are the reason to do it this way:
+
+- **The credential never enters the workload.** A shell in a [sandbox](../sandboxes/sandboxes.md) cannot read it, and revoking it takes effect without restarting anything. What the container holds is a placeholder the CLI needs in order to start.
+- **The traffic is still ours to see.** Every call is metered and traced like any other, and per-environment guardrails — a model allowlist today — apply to it, because the platform is on the path rather than beside it.
+
+### Subscriptions
+
+A subscription is an organization resource: a vendor and a [secret](../../architecture/providers.md#secret) holding the token. Attaching it to an environment gives every workload there — agents and sandboxes alike — the ability to call that vendor. Attaching it to an agent overrides the environment's for that vendor, the same way an agent's ENVs override the environment's.
+
+**One subscription per vendor per target.** An environment carries at most one Claude subscription and at most one Codex subscription. That is not a limit anyone should need to work around: an intercepted request is the CLI's own and carries nothing that could choose between two credentials, so there must never be two to choose from.
+
+```bash
+agyn subscriptions create team-claude --vendor claude --secret claude-token
+agyn environments subscriptions attach dev team-claude
+```
+
+An environment in `native` mode with no subscription attached does not start workloads — the failure is reported when the workload is assembled, not when its first model call fails.
+
+### Choosing a mode
+
+`platform` is the default and the right answer whenever the organization has API keys: it gives model-level permissions, a curated catalog, and token accounting that maps to what the organization is billed.
+
+`native` is for subscriptions, and for anyone who wants the CLI's own unmodified behavior. Its costs are real and worth stating: there is no platform model resource, so there is nothing to grant `can_use` on and nothing to name in an agent by reference — an agent pins a vendor model name as free text or takes the CLI's default. Model restriction becomes an environment-level allowlist rather than a permission. And because a subscription is a flat fee, its token counts are usage information, not spend.
+
+Since the mode decides what a workload contains, it lives on the environment rather than on the agent — the same reasoning that puts the agent runtime image here. An organization needing both runs two environments.
 
 ## Who Can Use an Environment
 
@@ -228,6 +270,9 @@ Every started workload carries a flavor, so there is no unmetered compute. Agent
 - A volume name is unique within its environment and reusable across environments. Mount paths are unique within a target, and within any single container after shared volumes are resolved.
 - One disk per definition per owner. No storage is shared between agent instances, between sandboxes, or between an agent and a sandbox — only between containers of one workload.
 - Nothing is provisioned by default. An environment with no volumes produces workloads with no persistent storage.
+- `llm_mode` cannot be changed on an environment any agent references — every such agent's model reference becomes invalid in the other mode. Recreate the agents, or use a second environment.
+- The vendors `native` mode supports are a closed set the platform ships (`claude`, `codex`). It cannot be pointed at an arbitrary endpoint: its premise is an unmodified agent CLI, which addresses only the hosts its vendor built it to address.
+- The platform does not refresh subscription tokens. A credential that expires stops working until its secret is updated.
 
 ## Related Architecture
 
@@ -237,6 +282,9 @@ Every started workload carries a flavor, so there is no unmetered compute. Agent
 - [Resource Definitions — Storage Class](../../architecture/resource-definitions.md#storage-class)
 - [Resource Definitions — Environment](../../architecture/resource-definitions.md#environment)
 - [Resource Definitions — Volume](../../architecture/resource-definitions.md#volume)
+- [Providers, Models, and Secrets — Subscription](../../architecture/providers.md#subscription)
+- [LLM Service](../../architecture/llm.md)
+- [LLM Proxy — Native Mode](../../architecture/llm-proxy.md#native-mode)
 - [Authorization — environment type](../../architecture/authz.md#environment)
 - [agyn CLI — Environment Commands](../../architecture/agyn-cli.md#environment-commands)
 - [MCP](../../architecture/mcp.md)
