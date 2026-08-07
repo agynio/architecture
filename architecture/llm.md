@@ -80,14 +80,21 @@ Both identifiers come from the caller's OpenZiti identity via [`ResolveIdentity`
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `subscription_id` | string (UUID) | The resolved subscription. The proxy has no other source for it, and [metering](llm-proxy.md#native-mode-labels) records it as `resource_id` |
 | `token` | string | The resolved credential, fetched from the [Secret](providers.md#secret) the subscription references |
 | `account_id` | string | Vendor account identifier, when the vendor requires one; empty otherwise |
 | `upstream_endpoint` | string | Where the proxy forwards — fixed per vendor |
 | `protocol` | string | `responses` or `anthropic_messages` — fixed per vendor |
-| `placeholder_env` | string | Name of the environment variable holding the container's placeholder credential — fixed per vendor, empty for a vendor that has none |
+| `allowed_models` | list<string> | The environment's [`llm_allowed_models`](resource-definitions.md#environment), read by this service from the [Agents](agents-service.md) service. Empty means no restriction |
 | `organization_id` | string (UUID) | Organization that owns the subscription |
 
-Everything fixed-per-vendor is returned rather than looked up by the caller. The [vendor table](providers.md#vendors) is the single description of a vendor, and the LLM service is the single thing that reads it: the proxy learns the upstream and protocol from this response, and the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) learns `placeholder_env` from the [attachment listing](#subscription-management). Neither carries a copy. Adding a vendor stays a new enum value, a new bootstrap intercept service, and a row in that table.
+**Everything the proxy needs to serve a native-mode connection is on this response.** That is deliberate: it is what keeps the proxy a forwarder with no configuration lookups of its own, and it is what makes [`environment_id` on the identity](openziti.md#identity-resolution) sufficient — the proxy passes the id through and never reads an environment.
+
+The consequence is that this service, not the proxy, resolves the environment. It already fans out to [Secrets](secrets.md) on every resolution; adding [Agents](agents-service.md) alongside costs one more call on a path that runs once per connection rather than once per request. Putting the same call in the proxy would put it on the request path of the LLM hot path and contradict the property above.
+
+`llm_allowed_models` lives on the environment rather than on the subscription because one subscription attaches to many environments, and the point of that is that they may differ. A restriction stored on the credential would apply everywhere it is used.
+
+Note what is *not* here: the vendor's [`placeholder_env`](providers.md#vendors). The proxy strips `Authorization` and `x-api-key` unconditionally, whatever they were called on the way in, so it never needs the name. Its only consumer is the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), which reads it from the [attachment listing](#subscription-management) at workload assembly.
 
 Returns `NOT_FOUND` when no subscription for that vendor is attached at either scope. The LLM Proxy turns this into a platform error the caller can read, rather than forwarding an unauthenticated request.
 
@@ -98,6 +105,7 @@ Returns `NOT_FOUND` when no subscription for that vendor is attached at either s
   → SubscriptionAttachment (agent scope, else environment scope)
   → Subscription (vendor → upstream + protocol + header shape)
   → Secret → token
+  → Environment → allowed_models
 ```
 
 The agent scope is consulted first and shadows the environment's for the same vendor. Because attachments are unique on `(vendor, target)`, at most one candidate exists at each scope and the chain has no ambiguity to resolve.
@@ -127,6 +135,8 @@ Restricting *which* models a native-mode workload may ask for is a guardrail eva
 ### Change Notifications
 
 The LLM service publishes `subscription.updated` and `subscription_attachment.updated` events to the organization's [Notifications](notifications.md) room, so the LLM Proxy can drop cached bindings. Without it, a detached or rotated subscription stays live on already-established connections for as long as the agent CLI keeps them open — hours, in a sandbox. This is the same invalidation path the [Egress Gateway](egress-gateway.md) uses for its rule cache.
+
+Those two events do not cover the whole binding. `allowed_models` comes from the environment, which changes under [`environment.updated`](agents-service.md#notifications) — an event the [Agents](agents-service.md) service already publishes on the `environment:{id}` room. **The proxy subscribes to it as well**, and tightening an allowlist therefore takes effect on open connections rather than at the next one. A restriction that waits for a long-lived sandbox connection to close is not a restriction; the event already exists, so there is no reason to accept the weaker semantics.
 
 On `CreateModel`, the LLM Service writes the tuple `organization:<org_id>, org, model:<model_id>` to the Authorization service. On `DeleteModel`, it deletes the same tuple. This grants org members implicit `can_use` on the model via the computed relation defined on the `model` type.
 

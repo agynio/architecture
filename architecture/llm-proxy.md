@@ -210,7 +210,11 @@ The real token never enters the workload: it cannot be read from a shell in a sa
 
 ### Guardrails
 
-Because native mode reads the model name out of the body, restricting which models a workload may use is enforced here rather than through resource permissions. An environment may carry a model allowlist; a request naming a model outside it is refused by the platform with a message identifying the platform as the source, in the vendor's own error format so the CLI renders it.
+Because native mode reads the model name out of the body, restricting which models a workload may use is enforced here rather than through resource permissions. A request naming a model outside the allowlist is refused by the platform with a message identifying the platform as the source, in the vendor's own error format so the CLI renders it.
+
+The allowlist arrives as `allowed_models` on the [`ResolveSubscription`](llm.md#resolvesubscription) response, resolved from the environment by the LLM service. The proxy does not read the environment: it holds `environment_id` from the caller's identity, passes it through, and enforces what comes back. That is what keeps the [no Agents dependency on the request path](#authentication) property true — a guardrail that required the proxy to look up its own configuration would have cost exactly the property `environment_id`-on-the-identity was introduced to buy.
+
+Because the allowlist rides on the per-connection binding, the proxy subscribes to [`environment.updated`](llm.md#change-notifications) alongside the subscription events. Tightening an allowlist takes effect on connections already open, not merely on the next one.
 
 ### Failure modes
 
@@ -396,5 +400,5 @@ A native-mode call has no [Model](providers.md#model) resource behind it, so `re
 | HTTP framework | Standard `net/http` |
 | OpenZiti | Embedded SDK (`openziti/sdk-golang`) for binding the `llm-proxy` service and the vendor intercept services, and extracting caller identity |
 | TLS | Leaf certificates minted per SNI hostname from the [Egress CA](egress-gateway.md#egress-ca), cached LRU with a short TTL — the same approach the [Egress Gateway](egress-gateway.md#leaf-certificate-generation) uses |
-| State | Per-connection subscription bindings; leaf certificate cache. Bindings are dropped on `subscription.updated` / `subscription_attachment.updated` from [Notifications](notifications.md), so a detached or rotated credential stops working without waiting for long-lived connections to close |
+| State | Per-connection subscription bindings; leaf certificate cache. Bindings are dropped on `subscription.updated` / `subscription_attachment.updated` / `environment.updated` from [Notifications](notifications.md), so a detached credential or a tightened allowlist stops applying without waiting for long-lived connections to close |
 | Internal calls | Standard gRPC clients for LLM service, Ziti Management, Users, Authorization, Notifications |
