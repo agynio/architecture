@@ -163,7 +163,7 @@ A subscription is an organization resource: a vendor and a [secret](../../archit
 **One subscription per vendor per target.** An environment carries at most one Claude subscription and at most one Codex subscription. That is not a limit anyone should need to work around: an intercepted request is the CLI's own and carries nothing that could choose between two credentials, so there must never be two to choose from.
 
 ```bash
-agyn subscriptions create team-claude --vendor claude --secret claude-token
+agyn subscriptions create team-claude --vendor anthropic --secret claude-token
 agyn environments subscriptions attach dev team-claude
 ```
 
@@ -271,7 +271,7 @@ Every started workload carries a flavor, so there is no unmetered compute. Agent
 - One disk per definition per owner. No storage is shared between agent instances, between sandboxes, or between an agent and a sandbox — only between containers of one workload.
 - Nothing is provisioned by default. An environment with no volumes produces workloads with no persistent storage.
 - `llm_mode` cannot be changed on an environment any agent references — every such agent's model reference becomes invalid in the other mode. Recreate the agents, or use a second environment.
-- The vendors `native` mode supports are a closed set the platform ships (`claude`, `codex`). It cannot be pointed at an arbitrary endpoint: its premise is an unmodified agent CLI, which addresses only the hosts its vendor built it to address.
+- The vendors `native` mode supports are a closed set the platform ships (`anthropic`, `openai`). It cannot be pointed at an arbitrary endpoint: its premise is an unmodified agent CLI, which addresses only the hosts its vendor built it to address.
 - The platform does not refresh subscription tokens. A credential that expires stops working until its secret is updated.
 
 ## Related Architecture

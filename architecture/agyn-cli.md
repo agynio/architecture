@@ -386,7 +386,7 @@ The `subscriptions` command group manages [Subscriptions](../product/environment
 | `agyn subscriptions list` | Subscriptions in the organization: name, vendor, and referenced secret |
 | `agyn subscriptions show NAME` | One subscription |
 | `agyn subscriptions attachments [--subscription NAME] [--agent ID] [--environment ID]` | Where subscriptions are attached, across both scopes. Each filter narrows independently |
-| `agyn subscriptions create NAME --vendor claude\|codex --secret SECRET [--account-id ID]` | Create a subscription from an existing [secret](resource-definitions.md#secret). The secret must exist; the value is never read by the CLI |
+| `agyn subscriptions create NAME --vendor anthropic\|openai --secret SECRET [--account-id ID]` | Create a subscription from an existing [secret](resource-definitions.md#secret). The secret must exist; the value is never read by the CLI |
 | `agyn subscriptions update NAME [--secret SECRET] [--account-id ID]` | Repoint at a different secret — how a rotated token is adopted. `--vendor` is not settable: changing it would silently redirect every workload the subscription serves |
 | `agyn subscriptions delete NAME` | Delete. Refused while attached to any environment or agent; the error names them |
 | `agyn subscriptions attach\|detach NAME --agent AGENT_ID` | Agent scope, which shadows the environment's for the same vendor. Environment scope is [`agyn environments subscriptions`](#contents), where the environment is named rather than typed as a UUID |

@@ -71,7 +71,7 @@ Managed by the [LLM](llm.md) service, alongside [LLM Providers](#llm-provider) a
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Internal name used for display and reference. Unique within the organization |
-| `vendor` | enum | Which vendor's plan the credential belongs to. Supported: `claude`, `codex`. A closed set — each value fixes an intercepted host, an upstream, a protocol, and a header set (see [Vendors](#vendors)) |
+| `vendor` | enum | Which vendor's plan the credential belongs to. Supported: `anthropic`, `openai`. A closed set — each value fixes an intercepted host, an upstream, a protocol, and a header set (see [Vendors](#vendors)) |
 | `secret_id` | string (UUID) | Reference to a [Secret](#secret) holding the token. Existence is validated on create/update; the value is resolved at binding time and never stored by the LLM service |
 | `account_id` | string | `null` unless the vendor's API requires an account identifier alongside the token. Not a secret |
 
@@ -83,18 +83,27 @@ This leaves the LLM service holding credentials two ways, inline for providers a
 
 The vendor set is closed because each value determines three things the platform must know without configuration — what to intercept, where to send it, and what to inject:
 
-| `vendor` | Intercepted host | Upstream | Protocol | Injected upstream | Placeholder in the container |
+| `vendor` | Intercepted host | Upstream | Protocol | Injected upstream | Placeholder |
 |---|---|---|---|---|---|
-| `claude` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `codex` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | — |
+| `anthropic` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` | env var `CLAUDE_CODE_OAUTH_TOKEN` |
+| `openai` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | file `~/.codex/auth.json` |
 
-The placeholder is a property of the **vendor**, not of the agent CLI. That is what lets the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) inject it without knowing which CLI the environment's agent runtime image carries — a thing it deliberately does not know. The name is returned by the [LLM service](llm.md#subscription-resolution) rather than held in a table the orchestrator maintains, so this table stays the one place a vendor is described. See [LLM Proxy — The container still holds a placeholder](llm-proxy.md#the-container-still-holds-a-placeholder).
-
-**`codex` has no placeholder and `CreateSubscription` rejects it with `UNIMPLEMENTED`.** The row records the intended binding, but no coherent placeholder exists for it yet: the environment variable a Codex CLI reads (`OPENAI_API_KEY`) selects its API-key mode, and a Codex CLI in API-key mode addresses `api.openai.com` — not the `chatgpt.com` this row intercepts. The two describe mutually exclusive configurations. A working Codex subscription needs its credential delivered the way the CLI's subscription mode actually reads one, which is a file rather than an environment variable, and that is not specified here.
+A subscription-mode Codex CLI calls `https://chatgpt.com/backend-api/codex/responses`, which is why the OpenAI row intercepts `chatgpt.com` rather than `api.openai.com` — the latter is where an *API-key* Codex CLI goes, and pairing that host with a subscription credential is what made an earlier version of this table incoherent.
 
 Adding a vendor is a platform change — a new enum value, a new intercept service, and a row here — not a configuration surface. An operator cannot point native mode at an arbitrary host, because native mode's whole premise is that the agent CLI is unmodified and therefore addresses only the hosts its vendor built it to address.
 
-The platform does not refresh subscription tokens. A credential that expires stops working until its [Secret](#secret) is updated — the same limitation [egress rule injection](../product/egress-gateway/egress-gateway.md#constraints) documents for OAuth secrets. Vendors differ in how much this matters: a long-lived token is set once, a short-lived one needs an external refresher.
+The platform does not refresh these credentials. `openai`'s in particular is a short-lived token pair where `anthropic`'s is long-lived, so an OpenAI subscription needs its [Secret](#secret) kept current by whatever minted it — the same limitation [egress rule injection](../product/egress-gateway/egress-gateway.md#constraints) documents. That is a property of the credential, not a reason to treat the vendor as unsupported.
+
+### Placeholder Delivery
+
+A vendor's placeholder is a dummy the agent CLI needs in order to start; the [LLM Proxy](llm-proxy.md#the-container-still-holds-a-placeholder) discards it and injects the real credential. Vendors differ in how their CLIs read one, and the difference decides who writes it:
+
+| Kind | Written by | Why |
+|---|---|---|
+| Environment variable | [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), onto the container spec | An interactive [sandbox](../product/sandboxes/sandboxes.md) session is started by the runner's `Exec` against the pod and inherits the *container spec's* environment. A variable set in any process — including `agynd`'s — is invisible to it |
+| File | [`agynd`](agynd-cli.md#native-mode-configuration), at container start | The path is CLI-specific and resolves against `HOME`, which the platform deliberately does not manage — the orchestrator cannot compute it, and `agynd` reads the CLI from [`config.json`](agent-init.md#configjson). A file written before `agynd` idles persists on the container filesystem, so a session exec'd hours later sees it, which is exactly what the environment variable case cannot do |
+
+Both kinds work in a sandbox, for opposite reasons — one because the container spec outlives every process, the other because the filesystem does. The [LLM service](llm.md#subscription-management) reports which kind a vendor uses, so neither writer holds a copy of this table.
 
 ### Provisioning Flow
 

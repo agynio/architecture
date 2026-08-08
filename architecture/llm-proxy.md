@@ -165,7 +165,7 @@ sequenceDiagram
     participant V as Vendor API (external)
 
     C->>Z: TLS connect api.anthropic.com:443
-    Z->>P: Tunnel via llm-intercept-claude (mTLS, workload identity)
+    Z->>P: Tunnel via llm-intercept-anthropic (mTLS, workload identity)
     P->>P: Peek ClientHello → SNI → vendor
     P->>P: Present Egress-CA leaf for that hostname
     C->>P: POST /v1/messages (vendor model name, CLI's own headers)
@@ -184,7 +184,7 @@ sequenceDiagram
 
 ### The mode is never inferred
 
-The proxy does not inspect a request to decide which mode it is in, and does not read the connection to decide which vendor it is talking to. Both fall out of **which listener accepted**: `platform` on the plain-HTTP `llm-proxy` service, `native` on one listener per vendor intercept service. A connection accepted on `llm-intercept-claude` is a Claude native-mode connection by construction — before the ClientHello is parsed, and long before a byte of the body is read.
+The proxy does not inspect a request to decide which mode it is in, and does not read the connection to decide which vendor it is talking to. Both fall out of **which listener accepted**: `platform` on the plain-HTTP `llm-proxy` service, `native` on one listener per vendor intercept service. A connection accepted on `llm-intercept-anthropic` is an Anthropic native-mode connection by construction — before the ClientHello is parsed, and long before a byte of the body is read.
 
 This is stronger than reading SNI. SNI is a value the client sends; the bound service is a fact about which OpenZiti service the platform's own policies routed the connection to. A workload that lies in its ClientHello changes which certificate it is offered and nothing else.
 
@@ -316,8 +316,8 @@ The LLM Proxy participates in the OpenZiti overlay. It obtains its identity at r
 | `agents-dial-llm-proxy` | Dial | `#agents` | `@llm-proxy` | Agents can reach LLM Proxy |
 | `llm-proxy-bind` | Bind | `#llm-proxy-hosts` | `@llm-proxy` | LLM Proxy hosts the `llm-proxy` service |
 | `llm-proxy-bind-intercept` | Bind | `#llm-proxy-hosts` | `#llm-intercept-services` | LLM Proxy hosts every vendor intercept service |
-| `native-claude-dial` | Dial | `#llm-native-claude` | `@llm-intercept-claude` | Workloads with a Claude subscription intercept `api.anthropic.com` |
-| `native-codex-dial` | Dial | `#llm-native-codex` | `@llm-intercept-codex` | Workloads with a Codex subscription intercept `chatgpt.com` |
+| `native-anthropic-dial` | Dial | `#llm-native-anthropic` | `@llm-intercept-anthropic` | Workloads with an Anthropic subscription intercept `api.anthropic.com` |
+| `native-openai-dial` | Dial | `#llm-native-openai` | `@llm-intercept-openai` | Workloads with an OpenAI subscription intercept `chatgpt.com` |
 
 ### Vendor Intercept Services
 
@@ -325,8 +325,8 @@ One OpenZiti service per vendor, provisioned at bootstrap alongside the policies
 
 | Service | Role attribute | Intercepts |
 |---|---|---|
-| `llm-intercept-claude` | `llm-intercept-services` | `api.anthropic.com:443` |
-| `llm-intercept-codex` | `llm-intercept-services` | `chatgpt.com:443` |
+| `llm-intercept-anthropic` | `llm-intercept-services` | `api.anthropic.com:443` |
+| `llm-intercept-openai` | `llm-intercept-services` | `chatgpt.com:443` |
 
 The [Egress Gateway](egress-gateway.md)'s per-rule services carry a `host.v1` with `forwardAddress: true` because one gateway terminates many rules and must recover which destination each connection was aimed at. That does not apply here: a per-vendor service has exactly one upstream, fixed by the vendor, so there is no original destination to recover and nothing for `host.v1` to contribute.
 
@@ -373,7 +373,7 @@ A native-mode call has no [Model](providers.md#model) resource behind it, so `re
 |---|---|---|
 | `resource` | `model` | `subscription` |
 | `resource_id` | Model UUID | Subscription UUID |
-| `vendor` | absent | `claude` \| `codex` |
+| `vendor` | absent | `anthropic` \| `openai` |
 | `model_name` | absent | The vendor model name read from the request body |
 
 `vendor` and `model_name` carry the information a Model UUID carried in the other mode — which model actually ran — so usage views stay answerable without a resource to join against.

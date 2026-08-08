@@ -94,7 +94,7 @@ Each label a query can group or filter by has a column on [UsageEvent](#usageeve
 | `agent_id` | Agent associated with the usage (present when the producer has agent context) |
 | `sandbox_id` | Sandbox associated with the usage (present when the producer has sandbox context rather than agent context) |
 | `sandbox_owner_id` | Identity the sandbox belongs to |
-| `vendor` | Vendor a native-mode LLM call was served by (`claude`, `codex`) |
+| `vendor` | Vendor a native-mode LLM call was served by (`anthropic`, `openai`) |
 | `model_name` | Vendor model name a native-mode LLM call named. Carries what `resource_id` carries in `platform` mode, where the model is a platform [Model](providers.md#model) |
 | `thread_id` | Thread associated with the usage (present when the producer has thread context) |
 | `host` | Destination host (present for `resource=egress` records) |

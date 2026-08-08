@@ -72,7 +72,7 @@ The LLM service looks up the model, follows the provider reference, and returns 
 |-------|------|-------------|
 | `agent_id` | string (UUID) | The agent class the calling workload runs. Empty for a [sandbox](resource-definitions.md#sandbox), which has none |
 | `environment_id` | string (UUID) | The environment the calling workload runs |
-| `vendor` | string | `claude` or `codex` — determined by the host the caller addressed |
+| `vendor` | string | `anthropic` or `openai` — determined by the intercept service the connection arrived on |
 
 Both identifiers come from the caller's OpenZiti identity via [`ResolveIdentity`](openziti.md#identity-resolution); neither is self-asserted by the workload.
 
@@ -94,7 +94,7 @@ The consequence is that this service, not the proxy, resolves the environment. I
 
 `llm_allowed_models` lives on the environment rather than on the subscription because one subscription attaches to many environments, and the point of that is that they may differ. A restriction stored on the credential would apply everywhere it is used.
 
-Note what is *not* here: the vendor's [`placeholder_env`](providers.md#vendors). The proxy strips `Authorization` and `x-api-key` unconditionally, whatever they were called on the way in, so it never needs the name. Its only consumer is the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), which reads it from the [attachment listing](#subscription-management) at workload assembly.
+Note what is *not* here: the vendor's [placeholder](providers.md#placeholder-delivery). The proxy strips `Authorization` and `x-api-key` unconditionally, whatever they were called on the way in, so it never needs to know how the container was primed. The placeholder's consumers are the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) and [`agynd`](agynd-cli.md#native-mode-configuration), which read it from the [attachment listing](#subscription-management).
 
 Returns `NOT_FOUND` when no subscription for that vendor is attached at either scope. The LLM Proxy turns this into a platform error the caller can read, rather than forwarding an unauthenticated request.
 
@@ -158,13 +158,13 @@ CRUD operations for subscriptions and their attachments. See [Providers, Models,
 
 | Method | Description |
 |---|---|
-| `CreateSubscription` | Create a subscription. Validates the vendor against the closed set and the `secret_id` via `Secrets.ResolveSecretExists`. Returns `UNIMPLEMENTED` for a vendor whose binding is [not yet closed](providers.md#vendors) — better a clear refusal than a record that can never produce a working workload |
+| `CreateSubscription` | Create a subscription. Validates the vendor against the closed set and the `secret_id` via `Secrets.ResolveSecretExists` |
 | `GetSubscription` / `ListSubscriptions` | Read. The referenced secret is reported as a reference, never a resolved value |
 | `UpdateSubscription` | Change `name`, `secret_id`, or `account_id`. `vendor` is immutable — changing it would silently redirect every workload the subscription is attached to |
 | `DeleteSubscription` | Refused while any attachment exists; the error names them |
 | `CreateSubscriptionAttachment` | Attach to an agent or an environment (exactly one). Rejects a target in another organization, and rejects a second subscription for the same vendor on that target |
 | `DeleteSubscriptionAttachment` | Detach |
-| `ListSubscriptionAttachments` | Filterable by `subscription_id`, `agent_id`, or `environment_id`. Each entry carries the subscription's `vendor` and its `placeholder_env`, which is everything the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) needs at workload assembly — role attributes and the placeholder — without a second call or a vendor table of its own |
+| `ListSubscriptionAttachments` | Filterable by `subscription_id`, `agent_id`, or `environment_id`. Each entry carries the subscription's `vendor` and its [placeholder](providers.md#placeholder-delivery) — `placeholder_kind` (`env` or `file`) with the variable name or the file's contents template. That is everything the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) needs at assembly and everything [`agynd`](agynd-cli.md#native-mode-configuration) needs at startup, without either holding a vendor table of its own |
 | `CountSubscriptionsReferencingSecret` | **Internal only.** Called by the [Secrets](secrets.md) service before deleting a secret |
 
 Unlike [egress rule attachments](egress-rules-service.md#openziti-resources), a subscription attachment provisions no OpenZiti resources. Native-mode interception is static infrastructure gated by role attributes the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps at workload identity creation — so this service owns credential lifecycle only, with no reconciliation loop and no Ziti Management dependency.

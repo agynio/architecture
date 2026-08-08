@@ -271,11 +271,11 @@ The `group-<groupId>` attribute is added to a member's identity when the member 
 
 The `network-<networkId>` attribute is assigned to tunnel identities at enrollment time and used by the per-network Bind policy in [Private Networks](private-networks.md#bind-policy-per-network). All tunnels within a network share this attribute, which is how multiple tunnel hosts provide HA for the network's resources.
 
-The `llm-native-<vendor>` attributes are stamped by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) when the workload's environment is in `native` [LLM mode](resource-definitions.md#environment) and a [Subscription](providers.md#subscription) for that vendor resolves — one attribute per vendor, so a workload with only a Claude subscription does not intercept OpenAI traffic. They are what makes [native-mode interception](llm-proxy.md#static-policies) work with entirely static services and policies: the per-workload decision lives in the identity's attributes rather than in a per-resource OpenZiti object, so nothing about that feature is dynamically provisioned or reconciled.
+The `llm-native-<vendor>` attributes are stamped by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) when the workload's environment is in `native` [LLM mode](resource-definitions.md#environment) and a [Subscription](providers.md#subscription) for that vendor resolves — one attribute per vendor, so a workload with only an Anthropic subscription does not intercept OpenAI traffic. They are what makes [native-mode interception](llm-proxy.md#static-policies) work with entirely static services and policies: the per-workload decision lives in the identity's attributes rather than in a per-resource OpenZiti object, so nothing about that feature is dynamically provisioned or reconciled.
 
 ### Static Policies
 
-Defined once at infrastructure provisioning (Terraform / bootstrap scripts). These cover baseline connectivity:
+Applied by the platform release, which cannot reach its own services until they exist. These cover baseline connectivity:
 
 | Policy | Type | Identity Roles | Service Roles | Purpose |
 |--------|------|---------------|---------------|---------|
@@ -293,12 +293,14 @@ Defined once at infrastructure provisioning (Terraform / bootstrap scripts). The
 | `agents-host-exposed` | Host | `#agents` | `#exposed-services` | Agent sidecars can host exposed services (traffic forwarded to localhost) |
 | `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service |
 | `llm-proxy-bind-intercept` | Bind | `#llm-proxy-hosts` | `#llm-intercept-services` | The LLM Proxy hosts every vendor intercept service |
-| `native-claude-dial` | Dial | `#llm-native-claude` | `@llm-intercept-claude` | Workloads with a Claude subscription intercept `api.anthropic.com` |
-| `native-codex-dial` | Dial | `#llm-native-codex` | `@llm-intercept-codex` | Workloads with a Codex subscription intercept `chatgpt.com` |
+| `native-anthropic-dial` | Dial | `#llm-native-anthropic` | `@llm-intercept-anthropic` | Workloads with an Anthropic subscription intercept `api.anthropic.com` |
+| `native-openai-dial` | Dial | `#llm-native-openai` | `@llm-intercept-openai` | Workloads with an OpenAI subscription intercept `chatgpt.com` |
 
 Edge router policies: `#all` identities → `#all` edge routers (no router-level segmentation needed).
 
-Static policies, services, and edge router policies are provisioned by Terraform at bootstrap. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) or [service token enrollment](#runner-provisioning) — policies match identities by role attributes, not by specific identity references.
+Static policies, services, and edge router policies are applied as part of [installing the platform](operations/platform-installation.md#ordering-within-the-release) — overlay configuration written against the OpenZiti controller, not resources created through the platform API. Identity provisioning is handled separately via [self-enrollment](#service-identity-self-enrollment) or [service token enrollment](#runner-provisioning) — policies match identities by role attributes, not by specific identity references.
+
+Both halves of the router grant are required: identities to edge routers, and services to edge routers. With only the service half a policy is authorized but has no router to traverse, which reports as no edge routers available rather than as a missing grant. Policies are written against role attributes rather than named services, so a rule covers every runner and app registered later, and nothing has to be reapplied when one is.
 
 ### Dynamic Policies
 
