@@ -319,7 +319,7 @@ Cluster admin permissions are stored as relationship tuples:
 identity:<userId>, admin, cluster:global
 ```
 
-See [Cluster Permissions — Bootstrap](#bootstrap) for how the initial admin is seeded.
+Two identities hold this relation, for two different reasons. A human claims it by signing in — see [Bootstrap](#bootstrap). The platform holds one of its own, used to create the resources a release ships; see [Platform Resource Provisioning](operations/platform-provisioning.md).
 
 ### App Installation Permissions
 
@@ -539,7 +539,6 @@ Files are org-scoped. Access is determined by organization membership. No separa
 | `CreateImage`, `UpdateImage`, `DeleteImage` | `owner` on `organization:<org_id>` |
 | `GetImage`, `ListImages`, `ListVersions`, `RefreshImage` | `member` on `organization:<org_id>`, or the image is `public` |
 | `ResolveVersion` | Internal only (Agents Service, Image Proxy via Istio) |
-| `RegisterPlatformImage` | Internal only ([platform provisioning](operations/platform-provisioning.md); service identity, no organization membership) |
 
 No `image` OpenFGA type is introduced — both visibility values resolve against existing organization relations, so images need no per-resource tuples.
 
@@ -719,11 +718,10 @@ OpenFGA runs as a service within the Kubernetes cluster. It uses PostgreSQL as i
 
 ## Bootstrap
 
-The initial cluster admin is seeded during platform bootstrap. Terraform writes directly to PostgreSQL:
+Cluster admins are **declared by the install**, not claimed by arriving. A release names the people who hold the role, and the [provisioning controller](operations/platform-provisioning.md#cluster-administrators) grants `admin` on `cluster:global` to each named account once that account exists — which is to say once that person has signed in. Nobody is granted the role for being first, and an account nobody named never receives it.
 
-1. Terraform creates a user record in the Users service database. This is a platform-only user — not associated with any OIDC identity.
-2. Terraform registers the user's identity in the Identity service database.
-3. Terraform creates an API token for this user (writes to `user_api_tokens` table — hash of the generated token).
-4. Terraform writes the OpenFGA tuple: `identity:<userId>, admin, cluster:global`.
+An install that names no administrator therefore has none. That is deterministic and recoverable — declare one — rather than a race decided by who opened the Console first.
 
-The generated API token is stored as a Terraform output (sensitive) and is used for cluster-level operations — registering cluster-scoped apps and runners.
+The controller itself needs the relation before it can grant anything, so the platform holds a **separate** cluster admin identity of its own, authenticated by a bootstrap token on the [Gateway](gateway.md) rather than through OIDC. It is not a user account and never becomes one. See [Platform Resource Provisioning](operations/platform-provisioning.md#the-platform-admin-identity).
+
+No bootstrap path writes to a service's database directly. Every identity acquires the relation through the service that owns it.

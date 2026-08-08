@@ -57,12 +57,6 @@ This is a **control plane** service. It stores what an organization declared and
 | **RefreshImage** | Trigger an immediate discovery pass. Called when a picker or image page opens, so a freshly pushed tag appears without waiting for the poll |
 | **ResolveVersion** | Resolve `(image_id, tag)` to an upstream reference. Internal; used by [Agents](agents-service.md) to validate a reference on write and by the [Image Proxy](image-proxy.md) to serve a pull |
 
-### Internal Registration
-
-| Method | Description |
-|---|---|
-| **RegisterPlatformImage** | Create an image if no image of that name exists in the organization; return the existing one otherwise. Internal-only — not exposed through the [Gateway](gateway.md) — and authenticated as a service identity rather than a user. Never updates an existing record, so a re-run cannot overwrite a change someone made by hand |
-
 ## Resource Shapes
 
 ### Image
@@ -120,7 +114,6 @@ Instead, references are late-bound: an environment naming a deleted image, a `go
 | `CreateImage`, `UpdateImage`, `DeleteImage` | `owner` on the image's organization |
 | `GetImage`, `ListImages`, `ListVersions`, `RefreshImage` | `member` on the owning organization, or the image is `public` |
 | `ResolveVersion` | Internal callers only |
-| `RegisterPlatformImage` | Internal callers only; service identity, no organization membership required |
 
 No OpenFGA type is introduced. Both visibility values resolve against existing organization relations, so images need no per-resource tuples and no share management.
 

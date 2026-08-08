@@ -14,6 +14,7 @@ Desired architecture state of the platform.
   - [New Service Development](operations/new-service.md)
   - [E2E Testing](operations/e2e-testing.md)
   - [Database Migrations](operations/database-migrations.md)
+  - [Platform Installation](operations/platform-installation.md)
   - [Platform Resource Provisioning](operations/platform-provisioning.md)
 
 ## By domain

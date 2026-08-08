@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform authenticates four types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
+The platform authenticates several types of identities. Each identity type has its own authentication mechanism, but all resolve to the same internal representation: an `identity_id` and `identity_type`.
 
 ## Identity Types
 
@@ -12,6 +12,7 @@ The platform authenticates four types of identities. Each identity type has its 
 | **Agent** | Agent pod calling platform APIs | OpenZiti (network identity) |
 | **Runner** | Runner executing workloads | OpenZiti (network identity) |
 | **App** | [App](apps.md) interacting with threads | OpenZiti (network identity) |
+| **Platform** | The [platform admin identity](operations/platform-provisioning.md#the-platform-admin-identity), which provisions what a release ships | Bootstrap token resolved by the Gateway |
 
 All identity types are represented uniformly as `identity:<identity_id>` in the [authorization model](authz.md). See [Identity](identity.md) for the central identity registry and [Users](users.md) for user-specific details.
 
@@ -22,7 +23,7 @@ After authentication, every request carries a resolved identity in its context:
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier |
-| `identity_type` | enum | `user`, `agent`, `runner`, `app` |
+| `identity_type` | enum | `user`, `agent`, `runner`, `app`, `platform` |
 
 Downstream services receive identity context via gRPC metadata. Services use `identity_id` for attribution (e.g., message sender). Organization context is passed as a request parameter where needed — see [Organizations — Request Flow](organizations.md#request-flow).
 
@@ -243,6 +244,8 @@ They operate on different connections:
 ## Authentication Boundary
 
 **External traffic**: Authenticated at the **Gateway**, the **[LLM Proxy](llm-proxy.md)**, or the **[Tracing](tracing.md)** service. Users via OIDC access token validation (JWT signature verified against IdP JWKS, identity resolved through [Users](users.md)) or via [API token](api-tokens.md) (opaque token, identity resolved through [Users](users.md)). Agents, Runners, Apps via OpenZiti mTLS (identity extracted via [Ziti Management](openziti.md)). The LLM Proxy authenticates agents via OpenZiti mTLS or API token for LLM API calls. The Tracing service authenticates agents via OpenZiti mTLS for span ingestion. Organization membership is not validated at the authentication boundary — it is enforced by the [authorization model](authz.md) at the service level.
+
+The Gateway accepts one further bearer credential: the **bootstrap token** of the [platform admin identity](operations/platform-provisioning.md#the-platform-admin-identity), compared against a configured value and resolved to a configured identity rather than through [Users](users.md). It exists so a release can provision its own resources — including its cluster administrators — on a platform where nobody has signed in yet. It carries its own identity type rather than presenting as a user, because it has no user account and must never acquire one.
 
 **Internal traffic**: Authenticated by **Istio** mTLS (service identity from ServiceAccount). End-user/agent identity propagated in gRPC metadata after Gateway authentication.
 
