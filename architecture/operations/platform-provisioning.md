@@ -4,7 +4,7 @@
 
 Some resources must exist for a freshly installed platform to be usable at all: an organization for the platform's own resources to live in, the [images](../../product/images/images.md) it ships, the [runner](../runners.md) that executes agent workloads, the [apps](../apps.md) bundled with the release, and at least one cluster administrator. None of them can be created the ordinary way at install time — the ordinary way requires a signed-in user with organization ownership, and at install time there is no user and no organization.
 
-The platform closes that gap **declaratively**. A release declares the resources it needs as Kubernetes objects, and a controller reconciles them against the platform's own API, authenticating as a [platform admin identity](#the-platform-admin-identity). There is no install script and no ordered sequence of calls: an object that cannot be reconciled yet is retried until it can be.
+The platform closes that gap **declaratively**. A release declares the resources it needs as Kubernetes objects, and the [Platform Controller](../services.md) reconciles them against the platform's own API, authenticating as a [platform admin identity](#the-platform-admin-identity). There is no install script and no ordered sequence of calls: an object that cannot be reconciled yet is retried until it can be.
 
 This is what makes the platform installable in one step. Everything the release ships is declared by the release; the ordinary APIs remain what third parties use to bring their own runners, apps and images.
 
