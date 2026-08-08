@@ -6,7 +6,7 @@ Desired product state for the Agyn platform.
 
 - Start here: [Overview](overview.md) -> [Concepts](concepts.md)
 - Chat: [Chat](chat/chat.md) -> [Inline Media](chat/inline-media.md) -> [Charts and Diagrams](chat/charts-and-diagrams.md)
-- Console: [Console](console/console.md)
+- Console: [Console](console/console.md) -> [Setup Wizard](console/setup-wizard.md)
 - CLI: [CLI Login](cli-login/cli-login.md)
 - Port Exposure: [Port Exposure](port-exposure/port-exposure.md)
 - Egress: [Egress Gateway](egress-gateway/egress-gateway.md)
@@ -29,6 +29,7 @@ Desired product state for the Agyn platform.
 ### Console
 
 - [Console](console/console.md)
+- [Setup Wizard](console/setup-wizard.md)
 
 ### CLI
 

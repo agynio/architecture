@@ -24,6 +24,7 @@ Cross-links from product surfaces to the architecture docs that support them.
 ### Product docs
 
 - [Console](../product/console/console.md)
+- [Setup Wizard](../product/console/setup-wizard.md)
 
 ### Architecture docs
 

@@ -61,7 +61,8 @@ Organization members do not have Console access. A user can be an organization o
 1. User signs up and authenticates via OIDC. The platform provisions the user record on first login.
 2. User opens the Console. No organizations exist — the Console displays the empty state with a prompt to create an organization.
 3. User creates an organization via the context switcher. The Console switches to the new organization context.
-4. User configures LLM providers and models, creates agents, and invites teammates.
+4. On the user's first organization, the [Setup Wizard](setup-wizard.md) starts automatically and builds the first working setup — an environment, an LLM credential, and either an agent or a running sandbox.
+5. User configures further providers and models, creates more agents, and invites teammates.
 
 ## Layout
 
@@ -85,7 +86,7 @@ The switcher dropdown lists:
 
 - **Organizations** — all organizations where the user is an owner, ordered alphabetically. Cluster admins see every organization on the platform in this list (not only ones they own), since their `admin from cluster` relation grants organization read permissions everywhere. Selecting an organization loads its sections in the sidebar.
 - **Cluster Administration** — visible only to cluster admins. Selecting it loads cluster-level sections in the sidebar.
-- **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow: display name and [slug](../../architecture/organizations.md#slug) (cluster-wide unique, suggested from the name). On success, the new organization appears in the list and the Console switches to it.
+- **Create Organization** — action at the bottom of the dropdown. Opens the organization creation flow: display name and [slug](../../architecture/organizations.md#slug) (cluster-wide unique, suggested from the name). On success, the new organization appears in the list and the Console switches to it. On the user's first organization, the [Setup Wizard](setup-wizard.md) starts.
 
 The currently selected context is displayed in the top bar. On load, the Console selects the last-used context (persisted in local storage). If no previous context exists, the Console selects the first organization alphabetically, or Cluster Administration if the user has no organizations but is a cluster admin.
 
@@ -205,7 +206,7 @@ Five sections, ungrouped — the list is short enough that grouping would add he
 
 **No organizations but is cluster admin** — the Console auto-selects Cluster Administration. The context switcher shows only "Cluster Administration" and "Create Organization".
 
-**Organization with no resources** — each section shows an empty state with a prompt to create the first resource (e.g., "No agents yet. Create your first agent.").
+**Organization with no resources** — each section shows an empty state with a prompt to create the first resource (e.g., "No agents yet. Create your first agent."). The [Overview](#overview) is the exception: with no agent and no sandbox it offers the [Setup Wizard](setup-wizard.md) instead of a counter grid.
 
 ## Standalone Routes
 
@@ -245,7 +246,11 @@ Non-destructive mutations (update name, change role, toggle settings) apply opti
 
 ### Overview
 
-The overview is the landing page when an organization is selected. It displays summary counters:
+The overview is the landing page when an organization is selected.
+
+While the organization has neither an agent nor a sandbox, the counter grid is replaced by a prompt to run the [Setup Wizard](setup-wizard.md) — the entry point for an organization where the wizard was abandoned, and for every organization after a user's first, where it does not start on its own. Once either exists, the counters below return and the prompt is gone.
+
+It displays summary counters:
 
 | Counter | Description |
 |---------|-------------|
@@ -636,6 +641,7 @@ Resource management views (agents, providers, models, secrets, members) do not r
 ## Related architecture
 
 - [Product to architecture map (Console)](../../maps/product-to-architecture.md#console)
+- [Setup Wizard](setup-wizard.md)
 - [Console](../../architecture/console.md)
 - [Gateway](../../architecture/gateway.md)
 - [Organizations](../../architecture/organizations.md)

@@ -169,6 +169,19 @@ agyn environments subscriptions attach dev team-claude
 
 An environment in `native` mode with no subscription attached does not start workloads — the failure is reported when the workload is assembled, not when its first model call fails.
 
+#### Vendor terms
+
+A subscription is a credential for a vendor's **consumer plan**, and the vendor's terms — not the platform — decide what may run on it. Those terms differ by vendor, and the difference falls along the line the platform already draws between its two workload kinds:
+
+| Vendor | Sandbox — a person at a keyboard | Agent — autonomous, driven by message traffic |
+|---|---|---|
+| `anthropic` | Permitted | **Not permitted.** Anthropic's terms do not cover autonomous agents running on a Claude subscription |
+| `openai` | Permitted | Permitted |
+
+**The platform does not enforce this.** It cannot tell a permitted use from a prohibited one — both are the same CLI making the same intercepted call — and a check that refused to attach an `anthropic` subscription to an agent would be the platform asserting a vendor's policy with no way to track it changing. The constraint is stated here, and repeated by the surfaces that offer the choice: the [Setup Wizard](../console/setup-wizard.md#step-2--llm) does not offer a Claude subscription on the path that ends in an agent, and the Console states the limit where a subscription is attached.
+
+The practical consequence for an organization holding a Claude plan is that **one environment cannot serve both**. `llm_mode` is a property of the environment, so an organization wanting its engineers' sandboxes on a Claude subscription and its agents on an API key runs two environments — and accepts that the sandbox is then no longer a byte-for-byte copy of the agent's runtime, which is the one case where that guarantee is deliberately given up.
+
 ### Choosing a mode
 
 `platform` is the default and the right answer whenever the organization has API keys: it gives model-level permissions, a curated catalog, and token accounting that maps to what the organization is billed.
