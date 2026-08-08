@@ -382,7 +382,7 @@ After Gateway authenticates a request (OIDC for users, OpenZiti for agents/runne
 | Metadata Key | Type | Description |
 |-------------|------|-------------|
 | `x-identity-id` | string (UUID) | Platform identity ID |
-| `x-identity-type` | string | `user`, `agent`, `runner`, `app` |
+| `x-identity-type` | string | `user`, `agent`, `runner`, `app`, `platform` |
 | `x-workload-id` | string (UUID) | Workload ID — set only for agent connections; absent for all other identity types |
 
 All internal services read these keys from incoming gRPC metadata. Services trust these values because:

@@ -13,7 +13,7 @@ The platform has five identity types (user, agent, agent_instance, runner, app),
 | Field | Type | Description |
 |-------|------|-------------|
 | `identity_id` | string (UUID) | Unique identity identifier. Primary key |
-| `identity_type` | enum | `user`, `agent` (class), `agent_instance`, `runner`, `app` |
+| `identity_type` | enum | `user`, `agent` (class), `agent_instance`, `runner`, `app`, `platform` |
 | `created_at` | timestamp | Registration time |
 
 `agent` identifies an agent **class** (the configuration entity in [Agents Service](agents-service.md)); `agent_instance` identifies a specific [instance](agent-instances.md) of a class. Both may appear as `sender_id` on messages; only `agent_instance` appears as a thread participant (classes are rewritten to instances on add — see [Threads — Class-on-Add Rewrite](threads.md#class-on-add-rewrite)).
