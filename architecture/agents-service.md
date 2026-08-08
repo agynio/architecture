@@ -292,10 +292,11 @@ The following resources are fetched before the agent CLI is spawned:
 |----------|--------|---------|
 | Agent | `GetAgent` | Base configuration: model, environment, behavioral config |
 | Skills | `ListSkills(agent_id)` | Prompt fragments placed on the filesystem for the agent CLI |
-| MCPs | `ListMCPs(agent_id)` and `ListMCPs(environment_id)` | MCP server definitions — used to configure agent CLI MCP endpoints. The two lists are merged by name, agent-level winning |
 | InitScripts | `ListInitScripts(environment_id)` then `ListInitScripts(agent_id)` | Shell scripts executed before the agent CLI is spawned, in that order |
 
-A [sandbox](../product/sandboxes/sandboxes.md) workload has no agent, so its `agynd` fetches the environment-scoped lists only.
+A [sandbox](../product/sandboxes/sandboxes.md) workload has no agent, so its `agynd` fetches the environment-scoped list only.
+
+MCP servers are **not** fetched via API either. The [Orchestrator](agents-orchestrator.md) resolves an agent's and its environment's MCPs when it assembles the workload — it is what builds the sidecars — and injects their names and ports as `AGENT_MCP_SERVERS`. `agynd` reads that and writes the agent CLI's endpoint list; it never asks the Agents service which MCPs exist, and holds no relationship to the environment that would let it.
 
 Environment variables are **not** fetched via API. The Orchestrator injects all ENV values (both plain-text and resolved secret values) directly into the container at assembly time. `agynd` reads them from the process environment.
 
