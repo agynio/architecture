@@ -38,7 +38,7 @@ Egress rules apply to outbound HTTP/HTTPS from **any container in the agent's po
 
 ### What is never intercepted
 
-- `.ziti` hostnames (platform services: Gateway, LLM Proxy, Tracing, exposed services) — routed via their own OpenZiti services.
+- `.agyn` hostnames (platform services: Gateway, LLM Proxy, Tracing, exposed services) — routed via their own OpenZiti services.
 - Cluster-internal addresses — blocked by the workload-namespace NetworkPolicy installed with the runner (see "Workload network policy" below).
 - Pod-local (`localhost`, MCP sidecars accessed via loopback) — never leaves the pod.
 
@@ -47,10 +47,10 @@ Egress rules apply to outbound HTTP/HTTPS from **any container in the agent's po
 The runner's installation includes a NetworkPolicy in the workload namespace that restricts every agent workload pod's egress to:
 
 - The OpenZiti synthetic range (`100.64.0.0/10`) — for platform services and matched egress rules.
-- Cluster DNS — needed to resolve non-`.ziti` hostnames the agent legitimately calls (the resolved IP flows through the Ziti sidecar's interception for matched rules, or directly to public internet for unmatched destinations).
+- Cluster DNS — needed to resolve non-`.agyn` hostnames the agent legitimately calls (the resolved IP flows through the Ziti sidecar's interception for matched rules, or directly to public internet for unmatched destinations).
 - Public internet — for unmatched destinations and for the Ziti sidecar to reach edge routers.
 
-The policy **blocks** access to cluster pod CIDRs, cluster service CIDRs, and any operator-declared internal CIDRs. Agents cannot reach other in-cluster services from within the workload pod — the only platform-managed egress paths are `.ziti` services and rule-matched destinations.
+The policy **blocks** access to cluster pod CIDRs, cluster service CIDRs, and any operator-declared internal CIDRs. Agents cannot reach other in-cluster services from within the workload pod — the only platform-managed egress paths are `.agyn` services and rule-matched destinations.
 
 The policy is static infrastructure parameterized at runner install time, not per workload — see [k8s-runner — Workload Egress NetworkPolicy](../../architecture/k8s-runner.md#workload-egress-networkpolicy).
 
@@ -62,7 +62,7 @@ A rule has two parts: a **matcher** that says which requests it applies to, and 
 
 | Field | Description |
 |---|---|
-| **Domain pattern** | The hostname the rule applies to. Examples: `api.github.com`, `*.github.com`. Subdomain wildcards supported. Required. Unique per organization. Reserved zones — `*.ziti`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range — are rejected. |
+| **Domain pattern** | The hostname the rule applies to. Examples: `api.github.com`, `*.github.com`. Subdomain wildcards supported. Required. Unique per organization. Reserved zones — `*.agyn`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range — are rejected. |
 | **Ports** | List of destination ports to intercept (e.g., `[443]`, `[80, 443]`, `[8443]`). Defaults to `[80, 443]` when unset. |
 | **Methods** | List of HTTP methods the rule applies to (e.g., `["GET", "HEAD"]`). Empty means any method. |
 | **Path pattern** | Glob over the request path (e.g., `/repos/**`, `/users/*/issues`). Empty means any path. |
@@ -187,7 +187,7 @@ Rules are created, edited, and deleted by organization owners through the Consol
 - The agent's container image must trust the Platform CA via one of the standard mechanisms (env-var-honoring HTTP client, or CA installed into the system trust store).
 - Wildcard patterns in `matcher.domain_pattern` cover one subdomain segment (`*.github.com` matches `api.github.com` but not `code.api.github.com`); multi-segment wildcards are out of scope for v1.
 - Two rules cannot share the same `(organization, matcher.domain_pattern)`. Express finer-grained method or path policies within a single rule's `matcher.methods` and `matcher.path_pattern`. (Future: per-condition sub-policies inside one rule.)
-- Reserved domain patterns are rejected at create time: `*.ziti`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
+- Reserved domain patterns are rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
 - Cluster-internal services are not reachable from agent workloads regardless of rule configuration — the platform's NetworkPolicy blocks them at the cluster network layer.
 - Secrets referenced by `effect.inject` headers are not auto-refreshed. Rotating the secret value via the [Secrets](../../architecture/secrets.md) service takes effect on the next request. Tokens that require an active refresh (OAuth access tokens, short-lived STS credentials) must be refreshed externally.
 

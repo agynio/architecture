@@ -37,7 +37,7 @@ Mixed plane — control plane for CRUD (Gateway-exposed) and data plane for `Lis
 
 | Method | Description |
 |---|---|
-| **CreateEgressRule** | Create a rule. Validates: unique `(organization_id, matcher.domain_pattern)`, no overlap with reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`), header `value` xor `secret_id` per entry. Provisions the OpenZiti service `egress-rule-<rule_id>` via Ziti Management |
+| **CreateEgressRule** | Create a rule. Validates: unique `(organization_id, matcher.domain_pattern)`, no overlap with reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`), header `value` xor `secret_id` per entry. Provisions the OpenZiti service `egress-rule-<rule_id>` via Ziti Management |
 | **GetEgressRule** | Fetch a rule by ID |
 | **ListEgressRules** | List rules in an organization. Cursor pagination |
 | **UpdateEgressRule** | Update mutable fields. If `matcher.domain_pattern` or `matcher.ports` changes, updates the OpenZiti service's `intercept.v1` config |

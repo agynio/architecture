@@ -106,7 +106,7 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Port Exposure: TLS for Exposed Services
 
-**Context:** Exposed services are accessed over `http://exposed-<id>.ziti:<port>`. The OpenZiti overlay provides encryption in transit (mTLS between Ziti endpoints), but the user's browser connects to the local Ziti tunnel via plain HTTP on `localhost`.
+**Context:** Exposed services are accessed over `http://exposed-<id>.agyn:<port>`. The OpenZiti overlay provides encryption in transit (mTLS between Ziti endpoints), but the user's browser connects to the local Ziti tunnel via plain HTTP on `localhost`.
 
 **Questions:**
 - Is the lack of browser-visible HTTPS acceptable for the initial version?

@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to the [Gateway](gateway.md) and the [LLM Proxy](llm-proxy.md) via OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`) that are transparently intercepted by the pod's [Ziti sidecar](openziti.md#agent-access-scope), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
+`agynd` is the agent wrapper daemon. It bridges any agent CLI with the platform by connecting to the [Gateway](gateway.md) and the [LLM Proxy](llm-proxy.md) via OpenZiti service hostnames (for example, `gateway.agyn`, `llm-proxy.agyn`) that are transparently intercepted by the pod's [Ziti sidecar](openziti.md#agent-access-scope), preparing the agent runtime environment, and managing the agent process lifecycle. The [Runner](runner.md) starts `agynd` as the main process in an agent container.
 
 | Aspect | Details |
 |--------|---------|
@@ -46,7 +46,7 @@ The agent CLI has no knowledge of the inbox schema, file IDs, or the `files` arr
 
 ### 3. Environment Preparation
 
-Before spawning the agent CLI, `agynd` fetches class configuration from the platform via the Gateway (`gateway.ziti`) using its own agent-instance OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads two identifiers from environment variables: `AGENT_INSTANCE_ID` (this workload's instance) and `AGENT_ID` (the class the instance was spawned from). Class configuration is fetched with `AGENT_ID`; inbox and workload calls use `AGENT_INSTANCE_ID`. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
+Before spawning the agent CLI, `agynd` fetches class configuration from the platform via the Gateway (`gateway.agyn`) using its own agent-instance OpenZiti identity. Authentication is handled at the network level by the pod's Ziti sidecar. `agynd` reads two identifiers from environment variables: `AGENT_INSTANCE_ID` (this workload's instance) and `AGENT_ID` (the class the instance was spawned from). Class configuration is fetched with `AGENT_ID`; inbox and workload calls use `AGENT_INSTANCE_ID`. The preparation is agent-specific — different agent CLIs expect different configuration conventions:
 
 | Preparation | Description |
 |-------------|-------------|
@@ -54,7 +54,7 @@ Before spawning the agent CLI, `agynd` fetches class configuration from the plat
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **CLI first-run state** | Writes the agent CLI's own first-run state file — `~/.claude.json` for Claude Code — so the CLI starts into work rather than an interactive setup wizard. See [Agent CLI First-Run State](#agent-cli-first-run-state) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
-| **Trace hook** | Opens the trace for this wake cycle and registers the platform's [trace hook](tracing.md#the-trace-hook) on the agent CLI's turn completion, in the CLI's own config — `config.toml` for Codex, `~/.claude/settings.json` for Claude Code — the same files this step already writes. The hook ships with `agynd` and is told which transcript format to expect and which trace to write into. After each turn it reads the CLI's session transcript and exports the turn to [Tracing](tracing.md) at `tracing.ziti`, which is how the prompt, the model's reply, and each tool call's input and output are recorded |
+| **Trace hook** | Opens the trace for this wake cycle and registers the platform's [trace hook](tracing.md#the-trace-hook) on the agent CLI's turn completion, in the CLI's own config — `config.toml` for Codex, `~/.claude/settings.json` for Claude Code — the same files this step already writes. The hook ships with `agynd` and is told which transcript format to expect and which trace to write into. After each turn it reads the CLI's session transcript and exports the turn to [Tracing](tracing.md) at `tracing.agyn`, which is how the prompt, the model's reply, and each tool call's input and output are recorded |
 | **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(environment_id)` and `ListInitScripts(agent_id)`, then executes the environment's scripts followed by the agent's, each group in creation order, using the container's default shell. Each script runs with its working directory set to `WORKSPACE_DIR` when that variable is defined in the subprocess environment, and to `/tmp` otherwise. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. In a [sandbox](../product/sandboxes/sandboxes.md) there is no agent: `agynd` runs the environment's scripts and then holds, spawning no agent CLI — see [Agent Init Container](agent-init.md#startup-sequence). |
 | **PATH** | Prepends `/agyn/bin` to `PATH` in the subprocess environment, making the `agyn` platform CLI and the configured agent CLI binary (`codex`, `claude`, or `agn`) available by name to the agent process and any child commands it runs. One entry suffices because every delivered binary lives there — see [Agent Init — Shared Volume Contract](agent-init.md#shared-volume-contract). |
 
@@ -86,7 +86,7 @@ model_provider = "platform"
 
 [model_providers.platform]
 name = "Agyn LLM"
-base_url = "http://llm-proxy.ziti/v1"
+base_url = "http://llm-proxy.agyn/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 ```
@@ -99,7 +99,7 @@ If `HOME` is empty in the Codex subprocess environment, `agynd` sets `HOME=/tmp`
 
 ```yaml
 llm:
-  endpoint: http://llm-proxy.ziti/v1
+  endpoint: http://llm-proxy.agyn/v1
 ```
 
 **Claude Code** — `agynd` writes `~/.claude/settings.json` with LLM Proxy configuration and full tool permissions:
@@ -107,7 +107,7 @@ llm:
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://llm-proxy.ziti:443",
+    "ANTHROPIC_BASE_URL": "http://llm-proxy.agyn:443",
     "ANTHROPIC_API_KEY": "platform",
     "DISABLE_AUTOUPDATER": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
@@ -142,7 +142,7 @@ The `permissions` block grants all built-in tools without interactive confirmati
 
 `skipDangerousModePermissionPrompt` is what makes `bypassPermissions` take effect. The mode carries a one-time disclaimer, and a CLI that has not seen it accepted **downgrades the mode to the default** rather than refusing — so without this key the `permissions` block above silently buys nothing and tools stop for approval. It belongs beside the mode it unlocks; the same acceptance recorded in the CLI's [first-run state](#agent-cli-first-run-state) is migrated here by the CLI itself.
 
-Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` OpenZiti hostname. The Ziti sidecar resolves the hostname and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses connect with standard HTTP clients — no OpenZiti SDK required. When running with the Ziti sidecar, authentication is handled at the network level by the sidecar's mTLS — the `OPENAI_API_KEY` value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
+Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.agyn` OpenZiti hostname. The Ziti sidecar resolves the hostname and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses connect with standard HTTP clients — no OpenZiti SDK required. When running with the Ziti sidecar, authentication is handled at the network level by the sidecar's mTLS — the `OPENAI_API_KEY` value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
 
 ##### Native Mode Configuration
 
@@ -269,7 +269,7 @@ Each SDK module is responsible for:
 | **Network identity (Ziti sidecar)** | Pod-level [OpenZiti](authn.md#network-identity-openziti) mTLS via the Ziti sidecar — automatic when the sidecar is present | Primary. The Orchestrator creates an OpenZiti identity and passes the enrollment JWT via Runner. The Ziti sidecar enrolls on startup and transparently intercepts OpenZiti service hostnames via DNS + TPROXY |
 | **Auth token** | Token stored in `~/.agyn/credentials` and sent to the [Gateway](gateway.md) | Development, testing, or environments without OpenZiti |
 
-In production, the pod's Ziti sidecar handles OpenZiti enrollment and mTLS. `agynd` connects to Gateway and LLM Proxy using OpenZiti service hostnames (for example, `gateway.ziti`, `llm-proxy.ziti`); the sidecar resolves these names and transparently intercepts traffic via DNS + TPROXY, so `agynd` does not embed the OpenZiti SDK. The [agent identity lifecycle](authn.md#agent-identity-lifecycle) is managed by the Orchestrator. The enrollment JWT is consumed by the sidecar, not by `agynd`.
+In production, the pod's Ziti sidecar handles OpenZiti enrollment and mTLS. `agynd` connects to Gateway and LLM Proxy using OpenZiti service hostnames (for example, `gateway.agyn`, `llm-proxy.agyn`); the sidecar resolves these names and transparently intercepts traffic via DNS + TPROXY, so `agynd` does not embed the OpenZiti SDK. The [agent identity lifecycle](authn.md#agent-identity-lifecycle) is managed by the Orchestrator. The enrollment JWT is consumed by the sidecar, not by `agynd`.
 
 ## Architecture
 

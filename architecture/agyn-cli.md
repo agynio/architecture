@@ -323,7 +323,7 @@ Agents use the `expose` command group to make ports inside their container acces
 
 | Command | Description |
 |---------|-------------|
-| `agyn expose add <port>` | Expose a port. Returns the access URL (`http://exposed-<id>.ziti:<port>`) |
+| `agyn expose add <port>` | Expose a port. Returns the access URL (`http://exposed-<id>.agyn:<port>`) |
 | `agyn expose remove <port>` | Un-expose a port |
 | `agyn expose list` | List active exposures for the current workload |
 

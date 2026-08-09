@@ -81,7 +81,7 @@ sequenceDiagram
     GW->>AS: AckInboxItems
 ```
 
-1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its [`instance_inbox:me`](../notifications.md#self-subscription-sentinel) notification room and pulls unacknowledged inbox items via `GetUnackedInboxItems`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+1. On startup, the agent connects to the [Gateway](../gateway.md) (via the `gateway.agyn` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to its [`instance_inbox:me`](../notifications.md#self-subscription-sentinel) notification room and pulls unacknowledged inbox items via `GetUnackedInboxItems`. See [Consumer Sync Protocol](../notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
 2. During processing, new items may arrive. The Gateway delivers a `message.created` event (from Notifications), waking the agent to check for new items at the appropriate point in its processing loop.
 3. After processing, the agent calls `AckInboxItems` to confirm the items were handled.
 4. When idle (current turn complete, no unacknowledged items), the agent waits for either a notification or the poll interval to expire, then checks again.
@@ -90,7 +90,7 @@ sequenceDiagram
 ### Design Principles
 
 - **Pull at defined loop stages.** The `whenBusy` configuration controls when mid-run messages are picked up: between turns (`wait`) or between tool calls (`injectAfterTools`). The notification wakes the agent, but the actual message read happens at the next check point in the LLM loop.
-- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
+- **No inbound connections.** The agent connects outbound to the [Gateway](../gateway.md) only (via the `gateway.agyn` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar). The Gateway routes requests to internal services (Threads, Notifications, Files, etc.). No server, no open port, no service discovery per agent.
 
 ## Tools
 
@@ -178,7 +178,7 @@ sequenceDiagram
 1. The orchestrator's reconciliation loop detects instances with unacknowledged inbox items.
 2. Orchestrator requests Runner to start an agent workload with `AGENT_INSTANCE_ID`, `AGENT_ID` (class), and class config.
 3. Runner creates a container with the agent image, MCP sidecars, and configuration.
-4. Agent connects to the Gateway (via the `gateway.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to notifications, pulls unacknowledged inbox items, processes, posts responses to threads, acknowledges.
+4. Agent connects to the Gateway (via the `gateway.agyn` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar), subscribes to notifications, pulls unacknowledged inbox items, processes, posts responses to threads, acknowledges.
 5. Agent waits for new items (notification or poll fallback).
 6. The orchestrator monitors workload activity. When idle timeout is exceeded, it stops the workload via Runner. The instance persists — a new workload starts on the next inbox item.
 

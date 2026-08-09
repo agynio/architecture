@@ -35,12 +35,12 @@ graph TB
     end
 
     AgentCLI -->|streamable HTTP<br/>localhost:port| FilesMCP
-    FilesMCP -->|GetFileMetadata, GetFileContent<br/>via gateway.ziti| Gateway
+    FilesMCP -->|GetFileMetadata, GetFileContent<br/>via gateway.agyn| Gateway
     Gateway --> Files
     Ziti -.->|OpenZiti mTLS| Gateway
 ```
 
-`files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.ziti` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `GetFileContent` RPC — the MCP server does not access object storage directly.
+`files-mcp` runs as a sidecar container in the agent pod. It connects to the [Gateway](gateway.md) via the `gateway.agyn` OpenZiti hostname (transparently intercepted by the pod's Ziti sidecar) to access the Files service API. File content is downloaded through the Files service's `GetFileContent` RPC — the MCP server does not access object storage directly.
 
 ## Tool
 
@@ -176,7 +176,7 @@ The API token fallback allows running `files-mcp` outside the platform for testi
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `MCP_PORT` | yes | Port to listen on (assigned by the [Agents Orchestrator](agents-orchestrator.md)) |
-| `GATEWAY_ADDRESS` | yes | Gateway address. Inside the platform: `gateway.ziti` (intercepted by Ziti sidecar). Outside: `https://gateway.agyn.dev` |
+| `GATEWAY_ADDRESS` | yes | Gateway address. Inside the platform: `gateway.agyn` (intercepted by Ziti sidecar). Outside: `https://gateway.agyn.dev` |
 | `AGYN_API_TOKEN` | no | API token for Gateway authentication. Used when Ziti sidecar is not present (local dev, testing) |
 | `MAX_FILE_SIZE` | no | Maximum file size in bytes the tool will read. Default: configurable per deployment |
 

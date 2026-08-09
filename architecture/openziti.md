@@ -137,7 +137,7 @@ sequenceDiagram
     O->>R: StartWorkload(config, enrollmentJWT)
     R->>A: Start pod with ZITI_ENROLLMENT_JWT in Ziti sidecar env
     Note over A: Ziti sidecar exchanges JWT for x509 cert, enables TPROXY for pod network namespace
-    A->>A: All containers reach .ziti services via TPROXY. agynd connects to gateway.ziti; agent CLI connects to llm-proxy.ziti
+    A->>A: All containers reach .agyn services via TPROXY. agynd connects to gateway.agyn; agent CLI connects to llm-proxy.agyn
 
     Note over O: Reconciliation: agent idle
     O->>R: StopWorkload(workloadId)
@@ -476,7 +476,7 @@ Agents connect to the **Gateway**, the **[LLM Proxy](llm-proxy.md)**, and the **
 
 Agent pods use a **Ziti sidecar container** that handles OpenZiti connectivity for the entire pod. The Orchestrator injects `ZITI_ENROLLMENT_JWT` into the sidecar's environment. At startup, the sidecar exchanges the JWT for an x509 certificate, enrolls the OpenZiti identity, and enables TPROXY for the pod's network namespace.
 
-With TPROXY active, all containers in the pod (agent, MCP sidecars) can reach `.ziti` service hostnames — DNS queries for `.ziti` resolve via the sidecar, and matching traffic is intercepted and tunneled through Ziti using the pod's identity.
+With TPROXY active, all containers in the pod (agent, MCP sidecars) can reach `.agyn` service hostnames — DNS queries for `.agyn` resolve via the sidecar, and matching traffic is intercepted and tunneled through Ziti using the pod's identity.
 
 The pod's DNS policy is set to `None` with the Ziti sidecar as the primary nameserver (127.0.0.1) and the cluster DNS (CoreDNS) as fallback.
 
@@ -484,17 +484,17 @@ The pod's DNS policy is set to `None` with the Ziti sidecar as the primary names
 
 All containers in the pod share the same network namespace and the same OpenZiti identity. The security boundary is enforced via **per-container environment variable injection** and **Gateway authorization**, not network isolation:
 
-- **Agent container (`agynd`)**: receives agent ENVs (including resolved secrets), `AGENT_SKILLS`, `AGENT_INIT_SCRIPTS`, `GATEWAY_ADDRESS`. Calls `gateway.ziti` for platform APIs.
-- **MCP sidecar containers**: receive only their own MCP ENVs — no agent secrets, no agent configuration. They are local HTTP servers accessed by the agent CLI at `localhost:<port>`. They can reach `.ziti` services via TPROXY if needed, but they hold no agent credentials.
+- **Agent container (`agynd`)**: receives agent ENVs (including resolved secrets), `AGENT_SKILLS`, `AGENT_INIT_SCRIPTS`, `GATEWAY_ADDRESS`. Calls `gateway.agyn` for platform APIs.
+- **MCP sidecar containers**: receive only their own MCP ENVs — no agent secrets, no agent configuration. They are local HTTP servers accessed by the agent CLI at `localhost:<port>`. They can reach `.agyn` services via TPROXY if needed, but they hold no agent credentials.
 - **Gateway authorization**: agent workload identities (`identity_type == "agent_instance"`) are explicitly denied access to Agents Service configuration APIs — even if an MCP container somehow obtained the instance's identity context, it cannot read agent ENVs, skills, or secrets via the API.
 
 ### Connection Overview
 
 | Connection | Layer |
 |------------|-------|
-| agynd → Gateway | `.ziti` hostname via Ziti sidecar TPROXY |
-| Agent CLI → LLM Proxy | `llm-proxy.ziti` via Ziti sidecar TPROXY |
-| agynd and trace hook → Tracing | `tracing.ziti` via Ziti sidecar TPROXY |
+| agynd → Gateway | `.agyn` hostname via Ziti sidecar TPROXY |
+| Agent CLI → LLM Proxy | `llm-proxy.agyn` via Ziti sidecar TPROXY |
+| agynd and trace hook → Tracing | `tracing.agyn` via Ziti sidecar TPROXY |
 | Agent CLI → MCP sidecars | `localhost:<port>` (direct, no Ziti) |
 | Gateway → internal services | Istio |
 | LLM Proxy → internal services | Istio |

@@ -70,7 +70,7 @@ Uniqueness: for each `port` in `intercept_ports`, the tuple `(organization_id, i
 
 Reserved `intercept_host` patterns (rejected at create time):
 
-- `*.ziti`
+- `*.agyn`
 - `*.svc`, `*.cluster.local`
 - Anything overlapping `100.64.0.0/10` (OpenZiti synthetic CIDR)
 - `localhost`, `127.0.0.0/8`, `::1/128`
@@ -378,7 +378,7 @@ sequenceDiagram
     Sidecar-->>Code: Standard TCP socket
 ```
 
-The agent's code observes a normal TCP connection. The intercept hostname is whatever the operator declared on the resource — there is no required `.ziti` suffix.
+The agent's code observes a normal TCP connection. The intercept hostname is whatever the operator declared on the resource — there is no required `.agyn` suffix.
 
 ## EgressRule Interaction
 

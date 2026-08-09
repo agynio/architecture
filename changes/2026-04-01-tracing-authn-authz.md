@@ -30,6 +30,6 @@
 
 ## Notes
 
-- LLM Proxy is unaffected — agent LLM traffic continues to flow via `llm-proxy.ziti` directly, not through `agynd`.
+- LLM Proxy is unaffected — agent LLM traffic continues to flow via `llm-proxy.agyn` directly, not through `agynd`.
 - `agynd` does not produce spans itself; it only proxies and enriches.
 - Query authorization (org-scoped visibility) is lower priority than ingestion auth but included in the spec.
