@@ -494,13 +494,13 @@ All containers in the pod share the same network namespace and the same OpenZiti
 |------------|-------|
 | agynd → Gateway | `.ziti` hostname via Ziti sidecar TPROXY |
 | Agent CLI → LLM Proxy | `llm-proxy.ziti` via Ziti sidecar TPROXY |
-| agynd and tracing plugin → Tracing | `tracing.ziti` via Ziti sidecar TPROXY |
+| agynd and trace hook → Tracing | `tracing.ziti` via Ziti sidecar TPROXY |
 | Agent CLI → MCP sidecars | `localhost:<port>` (direct, no Ziti) |
 | Gateway → internal services | Istio |
 | LLM Proxy → internal services | Istio |
 | Tracing → internal services | Istio |
 
-The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. The LLM Proxy handles LLM API calls — it resolves models via the LLM service and forwards requests to external providers. The Tracing service receives span data from agents — [`agynd` and the tracing plugin](tracing.md#span-producers) export directly, each attributed to the identity that sent it.
+The Gateway routes agent requests to internal services (Threads, Files, etc.) via Istio. The LLM Proxy handles LLM API calls — it resolves models via the LLM service and forwards requests to external providers. The Tracing service receives span data from agents — [`agynd` and its trace hook](tracing.md#span-producers) export directly, each attributed to the identity that sent it.
 
 ## OpenZiti Identities Summary
 
