@@ -337,7 +337,7 @@ The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id`
 
 ### Why
 
-Agent CLIs (Codex, Claude Code, `agn`) are the OTel span producers, but they have no knowledge of platform-specific resource attributes (`agyn.agent_instance.id`, `agyn.thread.id`). `agynd` is the only process in the agent container that has the full platform context (instance ID, current turn's source thread). Rather than requiring each agent CLI to inject platform attributes — which is impossible for third-party binaries — `agynd` intercepts span exports and enriches them.
+Spans are produced by [tracing plugins](#tracing-plugins) that `agynd` installs into each agent CLI, and by the platform services a turn passes through. Neither knows the platform-specific resource attributes (`agyn.agent_instance.id`, `agyn.thread.id`) — a plugin sees one CLI's session, a service sees one request. `agynd` is the only process in the agent container holding the full platform context: the instance it serves and the thread and message of the turn in flight. Rather than teaching every producer to assert platform attribution — impossible for third-party binaries, and unverifiable if they could — `agynd` receives what they produce and enriches it on the way out.
 
 ### Design
 
@@ -367,23 +367,44 @@ Unlike the workload-scoped attributes (`agyn.agent_instance.id`, `agyn.workload.
 
 `agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only instance/thread attribution, which is independently verified by the Tracing service.
 
-### Agent CLI Configuration
-
-`agynd` configures the agent CLI's OTel exporter endpoint as part of its [environment preparation](agynd-cli.md#responsibilities). The mechanism is agent-specific:
-
-| Agent CLI | Configuration |
-|-----------|--------------|
-| **Codex** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
-| **Claude Code** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
-| **agn** | `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` environment variable |
-
-Standard OTel SDK environment variables are supported by all three agent CLIs. No agent-specific tracing configuration is needed.
-
 ### Proxy Behavior
 
-- The proxy is **pass-through** — it does not interpret span content beyond injecting the attribution attributes above.
+- The proxy serves two intakes: the OTLP endpoint, for producers that speak it, and the turns posted by [tracing plugins](#tracing-plugins), which it converts into spans. Both leave through the same exporter and carry the same attribution.
+- Beyond that conversion and the attribution attributes above, the proxy does not interpret span content.
 - If `AGENT_INSTANCE_ID` is not set (should not happen in normal operation), the proxy forwards spans without injecting `agyn.agent_instance.id`. The Tracing service stores them without instance attribution.
 - If the Tracing service is unreachable, the proxy returns the standard OTLP error response. Agent CLIs handle export failures according to their OTel SDK retry configuration. Tracing is an optional dependency — export failures do not affect agent operation.
+
+## Tracing Plugins
+
+What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. A platform-owned plugin, installed into each CLI by `agynd`, reads that transcript after every turn and posts the reconstructed turn to `agynd`.
+
+### Why not the CLI's own telemetry
+
+An agent CLI's OTel export describes that a model call happened — endpoint, model, status, duration, token counts — and never what was said. Prompts appear as a length, streamed output as a chunk count, tool calls not at all. The span tree it produces describes the framework's internals: one span per streamed chunk, nested as deep as the call stack, answering no question the run view asks.
+
+The transcript is the opposite. It is the record the CLI keeps in order to resume a session, so it holds the prompt, the assistant's reply, every tool call with its input and output, and the usage counts — the material this service exists to store.
+
+### Plugin contract
+
+Each plugin is platform-owned, ships with the agent runtime image, and is installed by `agynd` during [environment preparation](agynd-cli.md#3-environment-preparation). It registers on the CLI's turn-completion hook, and:
+
+1. Reads the session transcript the hook identifies.
+2. Reconstructs the turns not yet sent, in the shape described below.
+3. Posts them to `agynd` over loopback.
+4. Records what it sent, so a resumed session — which replays the transcript from its start — uploads each turn once.
+5. Swallows its own failures. Tracing is an optional dependency; a plugin never ends a turn that otherwise succeeded.
+
+| Agent CLI | Hook | Transcript |
+|-----------|------|------------|
+| **Codex** | `Stop`, registered in `config.toml`; the rollout path arrives on stdin | rollout JSONL |
+| **Claude Code** | `Stop` and `SessionEnd`, registered in `~/.claude/settings.json` | conversation transcript |
+| **agn** | turn completion | session transcript |
+
+### Turn shape
+
+A turn becomes one `invocation.message` carrying the prompt, an `llm.call` per model step carrying the model, the full request context and the usage counts, and a `tool.execution` per tool call carrying its input and output. A subagent's turns nest under the turn that spawned them.
+
+Spans are timestamped from the transcript, so a turn is recorded with the times at which it happened rather than the time it was uploaded.
 
 ## Configuration
 
