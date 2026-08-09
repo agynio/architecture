@@ -8,7 +8,7 @@ Traffic reaches it two ways, corresponding to the [environment's](resource-defin
 
 | Mode | How the agent CLI is configured | How traffic arrives | What identifies the credential |
 |---|---|---|---|
-| `platform` | Pointed at `llm-proxy.ziti` by [`agynd`](agynd-cli.md#llm-endpoint-configuration); models are platform [Model](providers.md#model) IDs | Plain HTTP on the `llm-proxy` OpenZiti service | The `model` field in the request body |
+| `platform` | Pointed at `llm-proxy.agyn` by [`agynd`](agynd-cli.md#llm-endpoint-configuration); models are platform [Model](providers.md#model) IDs | Plain HTTP on the `llm-proxy` OpenZiti service | The `model` field in the request body |
 | `native` | Not configured at all — the CLI addresses its vendor directly, with the vendor's model names | TLS on a per-vendor intercept OpenZiti service, terminated here | The caller's identity plus the vendor it addressed |
 
 In `platform` mode agents point their standard LLM client at the proxy and use it like any compatible API. In `native` mode they point at nothing — the CLI runs in its stock configuration and never learns the proxy exists. Both land on the same forwarding, metering, and guardrail path, which is the point: there is one place that sees LLM traffic regardless of how a customer pays for it.
@@ -280,7 +280,7 @@ The LLM Proxy authenticates callers independently — it does not go through the
 | **OpenZiti** | mTLS identity extracted from the connection via [Ziti Management](openziti.md) `ResolveIdentity` | Agents running inside the platform (primary path) |
 | **API token** | `Authorization: Bearer agyn_...` → hash lookup via [Users](users.md) `ResolveAPIToken` | External callers, local development, CI |
 
-When an agent connects to `llm-proxy.ziti`, the Ziti sidecar resolves the hostname to a `100.64.0.0/10` address and transparently intercepts the connection via DNS + iptables TPROXY, establishing an OpenZiti mTLS connection to the LLM Proxy on behalf of the pod. The LLM Proxy extracts the agent identity from this mTLS connection identically to how it would from an embedded-SDK connection.
+When an agent connects to `llm-proxy.agyn`, the Ziti sidecar resolves the hostname to a `100.64.0.0/10` address and transparently intercepts the connection via DNS + iptables TPROXY, establishing an OpenZiti mTLS connection to the LLM Proxy on behalf of the pod. The LLM Proxy extracts the agent identity from this mTLS connection identically to how it would from an embedded-SDK connection.
 
 Both methods resolve to an `identity_id` and `identity_type`. The `identity_id` is passed to the [Authorization](authz.md) service for permission checks.
 

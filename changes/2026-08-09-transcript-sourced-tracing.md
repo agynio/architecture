@@ -23,7 +23,7 @@ It is one binary rather than one plugin per CLI, and it ships with `agynd`. A ho
 
 **The tracing proxy is removed.** It existed to inject attribution onto spans passing through it, and there is nothing left for it to inject. The Tracing service derives identity from the connection, so a workload authenticating as its instance already *is* the attribution. Thread attribution goes with it: an instance serves an inbox drawn from many threads, and the per-turn value the proxy injected was documented as best-effort because there is no single thread a workload belongs to. `agynd` asserts the message on the `invocation.message` it emits, and nothing asserts a thread.
 
-Producers export to `tracing.ziti` directly, each carrying its own identity. `agynd` opens a trace for the wake cycle and hands the id to the hook it registers, so a turn's spans and the message that opened it land together. The id is derived from `WORKLOAD_ID` rather than drawn, so an `agynd` restarting in the pod reopens the trace it was already writing.
+Producers export to `tracing.agyn` directly, each carrying its own identity. `agynd` opens a trace for the wake cycle and hands the id to the hook it registers, so a turn's spans and the message that opened it land together. The id is derived from `WORKLOAD_ID` rather than drawn, so an `agynd` restarting in the pod reopens the trace it was already writing.
 
 The CLI's own OTel export stops being collected: it describes the framework's internals and answers no question the run view asks.
 

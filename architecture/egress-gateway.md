@@ -12,7 +12,7 @@ This document describes the **Egress Gateway** data-plane service. The control-p
 
 | Class | Path | Owner |
 |---|---|---|
-| `.ziti` hostnames (`gateway.ziti`, `llm-proxy.ziti`, `tracing.ziti`, exposed services) | Existing OpenZiti services bound by their respective platform services | Each platform service |
+| `.agyn` hostnames (`gateway.agyn`, `llm-proxy.agyn`, `tracing.agyn`, exposed services) | Existing OpenZiti services bound by their respective platform services | Each platform service |
 | Hostnames matched by an attached rule's `matcher.domain_pattern` on a port in `matcher.ports` | Per-rule OpenZiti service → Egress Gateway → upstream | Egress Gateway |
 | Hostnames not matched by any attached rule | Direct from the agent container's `eth0` to public internet (subject to NetworkPolicy) | Pod's CNI |
 | Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by the workload-namespace NetworkPolicy installed with the [k8s-runner](k8s-runner.md#workload-egress-networkpolicy) | Cluster network policy |

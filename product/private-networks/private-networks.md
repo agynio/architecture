@@ -83,7 +83,7 @@ Each resource declares a target (what the tunnel forwards to) and an intercept (
 | **Intercept host** | Hostname the agent dials. The operator picks this freely — it can match the real internal hostname (`gitlab.internal.corp`), or use a synthetic platform-side name |
 | **Intercept ports** | Ports the agent dials. Cardinality and order must match Target ports; the mapping is positional 1:1 |
 
-Reserved zones (`*.ziti`, `*.svc`, `*.cluster.local`, OpenZiti's synthetic CIDR, `localhost`, `127.0.0.0/8`, `::1/128`) are rejected to avoid collision with platform routing.
+Reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, OpenZiti's synthetic CIDR, `localhost`, `127.0.0.0/8`, `::1/128`) are rejected to avoid collision with platform routing.
 
 If an operator picks a real public hostname (e.g., `gitlab.com`) as the intercept, **all** agent traffic to that hostname is routed through the tunnel, including legitimate public traffic. The Console warns at create time but does not block — this is an operator choice.
 
@@ -142,7 +142,7 @@ Resources are created, edited, and deleted by organization owners through the Co
 
 - A resource has a single protocol (`tcp`, `http`, or `https`). UDP is not supported in v1. Mixed-protocol targets on the same host = multiple resources.
 - A resource may declare multiple ports as a list (e.g., `[5432]`, `[80, 443]`, `[9200, 9300]`), but port ranges are not supported in v1. The intercept-to-target port mapping is positional 1:1 and the protocol is shared.
-- Reserved zones are rejected on `intercept_host`: `*.ziti`, `*.svc`, `*.cluster.local`, any pattern overlapping `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, and `::1/128`.
+- Reserved zones are rejected on `intercept_host`: `*.agyn`, `*.svc`, `*.cluster.local`, any pattern overlapping `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, and `::1/128`.
 - For each port in `intercept_ports`, the tuple `(intercept_host, port)` must be unique across all resources in the organization. Operators namespace by hostname (`prod-postgres.corp:5432` vs `dev-postgres.corp:5432`).
 - A Tunnel belongs to one Network. Running one tunneler for two networks requires two separate tunneler installations.
 - Runners are not eligible group members and not eligible access principals — they are infrastructure, not actors in the access model.

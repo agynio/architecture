@@ -35,7 +35,7 @@ AddExposure(port, workload_id?)
 | `openziti_service_id` | string | OpenZiti service ID created for this exposure |
 | `openziti_bind_policy_id` | string | OpenZiti Bind service policy ID |
 | `openziti_dial_policy_id` | string | OpenZiti Dial service policy ID |
-| `url` | string | Access URL: `http://exposed-<id>.ziti:<port>` |
+| `url` | string | Access URL: `http://exposed-<id>.agyn:<port>` |
 | `status` | enum | `provisioning`, `active`, `failed`, `removing` |
 | `created_at` | timestamp | Creation time |
 
@@ -86,7 +86,7 @@ sequenceDiagram
 
     ES->>ZM: CreateService(name: "exposed-<id>", roleAttributes: ["exposed-services"], configs: [host.v1, intercept.v1])
     ZM->>ZC: POST /configs (host.v1: localhost:<port>)
-    ZM->>ZC: POST /configs (intercept.v1: exposed-<id>.ziti:<port>)
+    ZM->>ZC: POST /configs (intercept.v1: exposed-<id>.agyn:<port>)
     ZM->>ZC: POST /services (with config IDs)
     ZC-->>ZM: Service ID
     ZM-->>ES: Service ID
@@ -102,7 +102,7 @@ sequenceDiagram
     ZM-->>ES: Dial policy ID
 
     ES->>ES: Update exposure (status: active, store OpenZiti resource IDs)
-    ES-->>GW: Exposure record (url: http://exposed-<id>.ziti:<port>)
+    ES-->>GW: Exposure record (url: http://exposed-<id>.agyn:<port>)
     GW-->>A: Exposure record
 ```
 
@@ -141,18 +141,18 @@ The sidecar forwards connections to `localhost:<port>` inside the pod, where the
 ```json
 {
   "protocols": ["tcp"],
-  "addresses": ["exposed-<id>.ziti"],
+  "addresses": ["exposed-<id>.agyn"],
   "portRanges": [{ "low": <port>, "high": <port> }]
 }
 ```
 
-The user's Ziti tunnel resolves `exposed-<id>.ziti` via its built-in DNS and intercepts connections to that address, routing them over the OpenZiti network to the hosting sidecar.
+The user's Ziti tunnel resolves `exposed-<id>.agyn` via its built-in DNS and intercepts connections to that address, routing them over the OpenZiti network to the hosting sidecar.
 
 Ziti Management creates both config objects on the OpenZiti Controller (`POST /configs`) and attaches them to the service at creation time. Config objects are deleted when the service is deleted.
 
 ### Agent-Side Hosting
 
-The agent pod's Ziti sidecar runs `ziti-edge-tunnel run`, which provides both intercepting (dial-side, for `gateway.ziti`, `llm-proxy.ziti`, etc.) and hosting (bind-side, for exposed services). When the Expose service creates the OpenZiti service with its `host.v1` config and the Bind policy, the sidecar automatically discovers the new service on its next poll of the Controller (default interval: 10 seconds, configurable via `--refresh`). No notification, restart, or configuration file update is needed — the sidecar begins hosting the service as soon as it detects the matching Bind policy and reads the `host.v1` config to learn where to forward traffic (`localhost:<port>`).
+The agent pod's Ziti sidecar runs `ziti-edge-tunnel run`, which provides both intercepting (dial-side, for `gateway.agyn`, `llm-proxy.agyn`, etc.) and hosting (bind-side, for exposed services). When the Expose service creates the OpenZiti service with its `host.v1` config and the Bind policy, the sidecar automatically discovers the new service on its next poll of the Controller (default interval: 10 seconds, configurable via `--refresh`). No notification, restart, or configuration file update is needed — the sidecar begins hosting the service as soon as it detects the matching Bind policy and reads the `host.v1` config to learn where to forward traffic (`localhost:<port>`).
 
 The agent process listens on the port in the shared network namespace. The sidecar forwards incoming Ziti connections to `localhost:<port>` inside the pod.
 

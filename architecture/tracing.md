@@ -194,7 +194,7 @@ The [Gateway](gateway.md) exposes the Tracing query API via `TracingGateway`:
 | `GetSpan` | `TracingService.GetSpan` |
 | `GetTrace` | `TracingService.GetTrace` |
 
-The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. [Producers](#span-producers) connect to the Tracing service via its own [OpenZiti service](#ingestion-authentication) (`tracing.ziti`), each authenticated by the identity it holds.
+The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. [Producers](#span-producers) connect to the Tracing service via its own [OpenZiti service](#ingestion-authentication) (`tracing.agyn`), each authenticated by the identity it holds.
 
 ## Authentication and Authorization
 
@@ -209,7 +209,7 @@ The Tracing service participates in the OpenZiti overlay. It obtains its identit
 | Enrollment | Self-enrollment via Ziti Management at pod startup |
 | SDK usage | `zitiContext.ListenWithOptions("tracing", ...)` — binds the `tracing` service |
 
-Agents connect to the Tracing service via the `tracing.ziti` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar. Authentication is mTLS — the Tracing service extracts the caller's OpenZiti identity from the connection via `conn.GetDialerIdentityId()` and resolves it to a platform identity via [Ziti Management](openziti.md) `ResolveIdentity`, the same mechanism as the [Gateway](gateway.md) and [LLM Proxy](llm-proxy.md).
+Agents connect to the Tracing service via the `tracing.agyn` OpenZiti hostname, transparently intercepted by the pod's Ziti sidecar. Authentication is mTLS — the Tracing service extracts the caller's OpenZiti identity from the connection via `conn.GetDialerIdentityId()` and resolves it to a platform identity via [Ziti Management](openziti.md) `ResolveIdentity`, the same mechanism as the [Gateway](gateway.md) and [LLM Proxy](llm-proxy.md).
 
 Any authenticated agent can export spans. There is no authorization check on the ingestion path — if the agent has a valid OpenZiti identity, it can export. Per-span attribute verification is described in [Attribute Injection and Verification](#attribute-injection-and-verification).
 
@@ -327,7 +327,7 @@ The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id`
 
 ## Span Producers
 
-Spans reach the Tracing service directly from whatever produced them. Each producer holds an OpenZiti identity and dials `tracing.ziti` itself; the service attributes what arrives to the identity that sent it.
+Spans reach the Tracing service directly from whatever produced them. Each producer holds an OpenZiti identity and dials `tracing.agyn` itself; the service attributes what arrives to the identity that sent it.
 
 | Producer | Emits |
 |----------|-------|
@@ -365,7 +365,7 @@ The hook is a single platform binary, shipped with [`agynd`](agynd-cli.md) and d
 
 1. Reads the session transcript the CLI identifies.
 2. Reconstructs the turns not yet sent, in the shape described below.
-3. Exports them as spans to the Tracing service at `tracing.ziti`, in the trace `agynd` opened. The pod's Ziti sidecar carries the connection and the workload's identity authenticates it, so the hook holds no credential of its own.
+3. Exports them as spans to the Tracing service at `tracing.agyn`, in the trace `agynd` opened. The pod's Ziti sidecar carries the connection and the workload's identity authenticates it, so the hook holds no credential of its own.
 4. Records what it sent, so a resumed session — which replays the transcript from its start — uploads each turn once.
 5. Swallows its own failures. Tracing is an optional dependency; the hook never ends a turn that otherwise succeeded.
 

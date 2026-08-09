@@ -175,7 +175,7 @@ sequenceDiagram
 
     K->>ZS: Start Ziti sidecar container
     ZS->>ZS: Enroll OpenZiti identity (JWT)
-    Note over ZS: Resolves gateway.ziti / llm-proxy.ziti, intercepts via DNS + TPROXY
+    Note over ZS: Resolves gateway.agyn / llm-proxy.agyn, intercepts via DNS + TPROXY
 
     K->>MC: Start main container
     Note over MC: command: /agyn/bin/agynd
@@ -209,7 +209,7 @@ What the Orchestrator passes to the main container:
 | `AGENT_CONFIG` | Agent resource | Opaque configuration JSON |
 | `AGENT_INSTANCE_ID` | Reconciler | [Agent instance](agent-instances.md) UUID this workload serves |
 | `WORKLOAD_ID` | Reconciler | Workload UUID for activity keepalives and span attribution |
-| `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.ziti`) |
+| `GATEWAY_ADDRESS` | Orchestrator config | Single Gateway endpoint (e.g., `gateway.agyn`) |
 | `AGENT_MCP_SERVERS` | MCP sub-resources | Comma-separated `name:port` pairs. See [MCP — Port Allocation](mcp.md#port-allocation) |
 | `LLM_MODE` | Environment | `platform` or `native`. Whether `agynd` writes LLM endpoint configuration at all |
 | `LLM_MODEL_NAME` | Agent resource | Vendor model name to pin in `native` mode. Absent otherwise, and absent for sandboxes |

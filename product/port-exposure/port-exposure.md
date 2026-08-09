@@ -21,7 +21,7 @@ The user must install a Ziti tunnel client on their machine and enroll it using 
 3. The platform starts the agent.
 4. The agent executes work and starts a dev server (e.g., on port 3000).
 5. The agent exposes the port via `agyn expose add 3000`.
-6. The agent receives the access URL (`http://exposed-<id>.ziti:3000`) and shares it with the user (e.g., posts it to the conversation).
+6. The agent receives the access URL (`http://exposed-<id>.agyn:3000`) and shares it with the user (e.g., posts it to the conversation).
 7. The user opens the link in their browser. The Ziti tunnel on the user's machine resolves the hostname and routes traffic to the agent container over the OpenZiti network.
 
 The platform does not automatically post the link — the agent decides when and how to share it.
@@ -31,10 +31,10 @@ The platform does not automatically post the link — the agent decides when and
 Exposed services are reachable at:
 
 ```
-http://exposed-<id>.ziti:<port>
+http://exposed-<id>.agyn:<port>
 ```
 
-Where `<id>` is the unique identifier of the exposure and `<port>` is the exposed port number. The `.ziti` suffix is resolved by the user's Ziti tunnel — it is not a public DNS name.
+Where `<id>` is the unique identifier of the exposure and `<port>` is the exposed port number. The `.agyn` suffix is resolved by the user's Ziti tunnel — it is not a public DNS name.
 
 ## Lifecycle
 
