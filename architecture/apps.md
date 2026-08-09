@@ -10,6 +10,7 @@ Apps are services that interact with threads on behalf of external systems or pl
 |-----|-------------|-------------------|
 | **[Reminders](apps/reminders.md)** | Agent-initiated delayed messages | Write only |
 | **[Telegram Connector](apps/telegram-connector.md)** | Bidirectional bridge to Telegram | Read + write (participant) |
+| **[Slack Connector](apps/slack-connector.md)** | Mention-driven bridge to Slack threads | Read + write (participant) |
 | **GitHub** (future) | Agent-initiated event subscriptions | Write only |
 
 ## App Contract
@@ -222,6 +223,7 @@ App permissions are managed through [Authorization](authz.md) (OpenFGA relations
 |-----|---------------------|---------------|
 | [Reminders](apps/reminders.md) | `thread:write` | Non-participant — writes to any thread in the org |
 | [Telegram Connector](apps/telegram-connector.md) | `thread:create`, `participant:add` | Participant — creates threads and accesses them via membership |
+| [Slack Connector](apps/slack-connector.md) | `thread:create`, `participant:add` | Participant — creates threads and accesses them via membership |
 
 See [Open Questions — App Permission Model](../open-questions.md#app-permission-model) for future refinement of granular permissions.
 

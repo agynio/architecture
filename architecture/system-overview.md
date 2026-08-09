@@ -43,6 +43,7 @@ graph TB
     subgraph Apps
         RemindersApp[Reminders]
         TelegramApp[Telegram Connector]
+        SlackApp[Slack Connector]
     end
 
     subgraph Workloads
@@ -54,6 +55,7 @@ graph TB
 
     WebApp & Console & MobileApp -- "/api/" --> Gateway
     ThirdParty <--> TelegramApp
+    ThirdParty <--> SlackApp
 
     Gateway --> ZitiMgmt
     Gateway --> Users
@@ -104,6 +106,7 @@ graph TB
     Gateway --> AppsService
     RemindersApp -->|OpenZiti| Gateway
     TelegramApp -->|OpenZiti| Gateway
+    SlackApp -->|OpenZiti| Gateway
 
     Agents --> AgentsOrch
 ```
@@ -131,7 +134,7 @@ graph TB
 | **Gateway** | Exposes platform methods for external usage via [ConnectRPC](gateway.md#connectrpc) (gRPC + HTTP/JSON). Accessible at `gateway.agyn.dev` (subdomain) and `agyn.dev/api/` (path-based, prefix stripped) |
 | **Ziti Management** | Manages OpenZiti identities, services, and policies. Encapsulates all OpenZiti Controller API interactions |
 | **[Apps Service](apps-service.md)** | Apps, installations, profiles, and enrollment. Manages the lifecycle of [apps](apps.md) — both apps (owned by organizations) and per-org installations (permissions bridge + configuration) |
-| **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
+| **[Apps](apps.md)** | Independently deployed services that interact with threads on behalf of external systems or platform capabilities. Includes bidirectional bridges to 3rd-party products ([Telegram Connector](apps/telegram-connector.md), [Slack Connector](apps/slack-connector.md)) and platform-provided capabilities ([Reminders](apps/reminders.md)) |
 | **[Egress Gateway](egress-gateway.md)** | Data-plane MITM proxy for agent outbound HTTP/HTTPS. Terminates TLS with a platform CA, evaluates [EgressRules](egress-rules-service.md) attached to the agent, injects credentials, forwards upstream |
 | **[EgressRules](egress-rules-service.md)** | Control-plane service for `EgressRule` resources and their attachments. Provisions per-rule OpenZiti services and per-attachment Dial policies. Reconciles drift |
 

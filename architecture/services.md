@@ -32,6 +32,7 @@ Central inventory of deployable long-running services in the platform. This list
 | Runners | [agynio/runners](https://github.com/agynio/runners) | [Runners](runners.md) | Control plane / Data plane | Registers runners and stores workload and volume runtime state. |
 | Sandboxes App | [agynio/sandboxes-app](https://github.com/agynio/sandboxes-app) | [Sandboxes App](sandboxes-app.md) | App | Hosts the member-facing sandbox SPA: create, browser terminal, share, stop. |
 | Secrets | [agynio/secrets](https://github.com/agynio/secrets) | [Secrets](secrets.md) | Data plane | Manages secret providers and secrets, and resolves secret values at runtime. |
+| Slack Connector | [agynio/slack-connector](https://github.com/agynio/slack-connector) | [Slack Connector](apps/slack-connector.md) | App | Bridges Slack thread mentions into platform threads and back. |
 | Telegram Connector | [agynio/telegram-connector](https://github.com/agynio/telegram-connector) | [Telegram Connector](apps/telegram-connector.md) | App | Bridges Telegram bot conversations into platform threads and back. |
 | Threads | [agynio/threads](https://github.com/agynio/threads) | [Threads](threads.md) | Data plane | Stores messages, thread participants, and acknowledgments for participant-agnostic conversations. |
 | Tracing | [agynio/tracing](https://github.com/agynio/tracing) | [Tracing](tracing.md) | Data plane | Ingests, stores, and queries OpenTelemetry spans with upsert semantics. |
