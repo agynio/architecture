@@ -52,6 +52,7 @@ Before spawning the agent CLI, `agynd` fetches class configuration from the plat
 |-------------|-------------|
 | **Skills** | Fetches skills via `ListSkills(agent_id)` and writes content to the filesystem in the directory structure expected by the agent CLI |
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
+| **CLI first-run state** | Writes the agent CLI's own first-run state file — `~/.claude.json` for Claude Code — so the CLI starts into work rather than an interactive setup wizard. See [Agent CLI First-Run State](#agent-cli-first-run-state) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
 | **Tracing endpoint** | Runs a local [tracing proxy](tracing.md#agynd-tracing-proxy) that injects `agyn.agent_instance.id`, `agyn.workload.id`, and per-turn `agyn.thread.id` / `agyn.thread.message.id` (from the current turn's inbox items) and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti`. It serves an OTLP endpoint on `localhost:4317` and receives turns from the tracing plugin below |
 | **Tracing plugin** | Installs the platform's [tracing plugin](tracing.md#tracing-plugins) into the agent CLI by registering its turn-completion hook in the CLI's own config — `config.toml` for Codex, `~/.claude/settings.json` for Claude Code — the same files this step already writes. The plugin ships with the [agent runtime image](agent-init.md); `agynd` registers it rather than delivering it. After each turn the plugin reads the CLI's session transcript and posts the turn to the tracing proxy, which is how the prompt, the model's reply, and each tool call's input and output reach [Tracing](tracing.md) |
@@ -164,6 +165,24 @@ An **environment-variable** placeholder is not `agynd`'s to write. It must be on
 A **file** placeholder is the opposite: `agynd` writes it, in both agent and holder mode, before the agent CLI is spawned or the container idles. `agynd` is the only thing that can — the path is CLI-specific (`~/.codex/auth.json` for Codex) and resolves against `HOME`, which the platform does not manage and the orchestrator cannot compute, while `agynd` reads the CLI from [`config.json`](agent-init.md#configjson). It also works in a sandbox for a different reason than the variable case does: the file lands on the container filesystem and stays there, so a session exec'd hours later finds it. Holder mode spawns nothing, but it is not inert — it already runs the environment's init scripts, and writing this file is the same kind of preparation.
 
 This mode therefore gives `agynd` strictly less to do than `platform` mode, which is the point. The platform's leverage moves from configuring the CLI correctly to carrying its traffic, and a CLI whose configuration conventions change costs nothing here.
+
+#### Agent CLI First-Run State
+
+Separate from endpoint configuration, an agent CLI keeps a **first-run state file** recording that it has been set up on this machine — `~/.claude.json` for Claude Code. Without it the CLI opens its onboarding flow and waits for a human to answer it.
+
+`agynd` writes it, for the reasons a file placeholder is also its to write: the path is CLI-specific, which only `agynd` knows from [`config.json`](agent-init.md#configjson), and it resolves against `HOME`, which the platform does not manage. Baking it into the [agent runtime image](agent-init.md) would not serve — it is mutable state the CLI rewrites as it runs, and anything mounted over `HOME` shadows it.
+
+This is not LLM-mode configuration and does not vary with `llm_mode`. Every workload carrying that CLI needs it, in `platform` and `native` alike, with a [Subscription](providers.md#subscription) or without one.
+
+**The file is merged, not replaced.** It is the CLI's own state — run counts, project history, tool approvals accumulate there over a workload's life, and past it wherever `HOME` is persistent. `agynd` sets the keys it requires when they are absent and leaves the rest as found. This is deliberately not how a [file placeholder](#native-mode-configuration) is treated, which `agynd` skips entirely once a file exists: there an existing file may be a real credential and writing over it logs the engineer out of their own subscription, while here it is state that merely predates the key.
+
+#### Preparation in Holder Mode
+
+A [sandbox](../product/sandboxes/sandboxes.md) runs `agynd` as a holder — no agent is prepared and no CLI is spawned. It is nonetheless where this preparation matters most, because it is the workload whose whole purpose is a person working inside it, starting the CLI by hand. An interactive prompt only stops someone who is there to be asked, and in a sandbox someone always is.
+
+So the CLI-local preparation runs in holder mode too: the first-run state file, the [file placeholder](#native-mode-configuration), and the configuration file carrying tool permissions and MCP wiring. Someone opening a shell should find the same configured CLI an agent workload would have spawned, not a setup wizard and then a permission prompt.
+
+What does not run in holder mode is what has no subject. Skills and [init scripts](resource-definitions.md#initscript) scoped to an agent have no agent to scope to, and the tracing proxy has no turn to attribute. The rule is that preparation determined by the environment runs, and preparation determined by the agent does not.
 
 ### 4. Agent Process Management
 
