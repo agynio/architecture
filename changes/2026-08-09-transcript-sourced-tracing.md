@@ -2,9 +2,9 @@
 
 ## Target
 
+- [Tracing — Span Producers](../architecture/tracing.md#span-producers)
 - [Tracing — Tracing Plugins](../architecture/tracing.md#tracing-plugins)
-- [Tracing — agynd Tracing Proxy](../architecture/tracing.md#agynd-tracing-proxy)
-- [Tracing — Proxy Behavior](../architecture/tracing.md#proxy-behavior)
+- [Tracing — Attribute Injection and Verification](../architecture/tracing.md#attribute-injection-and-verification)
 - [agynd — Environment Preparation](../architecture/agynd-cli.md#3-environment-preparation)
 
 ## Delta
@@ -17,7 +17,11 @@ The agent CLI writes it to disk instead. Every turn is appended to a session tra
 
 ### What must change
 
-The span producer stops being the CLI's OTel SDK. The [tracing plugin](../architecture/tracing.md#tracing-plugins) is written for each agent CLI, ships with the agent runtime image, and `agynd` registers its hook while writing the CLI's config — the file it already writes for the LLM endpoint and MCP servers. The proxy gains the intake that receives what the plugin posts.
+The span producer stops being the CLI's OTel SDK. The [tracing plugin](../architecture/tracing.md#tracing-plugins) is written for each agent CLI, ships with the agent runtime image, and `agynd` registers its hook while writing the CLI's config — the file it already writes for the LLM endpoint and MCP servers.
+
+**The tracing proxy is removed.** It existed to inject attribution onto spans passing through it, and there is nothing left for it to inject. The Tracing service derives identity from the connection, so a workload authenticating as its instance already *is* the attribution. Thread attribution goes with it: an instance serves an inbox drawn from many threads, and the per-turn value the proxy injected was documented as best-effort because there is no single thread a workload belongs to. `agynd` asserts the message on the `invocation.message` it emits, and nothing asserts a thread.
+
+Producers export to `tracing.ziti` directly, each carrying its own identity. A turn's spans and the message that opened it meet in one trace because both derive it from `WORKLOAD_ID` — the workload *is* one wake cycle, so nothing is passed between them and nothing drifts if `agynd` restarts in the pod.
 
 The CLI's own OTel export stops being collected: it describes the framework's internals and answers no question the run view asks.
 

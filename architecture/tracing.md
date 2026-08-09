@@ -194,7 +194,7 @@ The [Gateway](gateway.md) exposes the Tracing query API via `TracingGateway`:
 | `GetSpan` | `TracingService.GetSpan` |
 | `GetTrace` | `TracingService.GetTrace` |
 
-The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. Producers (agents) connect to the Tracing service via its own [OpenZiti service](#ingestion-authentication) (`tracing.ziti`). The [`agynd` tracing proxy](#agynd-tracing-proxy) inside the agent container enriches spans with platform context before forwarding to the Tracing service.
+The ingestion endpoint (`TraceService/Export`) is not proxied through the Gateway. [Producers](#span-producers) connect to the Tracing service via its own [OpenZiti service](#ingestion-authentication) (`tracing.ziti`), each authenticated by the identity it holds.
 
 ## Authentication and Authorization
 
@@ -234,7 +234,7 @@ The `organization_id` filter is a required parameter on `ListSpans`. `GetTrace` 
 
 ### Attribute Injection and Verification
 
-Producers (agent CLIs) do not set platform-specific resource attributes. The Tracing service derives and injects identity-based attributes from the authenticated connection, and verifies the self-asserted attributes (`agyn.agent_instance.id`, `agyn.thread.id`).
+Producers do not set identity-based resource attributes. The Tracing service derives and injects those from the authenticated connection, and verifies the few a producer may assert (`agyn.agent_instance.id`, `agyn.thread.message.id`).
 
 #### Injected by the Tracing service (from connection identity)
 
@@ -250,21 +250,15 @@ These attributes are never trusted from the producer. The Tracing service always
 
 #### Verified by the Tracing service (from producer)
 
-The `agynd` tracing proxy (see [agynd Tracing Proxy](#agynd-tracing-proxy)) injects the following producer-asserted resource attributes. The Tracing service verifies each one:
+A producer may assert the following resource attributes. The Tracing service verifies each one:
 
-**`agyn.agent_instance.id`** — must equal the caller's verified identity (`identity_id == agent_instance_id` by construction). Mismatch rejects the `Export` request.
+**`agyn.agent_instance.id`** — must equal the caller's verified identity (`identity_id == agent_instance_id` by construction). Mismatch rejects the `Export` request. A workload authenticates as its instance, so it need not assert this at all; the service derives the same value from the connection.
 
-**`agyn.thread.id`** — verified against the [Authorization](authz.md) service:
+**`agyn.thread.message.id`** — asserted only by [`agynd`](agynd-cli.md), on the `invocation.message` it emits for the item it fed the agent CLI. Verified against the [Threads](threads.md) service: the message must belong to a thread the caller `can_read`, checked against [Authorization](authz.md). A failed check rejects the entire `Export` request.
 
-```
-Check(identity:<identity_id>, can_read, thread:<thread_id>) → allowed: bool
-```
+No producer asserts a thread. An [agent instance](agent-instances.md) serves an inbox drawn from many threads, so a span belongs to no one thread — only to the message that opened the turn it sits under, which the message attribute carries and the thread is resolved from.
 
-If the check fails, the Tracing service rejects the entire `Export` request. If `agyn.thread.id` is absent (e.g., a turn triggered by a `direct` inbox item), spans are stored without thread attribution.
-
-**`agyn.thread.message.id`** — verified against the [Threads](threads.md) service: the message must belong to the thread identified by `agyn.thread.id`. If the message does not belong to that thread, the entire `Export` request is rejected. If `agyn.thread.message.id` is absent, spans are stored without message attribution.
-
-`agyn.workload.id` is stored as-is without verification.
+`agyn.workload.id` is stored as-is without verification. It names the wake cycle, and every producer in the container reads it from the same environment.
 
 #### Resolution Caching
 
@@ -329,54 +323,35 @@ Attributes:
 
 Header values, request bodies, and response bodies are **not** recorded — the span is sufficient to answer "which agent called which destination when, and was it allowed."
 
-The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id` itself (it has them from the verified OpenZiti identity). It does not set `agyn.thread.id` or `agyn.thread.message.id` — egress requests are not scoped to a single thread message.
+The gateway sets `agyn.agent.id`, `agyn.workload.id`, and `agyn.organization.id` itself (it has them from the verified OpenZiti identity). It does not set `agyn.thread.message.id` — egress requests are not scoped to a single thread message.
 
-## agynd Tracing Proxy
+## Span Producers
 
-`agynd` runs a local OTLP gRPC proxy inside the agent container. Agent CLIs export spans to this local endpoint instead of connecting to the Tracing service directly.
+Spans reach the Tracing service directly from whatever produced them. Each producer holds an OpenZiti identity and dials `tracing.ziti` itself; the service attributes what arrives to the identity that sent it.
 
-### Why
+| Producer | Emits |
+|----------|-------|
+| [Tracing plugin](#tracing-plugins) | `llm.call` and `tool.execution`, read from the agent CLI's session transcript |
+| [`agynd`](agynd-cli.md) | `invocation.message`, when it feeds an inbox item to the agent CLI |
+| Platform services | spans for the work a request passes through |
 
-Spans are produced by [tracing plugins](#tracing-plugins) that `agynd` installs into each agent CLI, and by the platform services a turn passes through. Neither knows the platform-specific resource attributes (`agyn.agent_instance.id`, `agyn.thread.id`) — a plugin sees one CLI's session, a service sees one request. `agynd` is the only process in the agent container holding the full platform context: the instance it serves and the thread and message of the turn in flight. Rather than teaching every producer to assert platform attribution — impossible for third-party binaries, and unverifiable if they could — `agynd` receives what they produce and enriches it on the way out.
+### The trace is the wake cycle
 
-### Design
+A workload is started when an [agent instance](agent-instances.md) has work and stopped when it goes idle, so the workload *is* one wake cycle. Its `WORKLOAD_ID` names it, and every producer inside the container derives the same trace id from that value.
 
-```mermaid
-graph LR
-    subgraph "Agent Container"
-        AgentCLI[Agent CLI<br/>OTel SDK] -->|OTLP gRPC<br/>localhost:4317| agynd[agynd<br/>Tracing Proxy]
-    end
-    agynd -->|OTLP gRPC<br/>tracing.ziti| Tracing[Tracing Service]
-```
+Nothing is coordinated to achieve this. `agynd` and the plugin read `WORKLOAD_ID` from the environment the container already carries, derive the trace id the same way, and land in one trace by construction — with no identifier passed between them, and no drift if `agynd` restarts inside the pod.
 
-1. `agynd` starts a gRPC server on `localhost:4317` implementing `TraceService/Export` (standard OTLP Collector interface).
-2. Agent CLI's OTel SDK is configured to export to `http://localhost:4317` (the default OTLP gRPC endpoint).
-3. On each `Export` request, `agynd` injects `agyn.agent_instance.id` as a resource attribute on every `ResourceSpans` in the request. The value comes from the `AGENT_INSTANCE_ID` environment variable.
-4. `agynd` forwards the enriched request to the Tracing service at `tracing.ziti` using a standard OTLP gRPC exporter. The Ziti sidecar transparently intercepts this connection.
+A cycle serves an inbox that spans threads, so its trace holds many turns. Each `invocation.message` marks where one begins, which is what lets a reader show a single turn or the whole cycle.
 
-### What agynd injects
+### Attribution
 
-| Resource Attribute | Source | Description |
-|--------------------|--------|-------------|
-| `agyn.agent_instance.id` | `AGENT_INSTANCE_ID` environment variable | [Agent instance](agent-instances.md) UUID this workload serves |
-| `agyn.thread.id` | current turn's inbox items | Thread UUID of the item(s) that triggered the current agent turn. Best-effort: updated by `agynd` each time it feeds items to the agent CLI; omitted for `direct` (app-written) items, and set to the most recent item's thread when a turn spans items from multiple threads |
-| `agyn.thread.message.id` | current turn's inbox items | UUID of the thread message that triggered the current agent turn, same best-effort semantics as `agyn.thread.id` |
-| `agyn.workload.id` | `WORKLOAD_ID` environment variable | Workload UUID for this execution |
+The Tracing service derives attribution from the verified OpenZiti connection rather than trusting the producer to assert it. A workload authenticates as its agent instance, which is what `agyn.agent_instance.id` means, so the identity *is* the attribution.
 
-Unlike the workload-scoped attributes (`agyn.agent_instance.id`, `agyn.workload.id`), thread attribution is per-turn state — a workload serves one instance whose inbox spans threads, so there is no static thread id for the pod.
-
-`agynd` does **not** inject `agyn.agent.id`, `agyn.identity.id`, or `agyn.organization.id`. These are derived and injected by the Tracing service from the verified OpenZiti connection identity. This separation ensures that even if `agynd` is compromised, it cannot forge agent or organization attribution — only instance/thread attribution, which is independently verified by the Tracing service.
-
-### Proxy Behavior
-
-- The proxy serves two intakes: the OTLP endpoint, for producers that speak it, and the turns posted by [tracing plugins](#tracing-plugins), which it converts into spans. Both leave through the same exporter and carry the same attribution.
-- Beyond that conversion and the attribution attributes above, the proxy does not interpret span content.
-- If `AGENT_INSTANCE_ID` is not set (should not happen in normal operation), the proxy forwards spans without injecting `agyn.agent_instance.id`. The Tracing service stores them without instance attribution.
-- If the Tracing service is unreachable, the proxy returns the standard OTLP error response. Agent CLIs handle export failures according to their OTel SDK retry configuration. Tracing is an optional dependency — export failures do not affect agent operation.
+No producer asserts a thread. An instance serves an inbox drawn from many threads, so there is no thread a span belongs to — only the message that opened the turn it sits under, which `invocation.message` carries.
 
 ## Tracing Plugins
 
-What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. A platform-owned plugin, installed into each CLI by `agynd`, reads that transcript after every turn and posts the reconstructed turn to `agynd`.
+What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. A platform-owned plugin, installed into each CLI by `agynd`, reads that transcript after every turn and exports the reconstructed turn to the Tracing service.
 
 ### Why not the CLI's own telemetry
 
@@ -390,7 +365,7 @@ Each plugin is platform-owned, ships with the agent runtime image, and is instal
 
 1. Reads the session transcript the hook identifies.
 2. Reconstructs the turns not yet sent, in the shape described below.
-3. Posts them to `agynd` over loopback.
+3. Exports them as spans to the Tracing service at `tracing.ziti`, in the trace derived from `WORKLOAD_ID`. The pod's Ziti sidecar carries the connection and the workload's identity authenticates it, so the plugin holds no credential of its own.
 4. Records what it sent, so a resumed session — which replays the transcript from its start — uploads each turn once.
 5. Swallows its own failures. Tracing is an optional dependency; a plugin never ends a turn that otherwise succeeded.
 
@@ -402,7 +377,9 @@ Each plugin is platform-owned, ships with the agent runtime image, and is instal
 
 ### Turn shape
 
-A turn becomes one `invocation.message` carrying the prompt, an `llm.call` per model step carrying the model, the full request context and the usage counts, and a `tool.execution` per tool call carrying its input and output. A subagent's turns nest under the turn that spawned them.
+A turn becomes an `llm.call` per model step — carrying the model, the full request context and the usage counts — and a `tool.execution` per tool call, carrying its input and output. Each execution hangs off the call that invoked it, and the calls hang off the [`invocation.message`](#span-producers) `agynd` emitted for the item that opened the turn. A subagent's turns hang off the turn that spawned them.
+
+Span ids are derived from the turn rather than drawn, so a resumed session that replays the transcript writes the ids it wrote before and the [upsert](#upsert-semantics) lands on the existing rows. The same derivation completes a turn first exported while it was still running.
 
 Spans are timestamped from the transcript, so a turn is recorded with the times at which it happened rather than the time it was uploaded.
 

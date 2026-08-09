@@ -54,8 +54,7 @@ Before spawning the agent CLI, `agynd` fetches class configuration from the plat
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **CLI first-run state** | Writes the agent CLI's own first-run state file — `~/.claude.json` for Claude Code — so the CLI starts into work rather than an interactive setup wizard. See [Agent CLI First-Run State](#agent-cli-first-run-state) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
-| **Tracing endpoint** | Runs a local [tracing proxy](tracing.md#agynd-tracing-proxy) that injects `agyn.agent_instance.id`, `agyn.workload.id`, and per-turn `agyn.thread.id` / `agyn.thread.message.id` (from the current turn's inbox items) and forwards spans to the [Tracing](tracing.md) service via `tracing.ziti`. It serves an OTLP endpoint on `localhost:4317` and receives turns from the tracing plugin below |
-| **Tracing plugin** | Installs the platform's [tracing plugin](tracing.md#tracing-plugins) into the agent CLI by registering its turn-completion hook in the CLI's own config — `config.toml` for Codex, `~/.claude/settings.json` for Claude Code — the same files this step already writes. The plugin ships with the [agent runtime image](agent-init.md); `agynd` registers it rather than delivering it. After each turn the plugin reads the CLI's session transcript and posts the turn to the tracing proxy, which is how the prompt, the model's reply, and each tool call's input and output reach [Tracing](tracing.md) |
+| **Tracing plugin** | Installs the platform's [tracing plugin](tracing.md#tracing-plugins) into the agent CLI by registering its turn-completion hook in the CLI's own config — `config.toml` for Codex, `~/.claude/settings.json` for Claude Code — the same files this step already writes. The plugin ships with the [agent runtime image](agent-init.md); `agynd` registers it rather than delivering it. After each turn it reads the CLI's session transcript and exports the turn to [Tracing](tracing.md) at `tracing.ziti`, which is how the prompt, the model's reply, and each tool call's input and output are recorded |
 | **Init scripts** | Fetches [init scripts](resource-definitions.md#initscript) via `ListInitScripts(environment_id)` and `ListInitScripts(agent_id)`, then executes the environment's scripts followed by the agent's, each group in creation order, using the container's default shell. Each script runs with its working directory set to `WORKSPACE_DIR` when that variable is defined in the subprocess environment, and to `/tmp` otherwise. Runs after environment setup and before spawning the agent CLI. If a script exits with a non-zero code, the script name and stderr output are printed to the container's stderr and execution continues with the next script. In a [sandbox](../product/sandboxes/sandboxes.md) there is no agent: `agynd` runs the environment's scripts and then holds, spawning no agent CLI — see [Agent Init Container](agent-init.md#startup-sequence). |
 | **PATH** | Prepends `/agyn/bin` to `PATH` in the subprocess environment, making the `agyn` platform CLI and the configured agent CLI binary (`codex`, `claude`, or `agn`) available by name to the agent process and any child commands it runs. One entry suffices because every delivered binary lives there — see [Agent Init — Shared Volume Contract](agent-init.md#shared-volume-contract). |
 
@@ -186,7 +185,7 @@ A [sandbox](../product/sandboxes/sandboxes.md) runs `agynd` as a holder — no a
 
 So the CLI-local preparation runs in holder mode too: the first-run state file, the [file placeholder](#native-mode-configuration), and the configuration file carrying tool permissions and MCP wiring. Someone opening a shell should find the same configured CLI an agent workload would have spawned, not a setup wizard and then a permission prompt.
 
-What does not run in holder mode is what has no subject. Skills and [init scripts](resource-definitions.md#initscript) scoped to an agent have no agent to scope to, and the tracing proxy has no turn to attribute. The rule is that preparation determined by the environment runs, and preparation determined by the agent does not.
+What does not run in holder mode is what has no subject. Skills and [init scripts](resource-definitions.md#initscript) scoped to an agent have no agent to scope to, and the tracing plugin has no agent CLI to hook. The rule is that preparation determined by the environment runs, and preparation determined by the agent does not.
 
 ### 4. Agent Process Management
 
@@ -277,13 +276,13 @@ graph TB
         subgraph "Agent Container"
             agynd[agynd]
             AgentCLI[Agent CLI<br/>agn / 3rd-party]
-            TracingProxy[Tracing Proxy<br/>localhost:4317]
+            Plugin[Tracing Plugin<br/>turn-completion hook]
             Skills[Skills on filesystem]
 
             agynd -->|spawns via SDK| AgentCLI
-            agynd --> TracingProxy
+            agynd -->|registers hook| Plugin
             Skills -->|read by| AgentCLI
-            AgentCLI -->|OTLP spans| TracingProxy
+            AgentCLI -->|session transcript| Plugin
         end
     end
 
@@ -301,7 +300,8 @@ graph TB
     agynd -->|platform calls via OpenZiti hostname| Gateway
     AgentCLI -->|LLM calls via OpenZiti hostname| LLMProxy
     AgentCLI -->|streamable HTTP<br/>localhost:port| MCP1 & MCP2
-    TracingProxy -->|enriched spans via OpenZiti hostname| Tracing
+    Plugin -->|turn spans via OpenZiti hostname| Tracing
+    agynd -->|invocation.message via OpenZiti hostname| Tracing
     ZitiSidecar -.->|OpenZiti mTLS| Gateway
     ZitiSidecar -.->|OpenZiti mTLS| LLMProxy
     ZitiSidecar -.->|OpenZiti mTLS| Tracing
