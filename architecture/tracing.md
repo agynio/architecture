@@ -331,15 +331,15 @@ Spans reach the Tracing service directly from whatever produced them. Each produ
 
 | Producer | Emits |
 |----------|-------|
-| [Tracing plugin](#tracing-plugins) | `llm.call` and `tool.execution`, read from the agent CLI's session transcript |
+| [Trace hook](#the-trace-hook) | `llm.call` and `tool.execution`, read from the agent CLI's session transcript |
 | [`agynd`](agynd-cli.md) | `invocation.message`, when it feeds an inbox item to the agent CLI |
 | Platform services | spans for the work a request passes through |
 
 ### The trace is the wake cycle
 
-A workload is started when an [agent instance](agent-instances.md) has work and stopped when it goes idle, so the workload *is* one wake cycle. Its `WORKLOAD_ID` names it, and every producer inside the container derives the same trace id from that value.
+A workload is started when an [agent instance](agent-instances.md) has work and stopped when it goes idle, so the workload *is* one wake cycle. `agynd` opens a trace for it during [environment preparation](agynd-cli.md#3-environment-preparation) and hands the id to the trace hook it installs, so both producers write into one trace.
 
-Nothing is coordinated to achieve this. `agynd` and the plugin read `WORKLOAD_ID` from the environment the container already carries, derive the trace id the same way, and land in one trace by construction — with no identifier passed between them, and no drift if `agynd` restarts inside the pod.
+The id is derived from `WORKLOAD_ID` rather than drawn, so an `agynd` restarting inside the pod reopens the trace it was already writing instead of splitting the cycle in two.
 
 A cycle serves an inbox that spans threads, so its trace holds many turns. Each `invocation.message` marks where one begins, which is what lets a reader show a single turn or the whole cycle.
 
@@ -349,9 +349,9 @@ The Tracing service derives attribution from the verified OpenZiti connection ra
 
 No producer asserts a thread. An instance serves an inbox drawn from many threads, so there is no thread a span belongs to — only the message that opened the turn it sits under, which `invocation.message` carries.
 
-## Tracing Plugins
+## The Trace Hook
 
-What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. A platform-owned plugin, installed into each CLI by `agynd`, reads that transcript after every turn and exports the reconstructed turn to the Tracing service.
+What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. `agynd` registers a hook on each CLI's turn completion; the hook reads that transcript and exports the reconstructed turn to the Tracing service.
 
 ### Why not the CLI's own telemetry
 
@@ -359,15 +359,15 @@ An agent CLI's OTel export describes that a model call happened — endpoint, mo
 
 The transcript is the opposite. It is the record the CLI keeps in order to resume a session, so it holds the prompt, the assistant's reply, every tool call with its input and output, and the usage counts — the material this service exists to store.
 
-### Plugin contract
+### Hook contract
 
-Each plugin is platform-owned, ships with the agent runtime image, and is installed by `agynd` during [environment preparation](agynd-cli.md#3-environment-preparation). It registers on the CLI's turn-completion hook, and:
+The hook is a single platform binary, shipped with [`agynd`](agynd-cli.md) and delivered by the same init container, so one implementation serves every CLI: a hook is a command to run, and what differs between CLIs is only the transcript it is handed. `agynd` registers it during [environment preparation](agynd-cli.md#3-environment-preparation), telling it which format to expect and which trace to write into. On each invocation it:
 
-1. Reads the session transcript the hook identifies.
+1. Reads the session transcript the CLI identifies.
 2. Reconstructs the turns not yet sent, in the shape described below.
-3. Exports them as spans to the Tracing service at `tracing.ziti`, in the trace derived from `WORKLOAD_ID`. The pod's Ziti sidecar carries the connection and the workload's identity authenticates it, so the plugin holds no credential of its own.
+3. Exports them as spans to the Tracing service at `tracing.ziti`, in the trace `agynd` opened. The pod's Ziti sidecar carries the connection and the workload's identity authenticates it, so the hook holds no credential of its own.
 4. Records what it sent, so a resumed session — which replays the transcript from its start — uploads each turn once.
-5. Swallows its own failures. Tracing is an optional dependency; a plugin never ends a turn that otherwise succeeded.
+5. Swallows its own failures. Tracing is an optional dependency; the hook never ends a turn that otherwise succeeded.
 
 | Agent CLI | Hook | Transcript |
 |-----------|------|------------|
@@ -377,7 +377,9 @@ Each plugin is platform-owned, ships with the agent runtime image, and is instal
 
 ### Turn shape
 
-A turn becomes an `llm.call` per model step — carrying the model, the full request context and the usage counts — and a `tool.execution` per tool call, carrying its input and output. Each execution hangs off the call that invoked it, and the calls hang off the [`invocation.message`](#span-producers) `agynd` emitted for the item that opened the turn. A subagent's turns hang off the turn that spawned them.
+A turn becomes an `llm.call` per model step — carrying the model, the full request context and the usage counts — and a `tool.execution` per tool call, carrying its input and output. Each execution hangs off the call that invoked it, and a subagent's turns hang off the turn that spawned them.
+
+Calls root in the trace rather than under an [`invocation.message`](#span-producers). A transcript names a turn in the CLI's own terms — a line id, a session and a timestamp — never the platform's message id, so the hook has no message span to point at. The shared trace is what joins them, and `invocation.message` marks where each turn begins.
 
 Span ids are derived from the turn rather than drawn, so a resumed session that replays the transcript writes the ids it wrote before and the [upsert](#upsert-semantics) lands on the existing rows. The same derivation completes a turn first exported while it was still running.
 
