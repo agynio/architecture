@@ -113,6 +113,8 @@ llm:
     "DISABLE_AUTOUPDATER": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
@@ -138,6 +140,8 @@ llm:
 `ANTHROPIC_BASE_URL` overrides the API endpoint; the `/v1` the LLM endpoint carries elsewhere is stripped, because Claude Code appends its own. `ANTHROPIC_API_KEY` must be non-empty to suppress Claude Code's authentication prompt, and its value is unused — with the Ziti sidecar, authentication happens at the network level. `DISABLE_AUTOUPDATER` prevents background update checks. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` disables telemetry and other non-essential outbound requests.
 
 The `permissions` block grants all built-in tools without interactive confirmation. The platform provides isolation and security at the container level — the agent should be able to perform any filesystem, shell, and network action within its container.
+
+`skipDangerousModePermissionPrompt` is what makes `bypassPermissions` take effect. The mode carries a one-time disclaimer, and a CLI that has not seen it accepted **downgrades the mode to the default** rather than refusing — so without this key the `permissions` block above silently buys nothing and tools stop for approval. It belongs beside the mode it unlocks; the same acceptance recorded in the CLI's [first-run state](#agent-cli-first-run-state) is migrated here by the CLI itself.
 
 Inside the platform, agents connect to the LLM Proxy using the `llm-proxy.ziti` OpenZiti hostname. The Ziti sidecar resolves the hostname and transparently intercepts connections via DNS + TPROXY, so agent CLI subprocesses connect with standard HTTP clients — no OpenZiti SDK required. When running with the Ziti sidecar, authentication is handled at the network level by the sidecar's mTLS — the `OPENAI_API_KEY` value is unused. Over the public endpoint (development, CI), the token must be a valid platform API token (`agyn_...`).
 
