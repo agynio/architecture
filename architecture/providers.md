@@ -96,14 +96,20 @@ The platform does not refresh these credentials. `openai`'s in particular is a s
 
 ### Placeholder Delivery
 
-A vendor's placeholder is a dummy the agent CLI needs in order to start; the [LLM Proxy](llm-proxy.md#the-container-still-holds-a-placeholder) discards it and injects the real credential. Vendors differ in how their CLIs read one, and the difference decides who writes it:
+A placeholder is a dummy credential the agent CLI needs in order to start; the [LLM Proxy](llm-proxy.md#the-container-still-holds-a-placeholder) discards it and injects the real one.
 
-| Kind | Written by | Why |
+**A placeholder belongs to the CLI, not to the vendor.** `CLAUDE_CODE_OAUTH_TOKEN` is Claude Code's variable and `~/.codex/auth.json` is the Codex CLI's file, down to the `auth_mode` its contents declare. Point a different CLI at the same vendor and every one of those is wrong while the vendor is unchanged. So the shape is [`agynd`](agynd-cli.md#native-mode-configuration)'s: it is the only component that knows which CLI it runs, which it reads from [`config.json`](agent-init.md#configjson). The [LLM service](llm.md#subscription-management) is not asked, and carries nothing about any CLI.
+
+How it reaches the CLI still splits two ways:
+
+| Kind | Reaches the CLI as | Why |
 |---|---|---|
-| Environment variable | [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), onto the container spec | An interactive [sandbox](../product/sandboxes/sandboxes.md) session is started by the runner's `Exec` against the pod and inherits the *container spec's* environment. A variable set in any process — including `agynd`'s — is invisible to it |
-| File | [`agynd`](agynd-cli.md#native-mode-configuration), at container start | The path is CLI-specific and resolves against `HOME`, which the platform deliberately does not manage — the orchestrator cannot compute it, and `agynd` reads the CLI from [`config.json`](agent-init.md#configjson). A file written before `agynd` idles persists on the container filesystem, so a session exec'd hours later sees it, which is exactly what the environment variable case cannot do |
+| File | A file `agynd` writes at container start, under `HOME` | The filesystem outlives every process, so a session exec'd hours later finds it. `agynd` writes it in holder mode too — a [sandbox](../product/sandboxes/sandboxes.md) spawns no CLI, but the engineer who starts one by hand meets the same refusal |
+| Environment variable | A variable on the container spec, set by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) | An interactive session is started by the runner's `Exec` against the pod and inherits the *container spec's* environment. A variable set in any process — including `agynd`'s — is invisible to it |
 
-Both kinds work in a sandbox, for opposite reasons — one because the container spec outlives every process, the other because the filesystem does. The [LLM service](llm.md#subscription-management) reports which kind a vendor uses, so neither writer holds a copy of this table.
+The variable kind is the awkward one: the orchestrator has to set it, and the orchestrator does not know the CLI. Until that is resolved it learns the variable's name from the LLM service, which is the one piece of CLI knowledge left outside `agynd`. A login shell reads `/etc/profile.d`, and the [Terminal Proxy](terminal-proxy.md#session-kinds) already starts sessions as `sh -lc` — so `agynd` writing a profile fragment would close the gap and make both kinds files it owns.
+
+An existing file is never replaced. It may hold a real credential from the CLI's own login, and overwriting that would log the engineer out of their own subscription.
 
 ### Provisioning Flow
 
