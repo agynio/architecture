@@ -10,6 +10,7 @@ Port Exposure allows users to access development servers and other network servi
 - As an agent, I want to expose a port and receive an access URL so I can share it with the user.
 - As a user, I want a link to tell me which sandbox or which agent is serving it, so I know what I am opening before I open it.
 - As an engineer, I want the link to my sandbox's dev server to stay the same across restarts, so I can bookmark it and share it once.
+- As an engineer, I want to expose a port and see what is already exposed from the sandbox page, without dropping into the shell to run a command.
 - As a user, I want the exposed service to be cleaned up automatically when the agent stops so I don't have stale connections.
 
 ## Prerequisites
@@ -28,7 +29,7 @@ The user must install a Ziti tunnel client on their machine and enroll it using 
 
 The platform does not automatically post the link — the agent decides when and how to share it.
 
-The same command works at a sandbox shell, and the flow is otherwise identical: the engineer runs `agyn expose add 3000` themselves and opens the resulting link.
+The same command works at a sandbox shell, and the flow is otherwise identical: the engineer runs `agyn expose add 3000` themselves and opens the resulting link. For a sandbox there is a second route with no command at all — the [Sandboxes app](../sandboxes/sandboxes-app.md#ports) lists what the sandbox is serving and exposes a port from the sandbox page.
 
 ## Link Format
 

@@ -51,6 +51,7 @@ The selected organization persists in local storage, as in the Console.
 | `AgentsGateway` | `ListEnvironments`, `GetEnvironment` (metadata) | `member` on the organization. The response's `can_use` field drives the environment picker — see [Agents Service — Environment Metadata](agents-service.md#environment-metadata) |
 | `RunnersGateway` | `ListVolumes` filtered to `owner_kind=sandbox` | `can_view_volumes` on the organization — organization owners only. The app degrades without it and does not require it |
 | `TerminalGateway` | `CreateTerminalSession` (`kind: SHELL`) | `can_connect` on the sandbox, checked in the [Terminal Proxy](terminal-proxy.md#authorization) at ticket issuance |
+| `ExposeGateway` | `ListExposures`, `AddExposure`, `RemoveExposure` — all passing the sandbox's `workload_id` explicitly | `can_connect` on the sandbox for add and remove; `member` on the organization for list. See [Expose Service — Authorization](expose-service.md#authorization) |
 | `OrganizationsGateway` | `ListMyMemberships` | Any authenticated user — populates the organization switcher |
 | `UsersGateway` | `GetMe`, `SearchUsers` | Any authenticated user. `SearchUsers` backs the share picker |
 | `GroupsGateway` | `ListGroups` | `member` on the organization — the share picker offers groups as principals |
@@ -62,6 +63,14 @@ The app calls no method that requires organization ownership. A member with no e
 The terminal follows the standard two-step establishment: `CreateTerminalSession(workload_id, container_name, kind: SHELL)` over the Gateway returns a ticket, then a WebSocket to the Terminal Proxy carrying the ticket and a handshake with the initial terminal size. Long-lived credentials never appear in the WebSocket URL. Rendering is xterm.js over the [wire protocol](terminal-proxy.md#wire-protocol); resize is forwarded on every pane resize.
 
 The `workload_id` comes from the sandbox record. A sandbox in any state other than `running` has no workload to attach to, so the detail page calls `EnsureSandboxRunning` first and attaches once the sandbox reports `running`.
+
+## Ports
+
+The detail page lists the sandbox's [exposures](expose-service.md#hostname) and can add and remove them. All three calls pass the sandbox's `workload_id` explicitly — the browser is not the workload, so the header-derived path the CLI uses inside the container does not apply, and the Expose service authorizes the caller as someone who could open a shell instead.
+
+`workload_id` is read from the same sandbox record the terminal uses. A sandbox that is not `running` has no workload and therefore no exposures; the app renders the empty state rather than calling `ListExposures` with nothing to pass.
+
+**No live updates.** The Expose service publishes no [Notifications](notifications.md) events, so there is no room to subscribe to and the app cannot learn about a port exposed from inside the shell as it happens. It refetches `ListExposures` on mount, after each `AddExposure` / `RemoveExposure` it issues, and on the `sandbox.updated` transition into `running`. Adding an exposure room is the fix and is not specified here — the list is short, the staleness is visible, and a refetch is cheap.
 
 Each attached session drives the sandbox's activity clock through the Terminal Proxy — see [Sandbox Activity Reporting](terminal-proxy.md#sandbox-activity-reporting). The app does not report activity itself and must not attempt to; an open tab keeps a sandbox alive only for as long as a session is genuinely attached.
 

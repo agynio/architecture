@@ -588,9 +588,12 @@ App visibility affects who can read app records: `public` apps are visible to an
 | Operation | Check |
 |-----------|-------|
 | `AddExposure` (standard: no `workload_id` in request) | Caller is the workload — `x-workload-id` present (injected by the Gateway from the verified OpenZiti connection) and resolving to a live workload |
-| `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
-| `RemoveExposure` | Caller is the workload, or `owner` on `organization:<exposure.organization_id>` |
+| `AddExposure` (explicit `workload_id`, sandbox-owned workload) | `can_connect` on `sandbox:<workload.owner_id>` |
+| `AddExposure` (explicit `workload_id`, any other owner) | `admin` on `cluster:global` |
+| `RemoveExposure` | Caller is the workload; `can_connect` on `sandbox:<exposure.owner_id>` when sandbox-owned; or `owner` on `organization:<exposure.organization_id>` |
 | `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+
+`can_connect` is the relation the [Terminal Proxy](terminal-proxy.md#authorization) already checks, used here for the same reason: a shell can run `agyn expose` itself, so managing a sandbox's ports from the [Sandboxes app](sandboxes-app.md) confers nothing a session does not. It introduces no relation and no tuple — `sandbox` already defines `can_connect`.
 
 The self-service checks are identity equality against the workload, not relations on its owner, and they read the same for an [agent instance](#agent_instance) and a [sandbox](#sandbox). Who may *reach* an exposed port is a separate question, answered today by the `#all` Dial policy rather than by this model — see [Expose Service — Authorization](expose-service.md#authorization).
 

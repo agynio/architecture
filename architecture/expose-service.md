@@ -356,9 +356,16 @@ The standard path — a workload exposing its own port — requires no OpenFGA c
 | Operation | Check |
 |-----------|-------|
 | `AddExposure` (standard: no explicit `workload_id`) | `x-workload-id` present and resolves to a live workload — the caller is the workload |
-| `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
-| `RemoveExposure` | Caller is the workload, or `owner` on `organization:<exposure.organization_id>` |
+| `AddExposure` (explicit `workload_id`, sandbox-owned workload) | `can_connect` on `sandbox:<workload.owner_id>` |
+| `AddExposure` (explicit `workload_id`, any other owner) | `admin` on `cluster:global` |
+| `RemoveExposure` | Caller is the workload; `can_connect` on `sandbox:<exposure.owner_id>` when the exposure is sandbox-owned; or `owner` on `organization:<exposure.organization_id>` |
 | `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+
+**Whoever can open a shell may manage that sandbox's ports.** `can_connect` grants nothing new here: a shell can run [`agyn expose add`](agyn-cli.md#port-exposure-commands) itself, so doing it from the [Sandboxes app](sandboxes-app.md) is the same capability with fewer keystrokes. A stricter gate would refuse a button to someone the terminal in the next tab obeys.
+
+`ListExposures` needs no sandbox clause. A collaborator is necessarily a `member` of the sandbox's organization — [sharing requires it](agents-service.md#sandbox-sharing) — so the organization check already admits them.
+
+The sandbox clause applies only when the workload's `owner_kind` is `sandbox`. An agent-instance workload has no comparable relation and no surface asking for one, so it stays cluster-admin-only on the explicit path.
 
 Access to an exposed *port* is a separate question from access to the exposure *record*, and it is governed by the [Dial policy](#openziti-resources-created) — `#all`, every identity on the overlay. Readable addresses make an exposed port guessable where an opaque identifier did not, which changes what that policy is worth in practice. See [Port Exposure: Scoped Access Control](../open-questions.md#port-exposure-scoped-access-control).
 

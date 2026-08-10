@@ -22,6 +22,8 @@ Two facts make it a separate app rather than a Console section. Any organization
 - As an engineer, I want a sandbox someone shared with me to appear in my list, so I do not depend on them sending me a link.
 - As a sandbox owner, I want to see exactly what sharing gives away before I share.
 - As an engineer, I want to come back to a stopped sandbox and start it again from the same page.
+- As an engineer, I want to open the dev server running in my sandbox in a browser tab, without leaving the page or typing a command in the shell.
+- As an engineer, I want to see which ports this sandbox is serving and at what address, so I do not have to remember what I exposed.
 
 ## Navigation
 
@@ -98,6 +100,32 @@ While a session is attached the sandbox cannot idle out. Closing the tab ends th
 
 **Actions** — Stop, Share, Delete. Stopping a sandbox whose environment declares no persistent volume warns that everything in it is discarded. Deleting warns that the sandbox's disks go with it.
 
+## Ports
+
+A strip between the header and the terminal, listing what this sandbox is currently serving. It is the answer to "I started something on 3000 — how do I open it?", which otherwise costs a command in the shell and a hunt for the URL it printed.
+
+Each exposed port is one row:
+
+| Element | Description |
+|---|---|
+| Port | The port inside the container |
+| Address | The [link](../port-exposure/port-exposure.md#link-format), e.g. `http://super-sandbox.acme.agyn:3000` — opens in a new tab, with a copy action beside it |
+| Remove | Un-exposes the port. The address stops resolving |
+
+An **Expose a port** control takes a port number and nothing else. Exposing a port that is already exposed returns the existing row rather than a second one, so the action is safe to repeat.
+
+**The strip is only present while the sandbox is running.** Exposures belong to the workload, so a stopped sandbox has none — the strip says so, and exposing is unavailable until it is started.
+
+**Ports do not survive a stop, but their addresses do.** An idle-out clears the list; starting the sandbox and exposing 3000 again returns the identical address, because it is derived from the sandbox rather than from the exposure. A bookmark keeps working — it just needs the port exposed again on the other end.
+
+**A link only resolves on an enrolled device.** The address is on the platform's private network, so a browser without a running Ziti tunnel gets nothing. The strip says this once, next to the first address it shows, and links to [Devices](../port-exposure/port-exposure.md#devices) — the moment someone has a link to click is the moment enrolling makes sense to them.
+
+**Ports exposed from the shell appear here too.** `agyn expose add` inside the sandbox and this control write the same list. The app refetches when the page opens, after any action it takes, and when the sandbox starts running — so a port exposed in the terminal shows up on the next of those rather than instantly.
+
+**Who can manage ports** — anyone who can open a shell in the sandbox, owner or collaborator. It is the same capability: a shell can run `agyn expose` itself.
+
+**Anyone on the platform network can reach an exposed port.** The address is readable and therefore guessable, and exposure carries no per-user access control — a service that needs one must implement it itself. The strip states this where ports are exposed, not in a help page.
+
 ## Sharing
 
 A sandbox owner can give other members of the organization access to that one sandbox.
@@ -123,7 +151,8 @@ Organization owners are not collaborators by default. They can see and terminate
 - Backend communication is ConnectRPC through the [Gateway](../../architecture/gateway.md); the terminal is a WebSocket to the [Terminal Proxy](../../architecture/terminal-proxy.md).
 - The app is a static SPA with no backend of its own.
 - [Workspace sync](sandboxes.md#workspace-sync) and `agyn sandbox cp` are not in the app. Both reconcile against a directory on the engineer's machine, which a browser tab cannot reach; they stay CLI features.
-- Port exposure is not managed here — `agyn expose` runs inside the sandbox, from its shell.
+- Exposed ports have no live updates: the Expose service publishes no notification events, so the strip refreshes on page open, on the app's own actions, and on the sandbox starting.
+- Exposure is HTTP only, and reaching an address requires an enrolled device with a running Ziti tunnel.
 - The app shows the caller's own and shared sandboxes only. The organization-wide view is the Console's.
 - The environment's workspace image must provide a shell for the terminal to be useful; the platform injects none.
 
@@ -132,6 +161,8 @@ Organization owners are not collaborators by default. They can see and terminate
 - A compact list mode for users who accumulate many sandboxes; cards trade scanning density for a bigger primary action, which is the right trade at a handful and the wrong one at thirty.
 - Organization policy on who may be shared with — confining shares to identities that already hold `can_use` on the environment.
 - Sharing that reaches into live sessions on revocation.
+- Live updates for the ports strip, once the Expose service publishes change events.
+- Re-exposing the ports a sandbox had before it idled out, so a restart restores what was serving rather than an empty list.
 
 ## Related architecture
 
