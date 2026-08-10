@@ -15,12 +15,12 @@ The Apps Service manages apps and installations — the configuration entities t
 | **UpdateApp** | Update an app (name, description, icon, visibility) |
 | **DeleteApp** | Delete an app. Revokes the app's OpenZiti identity. Fails if active installations exist |
 | **GetAppProfile** | Get an app's display profile (name, icon, description). Used by [Chat](chat.md) to render app-originated messages |
-| **InstallApp** | Install an app into an organization. Creates the installation record, sets a default nickname (from the app's slug), and writes authorization tuples. Requires org ownership and that the app's visibility allows it |
+| **InstallApp** | Install an app into an organization. Creates the installation record, sets a default nickname (from the app's slug), and writes authorization tuples — one per [declared permission](apps.md#permissions) plus the [membership tuple](apps.md#organization-membership) every installation writes. Requires org ownership and that the app's visibility allows it |
 | **GetInstallation** | Get an installation by ID |
 | **GetInstallationByIdentityId** | Get an installation by the app's `identity_id` within an organization. Used by the [Gateway](gateway.md) for [app proxy](gateway.md#app-proxy) routing after nickname resolution |
 | **ListInstallations** | List installations. Supports filtering by organization and by app |
 | **UpdateInstallation** | Update an installation (nickname, configuration) |
-| **UninstallApp** | Delete an installation. Removes authorization tuples |
+| **UninstallApp** | Delete an installation. Removes authorization tuples, membership included. Agent roles the app was granted are not removed — they are grants an agent owner made, and outlive an install/uninstall cycle |
 | **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation |
 | **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status. An empty or whitespace-only string clears the status (stores NULL) |
 | **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only. Accepts an optional `idempotency_key` (deduped server-side for 24h) to make client retries safe |

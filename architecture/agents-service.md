@@ -109,7 +109,7 @@ Organization owners retain administrative access to every agent in their organiz
 
 On `CreateAgent`, the calling identity is granted the `owner` role on the new agent automatically. Additional roles are managed through the [Agent Role API](#agent-role-api).
 
-Role assignments are restricted to identities that are members of the agent's organization. Cross-organization role grants are rejected. ([Open question](#future-cross-organization-availability) on cross-org access.)
+Role assignments are restricted to identities that are members of the agent's organization. Cross-organization role grants are rejected. ([Open question](#future-cross-organization-availability) on cross-org access.) An installed [app](apps.md#organization-membership) is a member of the organization it is installed into, so an app may hold an agent role — which is how a connector is given a `private` agent to initiate.
 
 `agynd` reads its own configuration through the agent identity's existing `member` relation on the organization (see [agynd Startup Fetch](#agynd-startup-fetch)); the role model gates access by other identities and does not alter agent self-read.
 

@@ -201,7 +201,9 @@ If the check fails, the operation is rejected with a permission error. The check
 - `internal` — any org member satisfies `can_initiate`.
 - `private` — only identities holding `owner`, `maintainer`, or `participant` on the agent satisfy `can_initiate`.
 
-The check is always against the **caller**, never against existing thread participants. Sharing a thread with an agent does not transitively grant the right to add the agent (or any other private agent) elsewhere. App identities holding `participant:add` or `thread:create` on the organization are subject to the same check — those org-level permissions are not enough to bypass per-agent gating. To make a private agent addable by an app (for example, a Telegram connector adding the agent to an inbound chat), an agent `owner` must grant the app a role on the agent via `SetAgentRole`.
+The check is always against the **caller**, never against existing thread participants. Sharing a thread with an agent does not transitively grant the right to add the agent (or any other private agent) elsewhere.
+
+App identities are subject to the same check, and satisfy it the same way anyone else does. An [installation makes the app a member](apps.md#organization-membership) of the installing organization, so an `internal` agent passes through `member from internal_access` — `participant:add` and `thread:create` play no part in it, being permissions on threads rather than on agents. A `private` agent still needs an explicit grant: an agent `owner` gives the app a role via `SetAgentRole`, which accepts it because the app is a member.
 
 Identity-type resolution reuses the same [Identity](identity.md) lookup that resolves `@nickname` to `identity_id`. Threads issues `BatchGetIdentityTypes` for all participants being added, then issues `Check` calls for participants of type `agent` or `agent_instance` (using the class id in the latter case).
 

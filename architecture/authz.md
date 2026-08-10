@@ -323,14 +323,17 @@ Two identities hold this relation, for two different reasons. A human claims it 
 
 ### App Installation Permissions
 
-Apps declare the permissions they need in their definition. When an app is installed into an organization, the Apps Service writes one OpenFGA tuple per declared permission:
+Apps declare the permissions they need in their definition. When an app is installed into an organization, the Apps Service writes one OpenFGA tuple per declared permission, plus a membership tuple written for every installation regardless of what the app declared:
 
 | App permission | Tuple written |
 |----------------|---------------|
+| *(every installation)* | `identity:<app_identity_id>, member, organization:<org_id>` |
 | `thread:create` | `identity:<app_identity_id>, thread_create, organization:<org_id>` |
 | `thread:write` | `identity:<app_identity_id>, thread_write, organization:<org_id>` |
 | `participant:add` | `identity:<app_identity_id>, participant_add, organization:<org_id>` |
 | `inbox:write` | `identity:<app_identity_id>, inbox_write, organization:<org_id>` |
+
+The membership tuple is the same relation a user's membership writes, so an installed app satisfies every relation computed from `member` — including `can_initiate` on an `internal` agent, which resolves through `member from internal_access` and is reachable no other way. It is written by the Apps Service directly; no [`memberships`](organizations.md#members-management) row is created, because that table models people joining organizations. See [Apps — Organization Membership](apps.md#organization-membership).
 
 These tuples flow into computed relations:
 - An app with `thread_write` on an org satisfies `can_write` on any thread in that org (via `thread_write from org` in the thread type).

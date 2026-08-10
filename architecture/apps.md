@@ -136,9 +136,21 @@ See [Open Questions — Installation Configuration Secrets](../open-questions.md
 
 ### Permissions Bridge
 
-The installation grants the app's [declared permissions](#permissions) within the installing organization. When an installation is created, [authorization](authz.md) relationship tuples are written for each permission the app declared.
+The installation grants the app's [declared permissions](#permissions) within the installing organization. When an installation is created, [authorization](authz.md) relationship tuples are written for each permission the app declared, plus one that makes the app a member of the organization.
 
 For example, a Telegram Connector declaring `[thread:create, participant:add]` receives tuples granting those two capabilities in the org. A Reminders app declaring `[thread:write]` receives only that.
+
+### Organization Membership
+
+An installation also writes `identity:<app_identity_id>, member, organization:<org_id>`. An installed app belongs to the organization it is installed into, and membership is how the platform says so.
+
+The declared permissions are not a substitute. They are named capabilities on threads and inboxes; several relations are computed from `member` and cannot be reached any other way. The one that forced this is [agent availability](agents-service.md#availability): an `internal` agent resolves `can_initiate` through `member from internal_access`, so without membership an app holding `thread:create` and `participant:add` can create a thread and still not add any agent to it. `private` agents are the same story one step further — [`SetAgentRole`](agents-service.md#agent-role-api) only accepts identities that are members of the agent's organization, so an app could not be granted a role either.
+
+Membership is recorded **only** as an authorization tuple. The [Organizations](organizations.md) service's `memberships` table is not written: it models people joining organizations — invitations, acceptance, nickname seeding — and none of that applies to a service installed by an org owner. Consequently an app does not appear in `ListMembers`, and member listings stay human.
+
+What membership adds beyond the declared permissions is the reach any org member has: creating threads, initiating `internal` agents, reading agent and environment metadata, and creating sandboxes and environments. The last two are wider than an app needs. They are accepted rather than carved out, because the alternative is every membership check in every service growing a second branch for apps, and that branching is a larger and more permanent cost than the reach it avoids.
+
+When an installation is deleted, the membership tuple is removed with the permission tuples.
 
 Access to individual threads is governed by the granted permissions — participant apps access threads through participant membership, write-only apps access threads through the `thread:write` permission.
 
