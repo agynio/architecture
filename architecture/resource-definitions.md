@@ -489,19 +489,19 @@ The `protocol` field is platform metadata used to gate features like header inje
 
 ## Private Resource Access
 
-A relationship granting a principal (agent, user, or group) the ability to dial a [PrivateResource](#private-resource). Each grant materializes as an OpenZiti Dial policy. Managed by the [Networks service](networks-service.md).
+A relationship granting a principal (agent, environment, user, app, or group) the ability to dial a [PrivateResource](#private-resource). Each grant materializes as an OpenZiti Dial policy. Managed by the [Networks service](networks-service.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `private_resource_id` | string (UUID) | Reference to the [PrivateResource](#private-resource) |
-| `principal_type` | enum | `agent` \| `user` \| `group` \| `app` |
-| `principal_id` | string (UUID) | Identity or group ID |
+| `principal_type` | enum | `agent` \| `environment` \| `user` \| `group` \| `app` |
+| `principal_id` | string (UUID) | Identity, [Environment](#environment), or group ID |
 | `provisioning_state` | enum | `active` \| `failed` \| `removing`. Reflects whether the backing OpenZiti Dial policy was successfully provisioned. `failed` is retried by reconciliation |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant (one Dial policy per grant). Internal — not returned through the Gateway |
 
 Grants are immutable — create and delete only. Unique on `(private_resource_id, principal_type, principal_id)`. The resource and the principal must belong to the same organization — the [Networks service](networks-service.md#authorization) enforces this on create.
 
-For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `app` principals, the grant resolves to the app's single OpenZiti identity (role attribute `app-<id>`). For `group` principals, the grant resolves to every member's identity transitively (any identity with role attribute `group-<id>` — includes apps, users' devices, and agent workloads that are members of the group).
+For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `app` principals, the grant resolves to the app's single OpenZiti identity (role attribute `app-<id>`). For `group` principals, the grant resolves to every member's identity transitively (any identity with role attribute `group-<id>` — includes apps, users' devices, and agent workloads that are members of the group). For `environment` principals, the grant resolves to every workload running that environment — agent workloads and [sandboxes](#sandbox) alike — and is the only principal type that reaches a sandbox, which carries no agent identity and cannot be a group member. See [Private Networks — Why an environment is a principal](private-networks.md#why-an-environment-is-a-principal).
 
 ---
 

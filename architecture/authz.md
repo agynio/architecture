@@ -594,7 +594,9 @@ App visibility affects who can read app records: `public` apps are visible to an
 
 ### Networks Service
 
-Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all organization-scoped resources managed by the [Networks service](networks-service.md). No new OpenFGA types are introduced — checks rely on existing organization-level relations and per-agent `can_edit_config`.
+Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all organization-scoped resources managed by the [Networks service](networks-service.md). No new OpenFGA types are introduced — checks rely on existing organization-level relations and on `can_edit_config` on the [`agent`](#agent) or [`environment`](#environment) a grant targets.
+
+An [environment principal](private-networks.md#why-an-environment-is-a-principal) reaches every workload running that environment, including a sandbox any holder of `can_use` may start. `can_edit_config` is the right gate for it — the same one that governs the environment's ENVs, volumes, and egress rule attachments, all of which a shell in such a sandbox already reaches. Granting a private resource to an environment adds a destination to that set; it does not widen who is standing in front of it.
 
 | Operation | Check |
 |-----------|-------|
@@ -605,6 +607,7 @@ Networks, Tunnels, PrivateResources, and PrivateResourceAccess grants are all or
 | `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
 | `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
 | `CreatePrivateResourceAccess` (`agent` principal) | `can_edit_config` on `agent:<agent_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on `agent:<agent_id>`) |
+| `CreatePrivateResourceAccess` (`environment` principal) | `can_edit_config` on `environment:<environment_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on `environment:<environment_id>`) |
 | `CreatePrivateResourceAccess` (`user`, `app`, or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
 | `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
 | `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |

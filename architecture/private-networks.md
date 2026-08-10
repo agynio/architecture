@@ -16,7 +16,7 @@ For the user-facing model, see [Product — Private Networks](../product/private
 | **Tunnel** | A long-running OpenZiti tunneler instance inside the operator's private network. Enrolls into the platform via a one-time-token JWT issued from the [Networks service](networks-service.md), then phones home to the OpenZiti Controller and binds the services its network's resources expose. One Tunnel belongs to exactly one Network. A Network can have many Tunnels for HA. |
 | **TunnelCredential** | The enrollment artifact issued by the platform for a new tunnel instance — a one-time-token JWT plus a recommended install snippet per supported tunneler distribution. Credentials are revocable; revocation deletes the underlying OpenZiti identity, severing any tunneler that holds it. |
 | **PrivateResource** | A single addressable endpoint behind a Network: a `target_host:target_ports` target the Tunnel forwards to, exposed to agents as an `intercept_host:intercept_ports` hostname they dial. One resource has a single protocol (`tcp` / `http` / `https`). UDP is not supported in v1. |
-| **Resource access grant** | A `(PrivateResource, principal)` tuple authorizing the principal to dial the resource. Principals may be an `agent`, `user`, `app`, or `group`. Underneath, each grant materializes as exactly one OpenZiti Dial policy. |
+| **Resource access grant** | A `(PrivateResource, principal)` tuple authorizing the principal to dial the resource. Principals may be an `agent`, `environment`, `user`, `app`, or `group`. Underneath, each grant materializes as exactly one OpenZiti Dial policy. |
 
 Networks, Tunnels, PrivateResources, and access grants are all organization-scoped. There is no cross-org reachability.
 
@@ -83,13 +83,25 @@ Public hostnames (e.g., `gitlab.com`) are not in the reserved list and are allow
 |---|---|---|
 | `id` | string (UUID) | Unique identifier |
 | `private_resource_id` | string (UUID) | Reference to the PrivateResource |
-| `principal_type` | enum | `agent` \| `user` \| `app` \| `group` |
-| `principal_id` | string (UUID) | Identity or group ID |
+| `principal_type` | enum | `agent` \| `environment` \| `user` \| `app` \| `group` |
+| `principal_id` | string (UUID) | Identity, environment, or group ID |
 | `provisioning_state` | enum | `active` \| `failed` \| `removing` — reflects whether the backing OpenZiti Dial policy was successfully provisioned. See [Provisioning Status](#provisioning-status) |
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy backing this grant (one Dial policy per grant — simpler reconciliation and revocation) |
 | `created_at` | timestamp | |
 
 Unique on `(private_resource_id, principal_type, principal_id)`. Grants are immutable — create and delete only.
+
+### Why an environment is a principal
+
+Every other principal is an identity. An [environment](resource-definitions.md#environment) is not — it is a configuration resource, and it is a principal here because it is the only handle that reaches a [sandbox](resource-definitions.md#sandbox).
+
+A sandbox workload carries no `agent-<id>` attribute: there is no agent class behind it. It cannot be a group member — groups collect users, agents, and apps. So under identity principals alone, nothing can grant a sandbox access to a private resource, and the engineer at a sandbox shell — the person most likely to want an internal database — is the one principal type the access model cannot express.
+
+What agent workloads and sandbox workloads do share is the environment they run. The [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) stamps `environment-<environmentId>` on every workload identity it creates, agent workloads and sandboxes alike, which is the same attribute [egress rule attachments](egress-rules-service.md) already target. Granting to an environment therefore needs no new OpenZiti mechanism and no new attribute — only a principal type that resolves to one.
+
+**A grant to an environment reaches everyone who can start a sandbox in it.** Access follows the environment, not the person: any agent pointed at it and any sandbox started in it can dial the resource, and starting a sandbox requires only [`can_use`](authz.md#environment). This is the same reach an [EgressRule](egress-rules-service.md) attached to an environment already has, and it is why the grant is authorized by `can_edit_config` on the environment rather than by anything on the resource.
+
+Agent instances and individual sandboxes as principals are deliberately out of scope. Both are narrower than an environment and would need their own role attributes — `workload-<id>` exists but dies with the workload, so neither is a grant that outlives a restart. Until that is designed, the environment is the unit.
 
 ## OpenZiti Topology
 
@@ -98,11 +110,14 @@ Unique on `(private_resource_id, principal_type, principal_id)`. Grants are immu
 | Identity Type | Role Attributes |
 |---|---|
 | Tunnel | `["tunnels", "network-<network_id>"]` |
-| Agent pod (Ziti sidecar) | Existing — `["agents", "agent-<agentId>", "workload-<workloadId>"]`, plus `"group-<groupId>"` for every group the agent belongs to (see [Groups service](groups-service.md)) |
+| Agent pod (Ziti sidecar) | Existing — `["agents", "agent-<agentId>", "workload-<workloadId>", "environment-<environmentId>"]`, plus `"group-<groupId>"` for every group the agent belongs to (see [Groups service](groups-service.md)) |
+| Sandbox pod (Ziti sidecar) | Existing — `["agents", "workload-<workloadId>", "environment-<environmentId>"]`. No `agent-<id>`: a sandbox has no agent class behind it |
 | User device | Existing — `["devices", "user-<userId>"]`, plus `"group-<groupId>"` for every group the user belongs to |
 | App | Existing — `["apps", "app-<appId>"]`, plus `"group-<groupId>"` for every group the app belongs to |
 
 The `network-<id>` attribute on Tunnels is what lets multiple tunnel hosts share the same set of bindable services for HA. Resources bind by network role attribute, never by specific tunnel identity ID.
+
+`environment-<environmentId>` is stamped by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) at workload spec assembly and is the only attribute a sandbox and an agent workload running the same environment have in common. Nothing new is introduced for [environment grants](#why-an-environment-is-a-principal) — the attribute already exists and already carries [egress rule attachments](egress-rules-service.md).
 
 ### Per-Resource OpenZiti Service
 
@@ -165,14 +180,17 @@ CreateServicePolicy(
 
 Where `<principal-role-attribute>` resolves by principal type:
 
-| Principal | Role attribute |
-|---|---|
-| `agent:<id>` | `agent-<id>` |
-| `user:<id>` | `user-<id>` |
-| `app:<id>` | `app-<id>` |
-| `group:<id>` | `group-<id>` |
+| Principal | Role attribute | Resolves to |
+|---|---|---|
+| `agent:<id>` | `agent-<id>` | Every workload of that agent |
+| `environment:<id>` | `environment-<id>` | Every workload running that environment — agent workloads and [sandboxes](resource-definitions.md#sandbox) alike |
+| `user:<id>` | `user-<id>` | The user's enrolled devices |
+| `app:<id>` | `app-<id>` | The app's own identity |
+| `group:<id>` | `group-<id>` | Every member transitively |
 
 Static policies, networks, and resources don't conflict — each grant is its own policy.
+
+A workload picks up a new grant on its SDK's next service-list poll (≤15s) — including a workload that was already running when the grant was made. Nothing restarts, because the attribute was stamped at workload creation and only the policy is new.
 
 ## Provisioning Status
 

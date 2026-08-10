@@ -7,7 +7,7 @@ Private Networks let operators give agents access to resources inside their own 
 Three capabilities:
 
 - **Reach private hosts** — agents can dial `prod-postgres.internal.corp:5432`, `gitlab.lan:443`, or any other endpoint inside the operator's network without that endpoint being publicly routable.
-- **Per-principal access control** — each resource has an explicit access list. Agents, individual users (via their enrolled devices), and groups can be granted dial access; revocation is immediate.
+- **Per-principal access control** — each resource has an explicit access list. Agents, environments (which covers sandboxes), individual users (via their enrolled devices), and groups can be granted dial access; revocation is immediate.
 - **HA via multiple tunnels** — a Network can have multiple tunneler instances installed in different locations. OpenZiti load-balances and fails over between them transparently.
 
 The agent runs unmodified tools (`psql`, `curl`, `git`, language-specific HTTP clients). It connects to a hostname; the platform routes the connection through the tunneler to the real host.
@@ -17,6 +17,7 @@ The agent runs unmodified tools (`psql`, `curl`, `git`, language-specific HTTP c
 - As an operator, I want my agent to query an internal PostgreSQL inside my VPC without opening the database to the public internet or running a bastion.
 - As an operator, I want my agent to clone from a private GitLab on my office LAN by dialing its real hostname, with no special URL rewriting.
 - As an operator, I want to grant a team of analysts SSH access to internal hosts from their own machines, using their device identities, with permissions managed by group membership.
+- As an engineer at a sandbox shell, I want to reach the internal database my agents already reach, without an operator having to invent an agent for me to borrow.
 - As an operator, I want to run two tunneler instances in different availability zones of my VPC so a single host outage doesn't take down access.
 - As an operator, I want to revoke an agent's access to a private database the moment I detect anomalous behavior — without restarting the agent.
 
@@ -27,7 +28,7 @@ The agent runs unmodified tools (`psql`, `curl`, `git`, language-specific HTTP c
 | **Network** | A named container for a private network's resources and the tunneler instances that reach it. Networks are organization-scoped. A Network has no settings beyond a name and description — its purpose is to be the OpenZiti binding boundary and the unit of HA. |
 | **Tunnel credential** | An enrollment artifact issued by the platform for a single tunneler instance. The credential is a one-time-token JWT plus an install snippet for the supported tunneler distributions (Docker, Linux/macOS binary, Kubernetes helm chart). One Tunnel belongs to exactly one Network; a Network can have many Tunnels. |
 | **Private resource** | A single addressable endpoint behind the Network — a `target_host:target_ports` target the Tunnel forwards to, exposed to agents as a hostname they dial. A resource has a single protocol (`tcp`, `http`, or `https`). UDP is not supported in v1. |
-| **Access** | The list of principals (agents, users, apps, groups) authorized to dial a Private Resource. A user with access dials from their enrolled devices; an app dials via its own identity; a group with access grants every member transitively. |
+| **Access** | The list of principals (agents, environments, users, apps, groups) authorized to dial a Private Resource. A user with access dials from their enrolled devices; an app dials via its own identity; a group with access grants every member transitively; an environment grants every workload running it, including sandboxes. |
 | **Group** | An org-scoped named collection of identities (users, agents, apps). Granting access to a group is equivalent to granting to every member. See [Groups](../../architecture/groups-service.md). |
 
 ## How traffic flows
@@ -96,9 +97,14 @@ Access is managed on the resource detail page or via the resource's access list.
 | Principal | Effect |
 |---|---|
 | **Agent** | The agent's workloads can dial the resource |
+| **Environment** | Every workload running the environment can dial — agents pointed at it and [sandboxes](../sandboxes/sandboxes.md) started in it. The only way to give a sandbox access |
 | **User** | The user's enrolled devices can dial the resource. Useful for human-driven workflows — a dev's laptop can `psql` an internal DB through the same network |
 | **App** | The app dials the resource using its own OpenZiti identity. Useful for platform-installed apps that need direct access to a private service |
 | **Group** | Every group member (users, agents, apps) can dial. Membership changes propagate automatically |
+
+**Granting to an environment is a broader act than granting to an agent.** A sandbox is a shell, and anyone who may start one in that environment gets the resource with it — so the grant follows the environment's edit permission, the same one that governs its secrets and egress rules. Grant to the agent when one agent needs the resource; grant to the environment when the people and workloads *working in* that environment do.
+
+Granting to an individual agent instance or to one specific sandbox is not supported. Both are narrower than an environment, and neither survives a workload restart today.
 
 Revocation deletes the underlying OpenZiti dial policy immediately. In-flight connections that depended on the policy are torn down. **Propagation window** to live workloads / SDKs: ≤15 seconds (dominated by the SDK's service-list poll interval, the same propagation behavior the [Egress Gateway](../egress-gateway/egress-gateway.md#attaching-rules-to-agents) uses).
 
@@ -146,6 +152,7 @@ Resources are created, edited, and deleted by organization owners through the Co
 - For each port in `intercept_ports`, the tuple `(intercept_host, port)` must be unique across all resources in the organization. Operators namespace by hostname (`prod-postgres.corp:5432` vs `dev-postgres.corp:5432`).
 - A Tunnel belongs to one Network. Running one tunneler for two networks requires two separate tunneler installations.
 - Runners are not eligible group members and not eligible access principals — they are infrastructure, not actors in the access model.
+- Environments are not group members. A group collects identities; an environment is a configuration resource, and it is a principal here only because it is what an agent workload and a sandbox have in common.
 - A private resource conflict with an EgressRule on the same hostname surfaces as an OpenZiti Controller error at the second `CreateService` call — no friendly cross-primitive detection in v1.
 
 ## Related Architecture
