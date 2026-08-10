@@ -498,14 +498,14 @@ The `local` command group runs the full Agyn platform on the user's machine from
 
 | Command | Description |
 |---------|-------------|
-| `agyn local start` | Download the image if needed → create/boot the VM → optionally install the CA. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--download-only`, `-y` |
+| `agyn local start` | [Preflight](#preflight) → download the image if needed → create/boot the VM → wait for [readiness](#readiness) → install the CA → provision the profile. Ends with one link to the console. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--install-deps` \| `--no-install-deps`, `--download-only`, `-y` |
 | `agyn local list` | The configured VMs with status, ports and profile; the selected one is marked |
 | `agyn local select` \| `use NAME` | Choose the VM other commands act on — interactively, or by name for scripts |
 | `agyn local stop` \| `restart` | Stop / restart the VM |
 | `agyn local status` | State, version, port, endpoint health, CA trust. `--output table\|json\|yaml` |
 | `agyn local delete` | Remove the VM. `--purge` also removes downloaded images and certs |
-| `agyn local upgrade` | Upgrade the `agyn-platform` and `agyn-apps` releases in the running VM to the newest charts, keeping the VM and its data. Everything from the image (k3s, Istio, cert-manager, OpenZiti) moves only by recreating the VM — see [Upgrade Model](operations/local-bundle.md#upgrade-model) |
-| `agyn local doctor` | Dependency and environment checks with fix hints |
+| `agyn local upgrade` | Upgrade the `agyn-platform` and `agyn-apps` releases in the running VM to the newest charts, keeping the VM and its data — see [Upgrade](#upgrade). Everything from the image (k3s, Istio, cert-manager, OpenZiti) moves only by recreating the VM — see [Upgrade Model](operations/local-bundle.md#upgrade-model) |
+| `agyn local doctor [--fix]` | The [preflight](#preflight) checks on their own: host tools and their versions, disk space, ports. `--fix` installs what is missing. `--output table\|json\|yaml` |
 | `agyn local config` | `list` \| `get <key>` \| `set <key> <value>` |
 | `agyn local ca` | `show` \| `export` \| `install` \| `uninstall` |
 
@@ -520,13 +520,68 @@ The `local` command group runs the full Agyn platform on the user's machine from
 | **Version resolution** | `version: latest` resolves via `bundle-vm/latest.json` on the CDN; pinned versions bypass it. Downloads are sha256-verified against the published checksums, resumable, and atomic |
 | **Networking** | The host port (default `2496`) is a Lima forward onto the VM's ingress NodePort; port collision detection suggests alternatives. `*.agyn.dev` resolves to `127.0.0.1`, so endpoints are `https://console.agyn.dev:<port>` etc. — see [Local Bundle — Networking](operations/local-bundle.md#networking) |
 | **Certificates** | `agyn local ca` extracts the CA baked into the image and installs it into the system trust store (macOS keychain / Linux ca-certificates; requires sudo) |
-| **Dependencies** | `limactl`, `xz`, `qemu` are checked by `doctor` and by `start` preflight. Not auto-installed — fix hints are printed |
+| **Dependencies** | Checked by `doctor` and by every `start`, and offered for installation rather than only described — see [Preflight](#preflight) |
+
+### Preflight
+
+Every `start` begins with the checks `doctor` reports. A missing or too-old host tool is the most common reason a first run fails, and left to `limactl` the failure arrives as a tool error rather than a sentence naming what to install.
+
+| Check | Blocking | Detail |
+|-------|----------|--------|
+| `limactl`, `xz`, `qemu` present, and at or above the minimum version the image's `lima.yaml` needs | Yes | Present-but-too-old is its own state with its own fix, not "ok" — an old `limactl` fails later, on the template, where the message names neither |
+| Free space under `~/.agyn/local/` for the compressed download, the decompressed disk, and room for the VM to grow | Yes | Reported as required against available. Space is otherwise the failure that arrives halfway through decompression, after the download |
+| The ingress and API ports are free | Yes, on a VM being created | Interactive runs offer the next free pair — see [Design](#design) |
+| Host virtualization is usable by the current user | Yes | |
+| VM state, configured version, CA trust | No | Reported by `doctor`, acted on by nothing |
+
+Missing tools are **offered for installation**, with the exact command shown before it runs — Homebrew on macOS, the distribution's package manager on Linux. Declining prints the commands and stops. A package manager is never installed by the CLI: a machine without one is told what to install, and by whom.
+
+`--install-deps` accepts the offer without prompting and `--no-install-deps` refuses it. `-y` on its own installs nothing, matching `--install-ca`: both actions reach outside `~/.agyn`, both ask for sudo, and neither is what "accept the defaults" should be read to authorize. `agyn local doctor --fix` is the same offer standalone, for a machine being prepared ahead of a first start.
+
+### Progress
+
+Download, boot, readiness and upgrade report as **steps** — one line each, saying what is happening now and what it cost.
+
+| Concern | Behavior |
+|---------|----------|
+| **Step in progress** | Animated on a TTY, so a step that takes a minute is visibly working rather than possibly hung. What it is waiting on is named and updates as it changes: bytes and rate while downloading, the workloads not yet ready while waiting |
+| **Step finished** | One line — what it did and how long it took. It stays; nothing that mattered scrolls past |
+| **Tool output** | `limactl`, `helm` and `kubectl` output never reaches the terminal. It goes to a log under `~/.agyn/local/`, and a failing step prints its tail along with the path. `--debug` streams it to the terminal in place of the step display |
+| **Not a terminal** | No animation, no redraw: each step prints once, on completion, with the same content. A CI log reads as a list rather than as a smear of control characters |
+| **Failure** | The step is marked failed, the command exits non-zero, and nothing after it runs. No step prints an error and lets the command carry on to a summary that reads like success |
+| **Skipped** | Only the optional steps — CA trust when declined, the profile under `--no-profile` — report as skipped, each naming the command that completes it later |
+
+The last line of a successful `start` is its only call to action: **the console URL, printed once**. Chat and tracing are not listed beside it — three links are a menu rather than a next step, and `agyn local status` prints every endpoint for whoever wants one. A `start` against an already-running VM prints the same single line, and prints it in the same place.
+
+### Readiness
+
+`start` returns when the platform can be used, not when the guest has booted. Two signals, both required:
+
+| Signal | Why |
+|--------|-----|
+| Every platform endpoint answers through the host's forwarded port | The ingress begins serving tens of seconds after the VM reports itself started |
+| The system organization declaration carries an assigned id | It is what the profile records and what every org-scoped command runs against. Provisioning completes after the endpoints answer, so an endpoint check alone is not evidence it has |
+
+Credential provisioning runs only once both hold, so `start` never reports a provisioning failure against a platform that had not finished starting. A wait that runs out names the signal still missing and the command that resumes from there — never a bare timeout followed by the rest of the run.
+
+### Upgrade
+
+`agyn local upgrade` puts the same step display over the Helm work, so what reaches the terminal is the answer the user asked for rather than the tooling's account of itself:
+
+| Step | Reports |
+|------|---------|
+| Resolve | The installed chart version and the one being moved to, before anything changes |
+| Upgrade | Each release in turn, animated while rollouts settle, naming the workloads still restarting |
+| Re-apply the ingress port | Only when the host's port differs from the chart default, because a Helm upgrade reverts the browser-facing URLs to it |
+| Result | `agyn-platform 0.51.0 → 0.52.0`, one line |
+
+A release already at the newest chart is reported as such and left alone, rather than upgraded to itself and reported as a new revision. Helm's `AuthorizationPolicy` warnings, `kubectl` klog lines and the closing release listing go to the log with every other tool's output. The one thing an upgrade says that is not a step is the warning that a service running from source will be reset to its chart image (see [Upgrade Model](operations/local-bundle.md#upgrade-model)) — a consequence for the user, not noise from a tool.
 
 ### Interactive and Non-Interactive Modes
 
-On a TTY without `-y`, `agyn local start` runs a first-run wizard: dependency check → port selection → download progress → boot → "trust CA?" prompt.
+On a TTY without `-y`, `agyn local start` runs a first-run wizard: [preflight](#preflight) with an install offer for anything missing → port selection → download → boot → readiness → "trust CA?" prompt.
 
-With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > environment > config file > defaults, and commands fail with actionable messages when a human is required (e.g., sudo for trust-store installation). `status` and `doctor` emit JSON/YAML for scripting.
+With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > environment > config file > defaults, and commands fail with actionable messages when a human is required (e.g., sudo for trust-store installation, or a dependency neither `--install-deps` nor `doctor --fix` was asked to install). `status` and `doctor` emit JSON/YAML for scripting.
 
 ---
 
