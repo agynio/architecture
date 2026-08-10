@@ -43,7 +43,11 @@ Multiple installations are supported — each with its own token pair and `agent
 
 ### Agent Authorization
 
-Mentions are forwarded under the connector's app identity, so the [Agent Availability Check](../threads.md#agent-availability-check) is evaluated against the app, not against the Slack user who typed the mention. A `private` agent is therefore not addable by the connector until an agent `owner` grants the app a role via `SetAgentRole`. `allowed_channels` is the connector-side control over who can reach the agent — any workspace member who can mention the bot in an allowed channel can drive it.
+Mentions are forwarded under the connector's app identity, so the [Agent Availability Check](../threads.md#agent-availability-check) is evaluated against the app, not against the Slack user who typed the mention.
+
+An `internal` agent needs nothing: [installing the app makes it a member](../apps.md#organization-membership) of the organization, and `can_initiate` resolves through membership. A `private` agent needs an agent `owner` to grant the app a role via `SetAgentRole`, which accepts it for the same reason.
+
+`allowed_channels` is the connector-side control over who can reach the agent — any workspace member who can mention the bot in an allowed channel can drive it.
 
 ## Connectivity
 
@@ -60,6 +64,8 @@ One Socket Mode connection runs per installation.
 | `channels:history` | Read thread history in public channels |
 | `groups:history` | Read thread history in private channels |
 | `im:history`, `mpim:history` | Read history in DMs and group DMs |
+| `channels:read` | Resolve a channel id to its name for the message header |
+| `groups:read` | The same for private channels |
 | `channels:join` | Join public channels on `not_in_channel` |
 | `chat:write` | Post replies |
 | `users:read` | Resolve `<@U…>` to display names |
@@ -67,7 +73,9 @@ One Socket Mode connection runs per installation.
 | `files:write` | Upload agent-produced files |
 | `reactions:write` | Acknowledgment reactions |
 
-A bot can be mentioned in a channel it is not a member of, but it cannot read that channel's history. See [History Availability](#history-availability).
+`app_mention` is delivered only for channels the bot is a member of. Membership can still lapse afterwards — being removed from a private channel, or losing a history scope — so reads are not assumed to succeed. See [History Availability](#history-availability).
+
+Channel-name resolution degrades rather than fails: without `channels:read` the header carries the raw channel id instead of `#name`, and nothing else changes.
 
 ## Thread Mapping
 
@@ -103,7 +111,7 @@ On startup the connector calls `ListInstallations` and opens one Socket Mode con
 
 Socket Mode requires the envelope to be acknowledged within 3 seconds, and Slack redelivers unacknowledged envelopes. The connector acknowledges the envelope immediately on receipt and processes the event asynchronously.
 
-Redelivery is handled by a `ProcessedEvent` record keyed on `(installation_id, event_id)`, written when processing completes. An event whose id is already recorded is discarded. Processing is at-least-once: a crash between the two forwarded messages and the `ProcessedEvent` write results in the mention being forwarded twice.
+Redelivery is handled by a `ProcessedEvent` record keyed on `(installation_id, event_id)`, written when processing completes. An event whose id is already recorded is discarded. Processing is at-least-once: a crash between the forwarded message and the `ProcessedEvent` write results in the mention being forwarded twice.
 
 Events for channels outside a non-empty `allowed_channels` are discarded without creating a mapping.
 
@@ -117,16 +125,16 @@ For each accepted `app_mention` event:
    - **root** — `messages[0]`, the message the thread hangs off.
    - **delta** — messages after `last_forwarded_ts`, excluding the triggering mention and excluding messages posted by this installation's own bot user.
 4. Add the 👀 reaction to the mention.
-5. Send **two** platform messages, in order:
-   - the [context message](#context-message)
-   - the triggering mention, rendered the same way
+5. Send **one** platform message — see [Forwarded Message](#forwarded-message).
 6. Set `last_forwarded_ts` to the mention's `ts`.
 
-Both messages land in the agent instance's inbox and are processed in a single turn. Splitting them keeps the instruction — what the agent is being asked — unambiguous and last in context.
+### Forwarded Message
 
-### Context Message
+**One mention is one message.** The context the agent has not seen and the instruction it is being asked to act on travel together, context first, instruction last.
 
-The context message carries everything the agent has not seen. The root is included on every mention; replies are a delta.
+They were two messages once. The split gave nothing the ordering of sections does not, and cost: two sends a few milliseconds apart read as two messages from the connector wherever the thread is displayed, and which of them came first rested on comparing timestamps that can tie. The instruction keeps the property that mattered — being last, so it is the final thing the agent reads — by closing the message rather than by being a message.
+
+The root is included on every mention; replies are a delta.
 
 ```markdown
 ## Slack — #alerts · [open thread](https://acme.slack.com/archives/C0123/p1754748120000100)
@@ -148,13 +156,17 @@ _Grafana · 14:02 UTC_
 **@bob** 14:06 — checking the deploy log
 
 **@bob** 14:06 — deploy was 13:58, matches
+
+### Mention
+
+**@alice** 14:07 — @assistant check this event
 ```
 
 Rules:
 
-- The root is re-sent in full on every mention. It is one message, it is what the thread is about, and the agent has no way to fetch it back once its own context has compacted.
+- The root is re-sent in full on every mention. It is what the thread is about, and the agent has no way to fetch it back once its own context has compacted.
 - The `Replies` section is omitted when the delta is empty.
-- The **context message is omitted entirely** when the root *is* the triggering mention — a top-level channel mention creating a new thread has nothing preceding it.
+- The `Thread root` section is omitted when the root *is* the triggering mention — a top-level channel mention creating a new thread has nothing preceding it. The header and the `Mention` section are always present.
 
 ### Context Bounds
 
@@ -172,11 +184,11 @@ Reading thread history requires both a history scope and channel membership. Men
 
 | Rung | Condition | Behavior |
 |------|-----------|----------|
-| 1 | `conversations.replies` succeeds | Full context message |
+| 1 | `conversations.replies` succeeds | Full context in the forwarded message |
 | 2 | `not_in_channel`, public channel | Call `conversations.join`, retry once. Audit `channel_joined` |
 | 3 | Join fails, private channel, or missing scope | Forward the mention alone, prefixed with the banner below. Post the same notice into the Slack thread so a human can fix it. Audit `history_unavailable` |
 
-Rung 3 banner, prepended to the mention message:
+Rung 3 banner, opening the `Mention` section:
 
 ```markdown
 > **Thread history unavailable** — this bot is not a member of #alerts, or the installation lacks
@@ -209,7 +221,7 @@ An alert's top-level `text` is typically a fallback like `[FIRING:1] HighErrorRa
 
 `actions` matters more than its position in the list suggests — for most alerting integrations the runbook and dashboard links exist only as buttons.
 
-Headings produced by rendering are emitted at `####` so they nest under the context message's own `##` and `###` structure rather than competing with it.
+Headings produced by rendering are emitted at `####` so they nest under the forwarded message's own `##` and `###` structure rather than competing with it.
 
 **Legacy attachments** are still what Grafana, Alertmanager, PagerDuty and Datadog emit, and an implementation that renders only `blocks` renders those alerts blank:
 
@@ -521,7 +533,7 @@ sequenceDiagram
 - **Mention-driven only.** The connector subscribes to `app_mention` and does not subscribe to `message.*`. Messages that do not mention the bot never reach the platform. This is deliberate: mirroring a channel would create an [inbox item](../agent-instances.md#inbox) — and therefore an agent workload — for every human message in the thread.
 - The agent's context is exactly what the connector forwards. There is no app-proxy command surface for the agent to read channels, search, or re-fetch a thread on its own, so anything dropped by [context bounds](#context-bounds) is unrecoverable within that turn and is marked as omitted.
 - Message shortcuts, slash commands, and the Slack Assistant (`assistant.threads`) surface are not in the initial version.
-- Edited and deleted Slack messages are not propagated as they happen. An edit made before the next mention is picked up automatically, because the context message is rebuilt from `conversations.replies` on every mention.
+- Edited and deleted Slack messages are not propagated as they happen. An edit made before the next mention is picked up automatically, because the forwarded message is rebuilt from `conversations.replies` on every mention.
 - Slack user identities are not mapped to platform identities. Every Slack participant appears under the connector's app identity, with attribution carried in the message body.
 - OAuth distribution (a Slack app listed in the App Directory and installed per workspace) is not supported. Each installation carries its own token pair for a single workspace.
 - One `agent_id` per installation, and one bot user per Slack app — routing to a second agent requires a second Slack app and a second installation.
