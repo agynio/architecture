@@ -13,7 +13,7 @@ Structurally analogous to the [EgressRules service](egress-rules-service.md) —
 | **Network CRUD** | Create, read, update, delete `Network` resources. Provisions the per-network Bind policy on create; deletes the policy on delete |
 | **TunnelCredential CRUD** | Issue and revoke tunnel enrollment credentials. Each credential maps 1:1 to an OpenZiti identity with role attributes `["tunnels", "network-<id>"]` |
 | **PrivateResource CRUD** | Create, read, update, delete `PrivateResource` resources. Validates intercept hostname against reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, `::1/128`) and the per-org uniqueness constraint per port in `intercept_ports`. Provisions the OpenZiti service + configs with the [tagging convention](private-networks.md#openziti-resource-tagging) |
-| **PrivateResourceAccess CRUD** | Create and delete access grants. Each grant materializes as exactly one OpenZiti Dial policy. Principals: `agent`, `user`, `app`, `group`. List grants by resource, by principal, by organization |
+| **PrivateResourceAccess CRUD** | Create and delete access grants. Each grant materializes as exactly one OpenZiti Dial policy. Principals: `agent`, `environment`, `user`, `app`, `group`. List grants by resource, by principal, by organization |
 | **Tunnel liveness tracking** | Poll the OpenZiti Controller for per-identity session info; surface `enrolled_at` and `last_seen_at` on `TunnelCredential`; emit `tunnel_status.changed` notifications on transitions |
 | **Reconciliation** | Periodic sweep to repair drift between resource records and actual OpenZiti state |
 | **Change notifications** | Publish `network.updated`, `tunnel_credential.updated`, `tunnel_status.changed`, `private_resource.updated`, `private_resource_access.updated` events to the organization's [Notifications](notifications.md) room |
@@ -29,7 +29,7 @@ Control plane — Gateway-exposed CRUD with periodic reconciliation. Not on a re
 | **Repository** | `agynio/networks` |
 | **API** | gRPC (internal) + Gateway (external via ConnectRPC) |
 | **State** | PostgreSQL — `networks`, `tunnel_credentials`, `private_resources`, `private_resource_access` tables |
-| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (caller-permission checks + cross-org guard via OpenFGA `org` relation on the principal — covers `agent`, `user`, `app`, and `group` principals uniformly), [Identity](identity.md) (existence check + type validation for individual principals `agent`/`user`/`app` via `GetIdentityType`), [Groups](groups-service.md) (existence check for `group` principals via `GetGroup`), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
+| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (caller-permission checks + cross-org guard via OpenFGA `org` relation on the principal — covers `agent`, `user`, `app`, and `group` principals uniformly), [Identity](identity.md) (existence check + type validation for individual principals `agent`/`user`/`app` via `GetIdentityType`), [Groups](groups-service.md) (existence check for `group` principals via `GetGroup`), [Agents](agents-service.md) (existence and organization check for `environment` principals via `GetEnvironment` — an environment is a configuration resource, not an identity, so it is not in the Identity registry), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
 
 ## API
 
@@ -66,7 +66,7 @@ Control plane — Gateway-exposed CRUD with periodic reconciliation. Not on a re
 
 | Method | Description |
 |---|---|
-| **CreatePrivateResourceAccess** | Grant access. Validates: principal exists (for `agent` / `user` / `app` via `Identity.GetIdentityType` — also confirms `principal_type` matches the registered identity type; for `group` via `Groups.GetGroup`); the principal belongs to the resource's organization (cross-org `Check` via [Authorization](authz.md) `org` relation on `<principal_type>:<principal_id>`); the grant is unique on `(resource_id, principal_type, principal_id)`. Creates the per-grant Dial policy |
+| **CreatePrivateResourceAccess** | Grant access. Validates: principal exists (for `agent` / `user` / `app` via `Identity.GetIdentityType` — also confirms `principal_type` matches the registered identity type; for `group` via `Groups.GetGroup`; for `environment` via `Agents.GetEnvironment`); the principal belongs to the resource's organization (cross-org `Check` via [Authorization](authz.md) `org` relation on `<principal_type>:<principal_id>`, which the [`environment` type](authz.md#environment) carries like every other principal); the grant is unique on `(resource_id, principal_type, principal_id)`. Creates the per-grant Dial policy |
 | **DeletePrivateResourceAccess** | Revoke access. Deletes the Dial policy |
 | **ListPrivateResourceAccess** | List grants, filterable by `resource_id`, by `principal_type` + `principal_id`, or by `network_id` |
 
@@ -105,7 +105,7 @@ For each PrivateResourceAccess, one OpenZiti Dial policy:
 | **Dial policy** (`identityRoles: ["#<principal-role>"]`, `serviceRoles: ["@private-<resource_id>"]`) | `CreateServicePolicy` | On `CreatePrivateResourceAccess` |
 | **Dial policy** deletion | `DeleteServicePolicy` | On `DeletePrivateResourceAccess` |
 
-The principal role attribute is one of `agent-<id>`, `user-<id>`, or `group-<id>` per [Private Networks — Dial Policy](private-networks.md#dial-policy-per-access-grant).
+The principal role attribute is one of `agent-<id>`, `environment-<id>`, `user-<id>`, `app-<id>`, or `group-<id>` per [Private Networks — Dial Policy](private-networks.md#dial-policy-per-access-grant). None of them is provisioned here: every one is stamped on the identity by the service that owns it, and a grant only writes the policy that matches it.
 
 Service config shapes (`host.v1`, `intercept.v1`) are in [Private Networks — Per-Resource OpenZiti Service](private-networks.md#per-resource-openziti-service).
 
@@ -185,6 +185,8 @@ Known consumers (informational):
 
 The handler re-reads the affected grants from the local database (the event payload carries only `group_id`), deletes them transactionally, and removes the OpenZiti Dial policies via Ziti Management. Idempotent — re-running on duplicate delivery has no additional effect (grants already deleted).
 
+**There is no equivalent cleanup for a deleted environment**, because the [Agents](agents-service.md) service publishes no environment lifecycle event to subscribe to. The grant is left behind, and it is inert: `environment-<id>` is stamped only on workloads running that environment, and a deleted environment has none and can get none — [deletion is blocked](resource-definitions.md#environment) while any agent or sandbox references it. A Dial policy naming a role attribute no identity carries grants nothing. This is a hygiene gap, not an access one, and closing it wants an `agyn.agents.environment.deleted` event rather than a per-pass existence check on every grant.
+
 ## Client-Facing Updates
 
 Separately from the service-to-service event bus, the Networks service publishes UI-facing updates to the organization's [Notifications](notifications.md) room (`organization:<org_id>`) for Console reactivity:
@@ -210,6 +212,7 @@ These are fire-and-forget [Notifications](notifications.md) updates for the brow
 | `CreatePrivateResource`, `UpdatePrivateResource`, `DeletePrivateResource` | `owner` on `organization:<org_id>` |
 | `GetPrivateResource`, `ListPrivateResources` | `member` on `organization:<org_id>` |
 | `CreatePrivateResourceAccess` (agent principal) | `can_edit_config` on `agent:<agent_id>` + resource org-membership check |
+| `CreatePrivateResourceAccess` (environment principal) | `can_edit_config` on `environment:<environment_id>` + resource org-membership check — the same permission that edits the environment's other contents, and the same one an [egress rule attachment](egress-rules-service.md#authorization) to an environment requires |
 | `CreatePrivateResourceAccess` (user, app, or group principal) | `owner` on `organization:<org_id>` + resource org-membership check |
 | `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
 | `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |
@@ -233,6 +236,7 @@ All RPCs are external; the Networks service has no internal-only methods today.
 | `ZITI_MANAGEMENT_ADDRESS` | Deployment config | gRPC address of [Ziti Management](openziti.md) |
 | `AUTHORIZATION_SERVICE_ADDRESS` | Deployment config | gRPC address of [Authorization](authz.md) |
 | `GROUPS_SERVICE_ADDRESS` | Deployment config | gRPC address of [Groups](groups-service.md) (existence checks for `group_id` principals on access grants) |
+| `AGENTS_SERVICE_ADDRESS` | Deployment config | gRPC address of [Agents](agents-service.md) (existence checks for `environment` principals on access grants) |
 | `NATS_URL` | Deployment config | NATS connection URL for the platform [event bus](messaging.md) |
 | `NOTIFICATIONS_ADDRESS` | Deployment config | gRPC address of [Notifications](notifications.md) (client-facing UI updates) |
 | `RECONCILIATION_INTERVAL` | Deployment config | How often the reconciliation loop runs (default `60s`) |
