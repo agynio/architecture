@@ -498,7 +498,7 @@ The `local` command group runs the full Agyn platform on the user's machine from
 
 | Command | Description |
 |---------|-------------|
-| `agyn local start` | [Preflight](#preflight) → download the image if needed → create/boot the VM → wait for [readiness](#readiness) → install the CA → provision the profile. Ends with one link to the console. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--install-deps` \| `--no-install-deps`, `--download-only`, `-y` |
+| `agyn local start` | [Preflight](#preflight) → download the image if needed → create/boot the VM → install the CA → wait for [readiness](#readiness) → provision the profile. Ends with one link to the console. The CA prompt comes before the wait, so the one question a person has to answer is asked while the platform is still starting rather than after it. Flags: `--version`, `--port`, `--cpus`, `--memory`, `--install-ca` \| `--no-ca`, `--install-deps` \| `--no-install-deps`, `--download-only`, `-y` |
 | `agyn local list` | The configured VMs with status, ports and profile; the selected one is marked |
 | `agyn local select` \| `use NAME` | Choose the VM other commands act on — interactively, or by name for scripts |
 | `agyn local stop` \| `restart` | Stop / restart the VM |
@@ -572,7 +572,7 @@ Credential provisioning runs only once both hold, so `start` never reports a pro
 |------|---------|
 | Resolve | The installed chart version and the one being moved to, before anything changes |
 | Upgrade | Each release in turn, animated while rollouts settle, naming the workloads still restarting |
-| Re-apply the ingress port | Only when the host's port differs from the chart default, because a Helm upgrade reverts the browser-facing URLs to it |
+| Restore the browser-facing port | Only after a release actually moved — that is what reverts the browser-facing URLs to the chart's default. An upgrade that changed nothing does no repair work on a cluster it did not touch |
 | Result | `agyn-platform 0.51.0 → 0.52.0`, one line |
 
 A release already at the newest chart is reported as such and left alone, rather than upgraded to itself and reported as a new revision. Helm's `AuthorizationPolicy` warnings, `kubectl` klog lines and the closing release listing go to the log with every other tool's output. The one thing an upgrade says that is not a step is the warning that a service running from source will be reset to its chart image (see [Upgrade Model](operations/local-bundle.md#upgrade-model)) — a consequence for the user, not noise from a tool.
