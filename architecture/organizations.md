@@ -12,7 +12,7 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 |-------|------|-------------|
 | `id` | string (UUID) | Unique organization identifier |
 | `name` | string | Display name |
-| `slug` | string | Cluster-wide unique short name. Max 64 chars, pattern: `^[a-z0-9-]+$`. See [Slug](#slug) |
+| `slug` | string | Cluster-wide unique short name. Max 63 chars, pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. See [Slug](#slug) |
 | `sandbox_default_idle_timeout` | duration string | Idle timeout applied when the creator names none. Platform-bounded; default `30m` |
 | `sandbox_max_idle_timeout` | duration string | Ceiling on an idle timeout a creator may ask for. Platform-bounded; defaults to the platform maximum |
 | `sandbox_default_ttl` | duration string | Default hard lifetime snapshotted onto newly created sandboxes. Platform-bounded; default `72h`, maximum `336h` |
@@ -26,8 +26,11 @@ Organizations carry a **cluster-wide unique** slug alongside their display name.
 |---|---|
 | [Apps](apps.md#identification) | An app's globally unique address is `{org-slug}/{app-slug}` |
 | [Image Proxy](image-proxy.md#reference-rewriting) | An image reference is `<proxy-host>/<org-slug>/<image-name>:<tag>` |
+| [Expose](expose-service.md#hostname) | An exposed port's address is `<entity>.<org-slug>.agyn:<port>` |
 
-The slug is mutable — renaming an organization is a legitimate operation — but a rename is visible: app addresses change, and image references change, which costs a one-time container-image cache miss per node since references are re-resolved at every workload start. Nothing breaks, because neither consumer stores a resolved reference.
+The slug is constrained to a valid **DNS label** — at most 63 characters, no leading or trailing hyphen — because [Expose](expose-service.md#derivation) puts it in a hostname. The other two consumers accept anything the pattern allows; this one does not, so the tighter rule is enforced at the source rather than worked around downstream.
+
+The slug is mutable — renaming an organization is a legitimate operation — but a rename is visible: app addresses change, image references change (costing a one-time container-image cache miss per node, since references are re-resolved at every workload start), and the address of every live port exposure in the organization changes. The first two break nothing, because neither consumer stores a resolved reference. The third does break already-shared exposure links, which the Expose service [rewrites but cannot forward](expose-service.md#stability).
 
 Because slugs are cluster-wide and reusable, a released slug can be claimed by another organization. Anything that stored an app address as text rather than an ID would then resolve somewhere else. Addresses are for humans and CLI input; stored references use IDs.
 

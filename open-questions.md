@@ -97,16 +97,20 @@ Unresolved product and architectural decisions requiring discussion.
 
 **Context:** The current [Expose Service](architecture/expose-service.md) design grants all identities on the OpenZiti network access to all exposed services via `#all` on Dial policies. This is intentionally broad for the initial implementation.
 
+[Entity-named addresses](architecture/expose-service.md#hostname) raise the stakes without changing the policy. An opaque `exposed-<uuid>.agyn` was unguessable, so `#all` was broad in principle and narrow in practice; `super-sandbox.acme.agyn` is derivable by anyone who knows an organization slug and a sandbox name, so `#all` is now broad in practice too. Nothing became less safe than the model always stated — the accidental protection that made the gap tolerable is gone.
+
 **Questions:**
 - Should exposed ports be scoped to specific users? (e.g., only the user who started the conversation can access the exposed port)
 - If scoped, should per-user role attributes (`user-<userId>`) be assigned to device identities, and per-exposure Dial policies target specific users?
 - How does multi-user thread access (shared threads, teams) interact with exposure scoping?
+- Do the two owner kinds want the same rule? A sandbox has an owner and a [collaborator list](architecture/authz.md#sandbox) that a Dial policy could target directly; an agent instance has a set of thread participants that changes over the exposure's life and would need reconciling.
+- Is per-organization scoping (every member of the owning organization, nobody else) a sufficient first step? It requires an org role attribute on device identities, which does not exist today.
 
 ---
 
 ## Port Exposure: TLS for Exposed Services
 
-**Context:** Exposed services are accessed over `http://exposed-<id>.agyn:<port>`. The OpenZiti overlay provides encryption in transit (mTLS between Ziti endpoints), but the user's browser connects to the local Ziti tunnel via plain HTTP on `localhost`.
+**Context:** Exposed services are accessed over `http://<entity>.<org-slug>.agyn:<port>`. The OpenZiti overlay provides encryption in transit (mTLS between Ziti endpoints), but the user's browser connects to the local Ziti tunnel via plain HTTP on `localhost`.
 
 **Questions:**
 - Is the lack of browser-visible HTTPS acceptable for the initial version?

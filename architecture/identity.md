@@ -46,6 +46,9 @@ All identity types use the same table. For users, the [Organizations](organizati
 | **GetIdentityType** | Return the type for a single identity ID |
 | **BatchGetIdentityTypes** | Return types for a list of identity IDs |
 | **ResolveNickname** | Resolve `@nickname` within a given org. Returns `identity_id`, `identity_type`, and `installation_id` (null for users and agents) |
+| **BatchGetNicknames** | The reverse of `ResolveNickname`: given an org and a list of identity IDs, return each one's `nickname` and `instance_suffix`. Identities holding no nickname in that org are omitted rather than erroring |
+
+`BatchGetNicknames` is how a consumer reconstructs a handle it can only name by ID. For an `agent_instance` it is the only path to the full handle: `instance_suffix` is either the caller-supplied [`label`](agent-instances.md#entity) or a system-generated stem, and only the second is stored here rather than on the instance record. The [Expose service](expose-service.md#derivation) uses it to name an exposure after the instance behind it.
 
 ## Registration
 
@@ -68,6 +71,7 @@ The registering service generates the `identity_id` (UUID) and calls `RegisterId
 | **Chat** | Resolve `sender_id` → type, then route to Users or Agents for profile |
 | **UI** | Resolve identity types for display in membership lists, thread participants |
 | **Threads** | Resolve `@nickname` to `identity_id` when adding participants |
+| **Expose** | `BatchGetNicknames` to name an [exposure](expose-service.md#hostname) after the agent instance behind its workload |
 
 ## Access
 

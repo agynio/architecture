@@ -319,15 +319,17 @@ agyn threads send --thread research --message "Analyze these reports" \
 
 ## Port Exposure Commands
 
-Agents use the `expose` command group to make ports inside their container accessible to users over the OpenZiti network. See [Expose Service](expose-service.md) for the architecture.
+The `expose` command group makes ports inside a container accessible to users over the OpenZiti network — run by an agent during a turn, or by a person at a [sandbox](../product/sandboxes/sandboxes.md) shell. See [Expose Service](expose-service.md) for the architecture.
 
 | Command | Description |
 |---------|-------------|
-| `agyn expose add <port>` | Expose a port. Returns the access URL (`http://exposed-<id>.agyn:<port>`) |
+| `agyn expose add <port>` | Expose a port. Returns the access URL (`http://<entity>.<org-slug>.agyn:<port>`) |
 | `agyn expose remove <port>` | Un-expose a port |
 | `agyn expose list` | List active exposures for the current workload |
 
-These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The agent's workload context is resolved from the authenticated identity.
+These commands call the [Gateway](gateway.md) → [Expose Service](expose-service.md). The workload context is resolved from the authenticated identity.
+
+The address names the entity the workload runs for — `http://super-sandbox.acme.agyn:3000` for a sandbox, `http://research.bob.acme.agyn:3000` for agent instance `@bob#research` — so a link is self-describing wherever it is pasted. `add` prints whatever address it was given, including the opaque `exposed-<id>.agyn` [fallback](expose-service.md#derivability-and-fallback) when no readable one can be derived. Re-running `add` on a port already exposed prints the same URL rather than creating a second exposure.
 
 ---
 

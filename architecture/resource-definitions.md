@@ -195,7 +195,7 @@ An on-demand workload started by a user rather than by inbox traffic, running an
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | | Sandbox name. Unique within the organization. Auto-generated (`adjective-noun`) when omitted. Max 63 chars, pattern: `^[a-z0-9-]+$` |
+| `name` | string | | Sandbox name. Unique within the organization. Auto-generated (`adjective-noun`) when omitted. A valid DNS label: max 63 chars, pattern `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — it is the leading label of the sandbox's [port exposure addresses](expose-service.md#hostname) |
 | `environment_id` | string (UUID) | | Reference to the [Environment](#environment) the sandbox runs. Immutable after creation |
 | `owner_id` | string (UUID) | | Identity of the creating user. Immutable |
 | `status` | enum | | `starting` \| `running` \| `stopped` \| `failed` \| `terminated`. `terminated` is a soft state: the record is retained for audit and usage history, hidden from default lists. See [Sandboxes — Lifecycle](../product/sandboxes/sandboxes.md#lifecycle) |

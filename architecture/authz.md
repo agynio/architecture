@@ -587,10 +587,12 @@ App visibility affects who can read app records: `public` apps are visible to an
 
 | Operation | Check |
 |-----------|-------|
-| `AddExposure` (standard: no `workload_id` in request) | Agent's own identity — `workload.agent_identity_id == caller.identity_id` (from `x-workload-id` header) |
+| `AddExposure` (standard: no `workload_id` in request) | Caller is the workload — `x-workload-id` present (injected by the Gateway from the verified OpenZiti connection) and resolving to a live workload |
 | `AddExposure` (explicit `workload_id`) | `admin` on `cluster:global` |
-| `RemoveExposure` | Agent's own identity or `owner` on `organization:<workload.org_id>` |
-| `ListExposures` | Agent's own identity or `member` on `organization:<workload.org_id>` |
+| `RemoveExposure` | Caller is the workload, or `owner` on `organization:<exposure.organization_id>` |
+| `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+
+The self-service checks are identity equality against the workload, not relations on its owner, and they read the same for an [agent instance](#agent_instance) and a [sandbox](#sandbox). Who may *reach* an exposed port is a separate question, answered today by the `#all` Dial policy rather than by this model — see [Expose Service — Authorization](expose-service.md#authorization).
 
 ### Networks Service
 

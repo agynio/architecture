@@ -76,7 +76,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | `ListServicesByTag` | Networks Service, EgressRules Service | List OpenZiti services matching tag filters (`agyn.managed_by`, `agyn.resource_type`, etc.). Used by reconciliation to identify owned vs orphaned services |
 | `ListIdentitiesByTag` | Networks Service | List OpenZiti identities matching tag filters. Used by reconciliation |
 | `ListServicePoliciesByTag` | Networks Service, EgressRules Service | List OpenZiti service policies matching tag filters |
-| `UpdateService` | Networks Service | Update an existing OpenZiti service's attached configs (`host.v1` / `intercept.v1`). Used when resource target/intercept fields change |
+| `UpdateService` | Networks Service, Expose Service | Update an existing OpenZiti service's attached configs (`host.v1` / `intercept.v1`). Used when resource target/intercept fields change, and when an exposure's [hostname](expose-service.md#stability) changes because the entity behind it was renamed |
 
 ### OpenZiti Controller Operations
 
@@ -88,6 +88,7 @@ All interactions with the OpenZiti Controller's Edge Management API are encapsul
 | List identities | `GET /edge/management/v1/identities?filter=...` | Reconciliation, lease GC |
 | Update role attributes | `PATCH /edge/management/v1/identities/{id}` | Future: dynamic policy changes |
 | Create config | `POST /edge/management/v1/configs` | Port exposure (`host.v1` and `intercept.v1` configs per exposed service) |
+| Update config | `PATCH /edge/management/v1/configs/{id}` | Port exposure hostname rewrite after a rename; private resource target/intercept changes |
 | Create service | `POST /edge/management/v1/services` | Runner registration, app registration, port exposure (with attached configs) |
 | Delete service | `DELETE /edge/management/v1/services/{id}` | Runner deletion, app deletion, port exposure cleanup (also deletes attached configs) |
 | Create service policy | `POST /edge/management/v1/service-policies` | Port exposure (per-exposure Bind and Dial policies) |
