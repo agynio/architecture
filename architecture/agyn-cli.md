@@ -519,7 +519,7 @@ The `local` command group runs the full Agyn platform on the user's machine from
 | **State containment** | Everything lives under `~/.agyn/local/` — `images/<version>/<arch>/` (verified downloads, shared between VMs on the same version), `certs/`, `lima/` (dedicated `LIMA_HOME`) — so `delete --purge` is a clean sweep. Settings live in `~/.agyn/config.yaml` under `local.instances.<name>` (`port`, `apiPort`, `version`, `cpus`, `memory`); a pre-existing flat `local:` block is migrated on load |
 | **Version resolution** | `version: latest` resolves via `bundle-vm/latest.json` on the CDN; pinned versions bypass it. Downloads are sha256-verified against the published checksums, resumable, and atomic |
 | **Networking** | The host port (default `2496`) is a Lima forward onto the VM's ingress NodePort; port collision detection suggests alternatives. `*.agyn.dev` resolves to `127.0.0.1`, so endpoints are `https://console.agyn.dev:<port>` etc. — see [Local Bundle — Networking](operations/local-bundle.md#networking) |
-| **Certificates** | `agyn local ca` extracts the CA baked into the image and installs it into the system trust store (macOS keychain / Linux ca-certificates; requires sudo) |
+| **Certificates** | `agyn local ca` extracts the CA baked into the image and installs it into the system trust store (macOS keychain / Linux ca-certificates; requires sudo). `start` asks what to do with it as three answers — install, export to a file, skip — because the second one is what someone who will not hand sudo to a CLI actually needs, and a yes/no leaves them with a browser warning and no certificate |
 | **Dependencies** | Checked by `doctor` and by every `start`, and offered for installation rather than only described — see [Preflight](#preflight) |
 
 ### Preflight
@@ -530,7 +530,7 @@ Every `start` begins with the checks `doctor` reports. A missing or too-old host
 |-------|----------|--------|
 | `limactl`, `xz`, `qemu` present, and at or above the minimum version the image's `lima.yaml` needs | Yes | Present-but-too-old is its own state with its own fix, not "ok" — an old `limactl` fails later, on the template, where the message names neither |
 | Free space under `~/.agyn/local/` for the compressed download, the decompressed disk, and room for the VM to grow | Yes | Reported as required against available. Space is otherwise the failure that arrives halfway through decompression, after the download |
-| The ingress and API ports are free | Yes, on a VM being created | Interactive runs offer the next free pair — see [Design](#design) |
+| The ingress and API ports are free | Yes, on a VM being created | Asked about only when one is taken. A port is offered rather than confirmed: the default is free on most machines, and a further VM's pair was [chosen for being free](#design) moments earlier |
 | Host virtualization is usable by the current user | Yes | |
 | VM state, configured version, CA trust | No | Reported by `doctor`, acted on by nothing |
 
@@ -579,7 +579,9 @@ A release already at the newest chart is reported as such and left alone, rather
 
 ### Interactive and Non-Interactive Modes
 
-On a TTY without `-y`, `agyn local start` runs a first-run wizard: [preflight](#preflight) with an install offer for anything missing → port selection → download → boot → readiness → "trust CA?" prompt.
+On a TTY without `-y`, `agyn local start` runs a first-run wizard: [preflight](#preflight) with an install offer for anything missing → a port question only if the one it would take is busy → download → boot → what to do with the CA → readiness.
+
+Every choice with more than two answers is made by moving a highlight with the arrow keys, as [`select`](#commands) is — the convention the group already holds.
 
 With `-y` or without a TTY, no prompts occur. Configuration resolves as flags > environment > config file > defaults, and commands fail with actionable messages when a human is required (e.g., sudo for trust-store installation, or a dependency neither `--install-deps` nor `doctor --fix` was asked to install). `status` and `doctor` emit JSON/YAML for scripting.
 
