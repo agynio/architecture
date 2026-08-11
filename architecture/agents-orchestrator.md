@@ -453,9 +453,17 @@ The Orchestrator obtains its OpenZiti identity at runtime via self-enrollment �
 
 ## Authorization
 
-The Orchestrator does not hold a platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. It does not inject `x-identity-id` headers on outgoing calls. Every method it invokes on Threads, Agents, Secrets, Runners, Notifications, and Ziti Management is an internal-only RPC, gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's Kubernetes ServiceAccount.
+Most of what the Orchestrator calls is an internal-only RPC carrying no caller identity at all, gated by [Istio `AuthorizationPolicy`](authz.md#internal-rpc-authorization) restricted to the Orchestrator's Kubernetes ServiceAccount. Runners and Agents read an absent `x-identity-id` as exactly that — a platform call, served without the per-organization filtering a principal's call receives.
 
-This applies to all Orchestrator call sites: workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `ListInstances` / `PauseInstance` on the Agents Service, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.
+This applies to workload and volume reconciliation reads on Runners, the metering sampling loop, [start decision](#start-decision) reads, [runner selection](#runner-selection), [workload spec assembly](#workload-spec-assembly), `ListInstances` / `PauseInstance` on the Agents Service, secret resolution on Secrets, and identity lifecycle on Ziti Management. The user-facing variants of these RPCs (Gateway-exposed, OpenFGA-checked) are unrelated — the Orchestrator never traverses the Gateway.
+
+### Subscribing as the platform
+
+[Notifications](notifications.md) is the exception, and it cannot be served the same way: it authorizes every room against a caller, so it has no reading of an absent identity to fall back on. The Orchestrator therefore identifies itself there — `x-identity-id` set to the [platform identity](identity-service.md), `x-identity-type: platform` — and Notifications settles that claim against `admin` on `cluster:global` rather than believing the header. It is the same identity [Identity](identity-service.md) registers from `PLATFORM_IDENTITY_ID` and grants cluster admin at startup; the Orchestrator reads the id from the same configuration value.
+
+That grant is what admits it to `sandbox_org:{organization_id}`, whose gate is `can_list_sandboxes` — `owner or admin from cluster`. It is deliberately **not** admitted to the identity-keyed rooms: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` stay closed to it. The wake it needs when an instance has work waiting reaches `agent_instance:{id}`, which [Agents](agents-service.md) publishes `message.created` to alongside the instance's own inbox, so the Orchestrator never subscribes to an inbox to learn that one is non-empty.
+
+**This replaced borrowing a principal's identity.** The Orchestrator had no way to say what it was, so it named one of the agent instances it reconciles — electing one per organization and setting that instance's id as its own — to pass checks written for that instance. It worked for the instance's own rooms and could never work for `sandbox_org:`, since an instance is a `member` of its organization and the room wants `can_list_sandboxes`; the denial retried every thirty seconds for the life of the process, and the sandbox loop fell back to its poll interval.
 
 ## Egress CA Distribution
 

@@ -217,6 +217,8 @@ Room subscription authorization is documented in [Notifications — Authorizatio
 
 **Three rooms, because no one of them reaches everyone entitled to the event.** The owner room is identity-keyed and carries a member's whole list in one subscription, but cannot reach a [collaborator](authz.md#sandbox) — the sandbox is not theirs. The org room is scoped to `can_list_sandboxes`, which collaborators do not hold either. `sandbox:{sandbox_id}` closes the gap: one room per sandbox, gated by `can_read`, subscribed per shared sandbox by clients that display one.
 
+**A fourth, for the platform rather than for a viewer.** All three above are keyed by something someone opened — a list, a detail page. The [Orchestrator](agents-orchestrator.md) reconciles every sandbox in the cluster and cannot enumerate what to subscribe to: the event announcing a sandbox in an organization it has not yet seen is the very event it would need to already be subscribed to. So `sandbox.updated` also goes to the flat [`sandboxes`](notifications.md#cluster-wide-rooms) room, and `instance.updated` and `message.created` to `agent_instances`, each held by the platform alone. The Orchestrator used to derive a per-organization room set instead, and dropped events for any organization it had not listed yet.
+
 `sandbox.updated` payloads include the sandbox ID, organization ID, owner ID, name, environment ID, status, idle timeout, TTL, `last_session_at`, and current workload ID when one exists. Terminated sandboxes are still emitted to every room so default lists can remove the row while `--terminated` views retain audit visibility.
 
 ## Authorization

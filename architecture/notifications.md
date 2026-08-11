@@ -146,6 +146,27 @@ External `Subscribe` (through the Gateway) requires an authenticated caller. Roo
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |
 | `organization:{id}` | `member` on `organization:<id>` (used by the [Egress Gateway](egress-gateway.md) to receive `egress_rule.updated` / `egress_rule_attachment.updated` events published by the [EgressRules service](egress-rules-service.md); the gateway subscribes per org for which it has cached rules) |
 
+### Cluster-wide rooms
+
+| Room | Access check |
+|------|-------------|
+| `agent_instances` | Platform only (see below). Carries every `instance.updated` and `message.created` in the cluster. |
+| `sandboxes` | Platform only. Carries every `sandbox.updated` in the cluster. |
+
+Flat literals, like `egress_rules` and `llm_subscriptions`, and for the same reason: the [Orchestrator](agents-orchestrator.md) reconciles every instance and sandbox there is, so it cannot enumerate what to subscribe to.
+
+**A derived room set cannot be made correct here.** The Orchestrator used to subscribe per instance and per organization, rebuilding the set every thirty seconds from a full listing of both. The event announcing a sandbox in an organization it had not yet enumerated went to a room nobody held — these are Redis pub/sub with no replay, so it was dropped, and that sandbox waited for the reconcile tick. The room that would have told it about the organization was the room it could not know to hold. Naming the rooms outright removes the listing, the re-derivation, the resubscribe on every change, and the gap.
+
+Unlike the other flat rooms these carry every organization's lifecycle, so they are not open literals: only a verified platform caller may hold them, and every other caller is refused.
+
+### Platform callers
+
+A caller presenting `identity_type == platform` is a platform service watching what it operates rather than a principal acting through one — the [Orchestrator](agents-orchestrator.md) reconciling instances and sandboxes across every organization. The type alone admits nothing: it is settled by `admin` on `cluster:global`, the tuple [Identity](identity-service.md) writes for the one configured platform identity and that nothing can request. A caller that sets the header without holding the relation is refused exactly as any other.
+
+A verified platform caller may hold the **operational** rooms — the two cluster-wide rooms above, plus `agent_instance:`, `agent:`, `sandbox:`, `sandbox_org:`, `workload:` and `volume:` — and no others. The **identity-keyed** rooms stay closed to it: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` belong to a principal, and the platform places and reaps workloads rather than reading what they exchange. A platform caller naming one of those falls through to the ordinary check, which denies it.
+
+This exists because there was no way for a platform service to say what it was. The Orchestrator instead borrowed an agent instance's `identity_id` to pass checks written for that instance — which worked for the instance's own rooms and could never work for `sandbox_org:`, since an instance is a `member` of its organization and that room wants `can_list_sandboxes`.
+
 See [Authorization — Notifications Service](authz.md#notifications-service) for the full reference.
 
 ## Internal Design

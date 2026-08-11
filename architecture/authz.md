@@ -394,7 +394,23 @@ Internal-only RPCs are not exposed through the [Gateway](gateway.md). They are g
 
 Internal RPCs do **not** consult OpenFGA, do **not** read `x-identity-id` from gRPC metadata, and do **not** require the caller to act on behalf of a user. The [Agents Orchestrator](agents-orchestrator.md), [LLM Proxy](llm-proxy.md), and other infrastructure services call these methods over Istio without injecting an identity header — they are recognized by their ServiceAccount, not by a platform identity.
 
-In particular, the Orchestrator does **not** hold any platform OpenFGA tuple — no `cluster:global#admin` grant, no `member` on any organization. Reconciliation, metering, and workload assembly are all internal-only paths gated by `AuthorizationPolicy`.
+Reconciliation, metering, and workload assembly are internal-only paths gated by `AuthorizationPolicy`, and the Orchestrator calls them with no identity header at all — Runners and Agents serve an absent `x-identity-id` as a platform call, which is also what lets it list the whole cluster in one request rather than once per organization.
+
+#### When a platform service does present an identity
+
+A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity-service.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Three paths need it:
+
+| Callee | Why an identity is required |
+|--------|------------------------------|
+| [Notifications](notifications.md#platform-callers) `Subscribe` | Rooms are authorized per caller; there is no absent-identity path. |
+| [Agents](agents-service.md) `GetUnackedInboxItems`, `GetUnackedInboxCount` | Instance-scoped reads. The Orchestrator must know which thread an instance was handed work for before it can place a workload. |
+| [Groups](groups-service.md) `ListMemberGroups` | Reads an agent's groups to resolve the role attributes its workload carries. |
+
+Each verifies the claim against `admin` on `cluster:global` rather than trusting the `x-identity-type: platform` header, so a caller that sets the header without holding the relation is refused.
+
+**This replaced impersonation.** The Orchestrator previously sent an agent instance's or agent's own `identity_id` as the caller on these paths — and, for anything organization-scoped, elected the first agent it found in each organization and borrowed that one. It was a platform service claiming to be one of the things it manages, in order to satisfy checks written for that thing. It also could not work for `sandbox_org:`, which wants `can_list_sandboxes`: an instance is a `member` of its organization and holds no such relation, so that subscription was refused on every attempt.
+
+The grants are read-only. Writes stay with the principal who owns them — Groups' create/update/delete remain owner-gated, and `AckInboxItems` remains the instance's alone.
 
 The [Ziti Management Service](#ziti-management-service) is the canonical example of this pattern. The same model applies to internal methods on Runners, Agents, Threads, Secrets, LLM, and Notifications listed in the per-service tables below.
 

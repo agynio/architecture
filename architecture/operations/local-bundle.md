@@ -39,6 +39,20 @@ Image replacement is deliberately not what `upgrade` means. It discards everythi
 
 An in-place upgrade rewrites every workload the charts own, so a service running from source against the VM (see [Local Development](local-development.md)) is reset to its chart image.
 
+### Host-Facing Operations
+
+Three operations act on a VM after it boots: installing the Gateway bootstrap token generated for this install, pointing the browser-facing URLs at whatever port the host forwards, and upgrading the platform releases. None can run at bake time — two carry a value the image cannot know, and the third targets charts that did not exist when the image was built.
+
+**They ship with [`agyn`](../agyn-cli.md#local-platform-commands-agyn-local), not in the image**, and are piped into the guest over the Lima channel when needed. The image contains no host-facing scripts and no directory for them.
+
+| Consequence | Why it matters |
+|-------------|----------------|
+| A fix reaches VMs that already exist | A script in the image is correctable only by building an image and recreating the VM from it — which is the operation [`upgrade`](#upgrade-model) exists to avoid. A defect in one is therefore unfixable for every VM already running |
+| One copy | The script and its caller version together. Two copies of the same script in two repositories drift, and the drift is invisible until one of them runs |
+| A credential never enters an argument list | The bootstrap token is piped on stdin to a script staged mode `0700` on the guest's tmpfs. An argument is readable by any user of the guest, and by anyone running `ps` on the host while the CLI works |
+
+The CLI targets the image it ships alongside. A VM booted from an older image is not a supported target: it is told to be recreated, rather than probed for which shape of the platform it happens to contain.
+
 ## Artifacts and Publishing
 
 Each release publishes per architecture (`amd64`, `arm64`) to the CDN:

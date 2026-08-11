@@ -504,7 +504,7 @@ The `local` command group runs the full Agyn platform on the user's machine from
 | `agyn local stop` \| `restart` | Stop / restart the VM |
 | `agyn local status` | State, version, port, endpoint health, CA trust. `--output table\|json\|yaml` |
 | `agyn local delete` | Remove the VM. `--purge` also removes downloaded images and certs |
-| `agyn local upgrade` | Upgrade the `agyn-platform` and `agyn-apps` releases in the running VM to the newest charts, keeping the VM and its data — see [Upgrade](#upgrade). Everything from the image (k3s, Istio, cert-manager, OpenZiti) moves only by recreating the VM — see [Upgrade Model](operations/local-bundle.md#upgrade-model) |
+| `agyn local upgrade [--rollback]` | Upgrade the `agyn-platform` and `agyn-apps` releases in the running VM to the newest charts, keeping the VM and its data — see [Upgrade](#upgrade). `--rollback` recovers a release an interrupted upgrade left mid-flight. Everything from the image (k3s, Istio, cert-manager, OpenZiti) moves only by recreating the VM — see [Upgrade Model](operations/local-bundle.md#upgrade-model) |
 | `agyn local doctor [--fix]` | The [preflight](#preflight) checks on their own: host tools and their versions, disk space, ports. `--fix` installs what is missing. `--output table\|json\|yaml` |
 | `agyn local config` | `list` \| `get <key>` \| `set <key> <value>` |
 | `agyn local ca` | `show` \| `export` \| `install` \| `uninstall` |
@@ -574,6 +574,8 @@ Credential provisioning runs only once both hold, so `start` never reports a pro
 | Upgrade | Each release in turn, animated while rollouts settle, naming the workloads still restarting |
 | Restore the browser-facing port | Only after a release actually moved — that is what reverts the browser-facing URLs to the chart's default. An upgrade that changed nothing does no repair work on a cluster it did not touch |
 | Result | `agyn-platform 0.51.0 → 0.52.0`, one line |
+
+An upgrade interrupted partway — a closed laptop, a killed terminal — leaves the release mid-flight, and every later attempt is refused by Helm with the lock rather than the way out of it. The state is invisible to a release listing, so `upgrade` reads the release's own status first and reports what happened along with `agyn local upgrade --rollback`, which returns the release to the revision before the interrupted one.
 
 A release already at the newest chart is reported as such and left alone, rather than upgraded to itself and reported as a new revision. Helm's `AuthorizationPolicy` warnings, `kubectl` klog lines and the closing release listing go to the log with every other tool's output. The one thing an upgrade says that is not a step is the warning that a service running from source will be reset to its chart image (see [Upgrade Model](operations/local-bundle.md#upgrade-model)) — a consequence for the user, not noise from a tool.
 
