@@ -211,6 +211,37 @@ A sandbox carries no share list as a field. Collaborators are OpenFGA tuples on 
 
 ---
 
+## Sandbox Layout
+
+One identity's set of open [shells](terminal-proxy.md#persistent-shells) in one [Sandbox](#sandbox) — what a client reopens to find its work where it left it. Managed by the [Agents](agents-service.md#sandbox-layout) service.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sandbox_id` | string (UUID) | | The sandbox this layout describes. Half of the key |
+| `identity_id` | string (UUID) | | Whose layout it is. The other half |
+| `version` | int64 | `0` | Incremented on every write. A writer supplies the version it read and is rejected with `FailedPrecondition` if it no longer matches — see [Agents Service — Sandbox Layout](agents-service.md#sandbox-layout) |
+| `tabs` | list | `[]` | Ordered. Position in the list is the display order |
+
+Each entry in `tabs`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `shell_id` | string | | Opaque, client-generated, `^[A-Za-z0-9_-]{1,64}$`. Passed verbatim to [`SHELL_ATTACH`](terminal-proxy.md#persistent-shells) |
+| `number` | int32 | | Assigned when the tab is opened and never reused within the layout. The last-resort display name, so that closing one tab does not rename the others |
+| `name_override` | string \| null | `null` | A name the user gave this tab. Null means the client derives one — the title the shell announces, else its directory. The derived name is never stored: it goes stale the moment the shell changes directory |
+| `cwd` | string \| null | `null` | Last known working directory, absolute. Supplied to `SHELL_ATTACH` and applied only when the shell has to be created. Written by the [Orchestrator](agents-orchestrator.md#layout-snapshot-before-stop) before a planned stop, which is the only moment the value is about to be needed and the last moment it can be read |
+| `last_attached_at` | timestamp \| null | `null` | When a session last attached. Orders "the one I was just in" for [`agyn sandbox connect`](agyn-cli.md#sandbox-commands) |
+
+**Keyed by identity, not by sandbox alone.** A collaborator opening a shared sandbox arrives at their own tabs rather than joining the owner's. This is presentation, not isolation: every shell in a container is visible from inside it to anyone who can open one there, and this record only decides what a client draws. See [Terminal Proxy — Authorization](terminal-proxy.md#authorization).
+
+**A document with a version rather than a row per tab.** Reordering, closing, and opening are all one write, and the fields this is expected to grow — split geometry, sizes, which tab had focus — arrive without a method each. Two devices editing concurrently is the case the version exists for; the loser refetches and reapplies.
+
+**The layout is not a record of what was running.** A stopped sandbox loses its processes. What comes back is the same tabs, named the same, in the same directories, holding new shells — see [Sandboxes App — Sandbox](../product/sandboxes/sandboxes-app.md#sandbox).
+
+Layouts are deleted with their sandbox. A sandbox that merely `stopped` keeps them, which is the whole reason they are stored outside the container; a `terminated` one drops them, the record being retained for usage history rather than for anything anyone will reopen.
+
+---
+
 ## Volume
 
 A disk mounted into a container. Each volume belongs to exactly one target — an [Environment](#environment) or an [MCP](#mcp) — identified by the corresponding foreign key. There is no free-standing volume resource and no attachment relationship: a volume is declared where it is mounted.

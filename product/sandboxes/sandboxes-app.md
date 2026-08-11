@@ -21,6 +21,9 @@ Two facts make it a separate app rather than a Console section. Any organization
 - As an engineer, I want to hand a colleague a shell in the sandbox I am debugging, without giving them anything else.
 - As an engineer, I want a sandbox someone shared with me to appear in my list, so I do not depend on them sending me a link.
 - As a sandbox owner, I want to see exactly what sharing gives away before I share.
+- As an engineer, I want to reload the page without losing the shells I have open, so refreshing is not a decision I have to weigh.
+- As an engineer, I want to open my sandbox on another machine and find the work I left running, so moving between a laptop and a desk costs nothing.
+- As an engineer, I want to know that letting my sandbox go idle ends what is running in my shells, before it happens rather than after.
 - As an engineer, I want to come back to a stopped sandbox and start it again from the same page.
 - As an engineer, I want to open the dev server running in my sandbox in a browser tab, without leaving the page or typing a command in the shell.
 - As an engineer, I want to see which ports this sandbox is serving and at what address, so I do not have to remember what I exposed.
@@ -88,15 +91,23 @@ Status, environment, both clocks, and a terminal filling the rest of the page.
 
 **Terminal** — a real PTY with no platform-imposed limits: colors through truecolor, alternate screen, mouse reporting, full-screen TUIs, resize, working signals, and the shell's exit code reported on exit. It fills the page below the header, because it is what the page is for. See [Sandboxes — Shell Access](sandboxes.md#shell-access).
 
-**Tabs** — several shells in one sandbox, as any terminal emulator gives you: a tab strip above the terminal with a new-shell action, and a close action once more than one is open. Each tab is an independent session, so a background tab keeps running and keeps its scrollback — the [wire protocol](../../architecture/terminal-proxy.md#wire-protocol) has no resume, and a tab that was torn down on leaving it would come back a different shell. Closing a tab ends that session, exactly as closing the page ends them all.
+**Tabs** — several shells in one sandbox, as any terminal emulator gives you: a tab strip above the terminal with a new-shell action, and a close action once more than one is open. Each tab is an independent shell, and a background tab keeps running and keeps its scrollback.
 
-A tab is named by what its shell announces — the title it sets, or failing that the directory it reports — and falls back to the number it opened with. That number is fixed at open and never reused: renumbering by position would rename the shells that were kept when one is closed.
+**Tabs come back.** Reload the page, close the laptop, open the sandbox on another machine — the same tabs are there, in the same order, with the same work still running in them. The shells belong to the sandbox rather than to the page, so nothing on screen was something the browser was holding for you. Closing a tab is what ends a shell, and typing `exit` in one closes its tab.
+
+A tab is named by what its shell announces — the title it sets, or failing that the directory it reports — and falls back to the number it opened with. That number is fixed at open and never reused: renumbering by position would rename the shells that were kept when one is closed. A tab can also be given a name, which then sticks.
 
 Tabs are reordered by dragging, and with `Alt`+`←`/`→` for anyone not using a mouse.
 
-While a session is attached the sandbox cannot idle out. Closing the tab ends that session — like dropping an SSH connection, the foreground process group is signalled and the container keeps running. Work that must outlive a tab belongs under `tmux` or `nohup` from the image.
+**A shell is in one place at a time.** Opening the sandbox on a second device moves each shell there, and the first device says so and offers to take it back. This is what makes reconnecting immediate rather than a wait for the previous connection to be given up on, and it is why a shell always fits the screen actually looking at it.
+
+**Shells in this sandbox are yours.** A [collaborator](#sharing) opening it starts with their own empty strip rather than joining your tabs. Neither of you is hidden from the other — anyone with a shell here can find every shell here from inside the container — but the two of you are not sharing a screen unless you set out to.
+
+While a session is attached the sandbox cannot idle out; the clock runs on time with nothing attached, whether or not shells are still open.
 
 **Stopped, starting, or failed** — the terminal area is replaced by the state and a **Start** action. Starting is a no-op when already running, a restart when stopped, and a fresh attempt when failed; the terminal appears once the workload runs. A `failed` sandbox stays failed until someone acts — nothing retries it in the background, because nothing needs a sandbox to run while nobody is connecting.
+
+**A sandbox that stopped comes back with its tabs and without its work.** Shells live in the container, so an idle timeout takes everything running in them. Starting the sandbox again restores the same tabs, named the same, in the directories they were left in — holding new shells, and saying so rather than letting someone assume otherwise. The **Stops in** countdown sits beside the tab strip for the same reason: once tabs persist, that clock is the thing deciding whether tomorrow's tabs still have anything running in them, and it should not have to be looked for.
 
 **Actions** — Stop, Share, Delete. Stopping a sandbox whose environment declares no persistent volume warns that everything in it is discarded. Deleting warns that the sandbox's disks go with it.
 
@@ -161,6 +172,8 @@ Organization owners are not collaborators by default. They can see and terminate
 - A compact list mode for users who accumulate many sandboxes; cards trade scanning density for a bigger primary action, which is the right trade at a handful and the wrong one at thirty.
 - Organization policy on who may be shared with — confining shares to identities that already hold `can_use` on the environment.
 - Sharing that reaches into live sessions on revocation.
+- Two people attached to one shell at once — a shared screen for pairing, rather than the second attachment taking the first one's place.
+- Splits within a tab, once there is a reason to describe a layout richer than an ordered list of shells.
 - Live updates for the ports strip, once the Expose service publishes change events.
 - Re-exposing the ports a sandbox had before it idled out, so a restart restores what was serving rather than an empty list.
 

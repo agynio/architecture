@@ -404,7 +404,8 @@ Engineers use the `sandbox` command group to start on-demand workloads and attac
 | Command | Description |
 |---------|-------------|
 | `agyn sandbox start [--env NAME] [--name NAME] [--agent @HANDLE] [--sync PATH] [--idle-timeout DURATION]` | Create a sandbox running an [environment](resource-definitions.md#environment), wait for the workload, attach a shell. `--env` defaults to the organization's sole environment when exactly one exists. `--agent` resolves the agent's environment instead. `--name` is auto-generated when omitted. `--idle-timeout` sets how long the sandbox survives with nothing attached — see [Idle Timeout](#sandbox-idle-timeout). Prints a notice before attaching when the environment declares no persistent [volume](resource-definitions.md#volume) — nothing written in the shell will survive the workload stopping |
-| `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
+| `agyn sandbox connect [NAME] [--new] [--tab ID]` | Attach to a [shell](terminal-proxy.md#persistent-shells) in an existing sandbox. Calls `EnsureSandboxRunning` before requesting a terminal ticket: no-op when `running`, restart when `stopped`, fresh start attempt when `failed`. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates. Returns to the caller's **most recently attached** shell, creating one when there are none; `--new` opens another, `--tab` names one |
+| `agyn sandbox tabs [NAME]` | List the caller's shells in a sandbox: name, number, directory, and whether something is attached. The same set the [Sandboxes App](../product/sandboxes/sandboxes-app.md) draws its tab strip from |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes. Terminated sandboxes are hidden unless `--terminated` is passed. `--all` lists every sandbox in the organization (org owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete the volumes provisioned for it |
@@ -418,7 +419,13 @@ agyn sandbox cp brave-otter:/workspace/out.csv ./
 agyn sandbox cp -r ./src brave-otter:/workspace/src
 ```
 
-The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). A dropped connection ends the session, not the sandbox — `agyn sandbox connect` reattaches. `start` and `connect` require a TTY; the only non-interactive session the CLI opens is [workspace sync](#sandbox-sync-commands).
+The shell session is a WebSocket to the Terminal Proxy, which routes to the hosting runner's `Exec` API (see [Runners — Terminal Proxy Integration](runners.md#terminal-proxy-integration)). `start` and `connect` require a TTY; the only non-interactive session the CLI opens is [workspace sync](#sandbox-sync-commands).
+
+**A dropped connection ends the session, not the shell.** The PTY belongs to a process in the container, so `agyn sandbox connect` returns to the same shell with its processes still running and its screen repainted at the new terminal's size — the reconnect the [product](../product/sandboxes/sandboxes.md#shell-access) describes, rather than a fresh prompt. What does not survive is the workload: an idle stop takes every shell with it, and `connect` restarts the sandbox into recreated shells at the directories they were last recorded in.
+
+Shells are shared with the browser, both directions. A shell opened here is a tab in the [Sandboxes App](../product/sandboxes/sandboxes-app.md), and `connect` with no `--tab` returns to whichever shell was last attached from anywhere — which is usually the point. Attaching displaces whatever held it, so a browser tab left open on the same shell reports that it was taken over.
+
+The CLI writes the [layout](resource-definitions.md#sandbox-layout) as the app does. A shell opened from a terminal and never mentioned to the platform would be one the browser could not show.
 
 `agyn sandbox start --sync PATH` composes start, shell attach, and sync in one invocation.
 

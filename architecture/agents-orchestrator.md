@@ -295,6 +295,17 @@ The pull credential is revoked alongside the OpenZiti identity — both are per-
 
 `status=stopping` is set before the runner call so the console can show the workload as being stopped. `removed_at` is set after `StopWorkload` succeeds — it reflects the actual removal time. The metering sampling loop picks up the workload on its next tick (since `removed_at > last_metering_sampled_at`) and emits the tail sample. The workload record is retained for audit history.
 
+## Layout Snapshot Before Stop
+
+Stopping a **sandbox** workload has one extra step, taken before `StopWorkload` and after `status=stopping`: the orchestrator reads the working directory of every [shell](terminal-proxy.md#persistent-shells) in the container and writes them onto the sandbox's [layouts](resource-definitions.md#sandbox-layout) through `SetSandboxLayoutDirectories`.
+
+**Here, because nowhere else can be.** The value is only ever needed once the container is gone, and the last moment it can be read is the moment before it goes. A client cannot take it: a browser tab detaches by being closed, reloaded, or losing its network, and none of those give it a turn to act. And no client is necessarily present at all — an idle stop happens precisely because nothing has been attached for some time.
+
+The snapshot is **best-effort and never blocks the stop.** It is bounded by a short timeout, and a failure — an unreachable runner, a container already gone, a workload with no shells — is logged and the stop proceeds. A sandbox that lost its layout directories reopens its tabs where they were last recorded, or at the image's default; a sandbox that failed to stop because a bookkeeping read timed out would be a worse trade.
+
+Stops the platform did not initiate get no snapshot: an evicted pod, a node failure, or a crash leaves the previously recorded value. This is the reason the field is described as last *known* rather than last used.
+
+Agent workloads are skipped — they have no layout and no shells worth recording.
 
 ## Leader Election
 

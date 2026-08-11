@@ -67,14 +67,26 @@ All three init containers write into an `emptyDir` mounted at `/agyn`, which the
 /agyn/
 ├── bin/
 │   ├── agynd      # daemon binary            (agynd-cli-init)
+│   ├── tmux       # shell multiplexer        (agynd-cli-init)
 │   ├── agyn       # platform CLI binary      (agyn-cli-init)
 │   └── codex      # agent CLI binary         (agent runtime image)
+├── tmux.conf      # platform tmux config     (agynd-cli-init)
 └── config.json    # runtime config for agynd (agent runtime image)
 ```
 
-Init containers run in order and write disjoint paths, so the three images compose without coordination beyond the layout above. This is what allows each binary to ship in its own image. `agyn` and `agynd` are **reserved names** in `bin/`: an agent runtime image must not ship a binary called either.
+Init containers run in order and write disjoint paths, so the three images compose without coordination beyond the layout above. This is what allows each binary to ship in its own image. `agyn`, `agynd`, and `tmux` are **reserved names** in `bin/`: an agent runtime image must not ship a binary called any of them.
 
 `/agyn/bin` is the single `PATH` entry, and everything on it is a binary — configuration lives beside it at `/agyn`, not on `PATH`. The volume is a delivery surface written by init containers and read by the main container; it is not writable agent state, so no ownership fixing is required for non-root images.
+
+### tmux
+
+`tmux` backs [persistent shells](terminal-proxy.md#persistent-shells) and ships with `agynd` because `agynd` is what runs it — one image, one version pair, no skew between the binary and the process that starts the server.
+
+It is **statically linked against musl**, with the terminfo entries it needs compiled in. Both properties are requirements rather than preferences: a sandbox runs whatever image its environment names, and a distro build would fail on a musl base for its libc and on a slim base for `libtinfo`, while a glibc static build would fail `getpwuid` — which tmux calls to find the user's shell — because NSS cannot be linked statically. Compiled-in terminfo removes the last filesystem dependency, so the server starts in an image carrying no terminal database at all.
+
+Two things it still needs from the image, and neither is new: a shell for it to spawn, and a writable directory for its socket. The [Sandboxes App](../product/sandboxes/sandboxes-app.md#constraints) already states the first; `agynd` handles the second by placing the socket where the platform controls it rather than in the image's `/tmp`.
+
+Delivering it on `PATH` rather than beside the configuration is deliberate. It shadows any `tmux` the image ships, which is the point: a client and a server disagreeing on protocol version fail to connect, and an engineer running `tmux` inside a shell would otherwise meet that error with no way to interpret it. One binary means one version. The platform's own server is kept off the default socket regardless, so a personal `tmux` still gets its own server and its own configuration.
 
 The agent CLI binary keeps its original name — someone who execs into the container to debug sees the real one.
 
@@ -84,6 +96,7 @@ The agent CLI binary keeps its original name — someone who execs into the cont
 |---|---|
 | Agent subprocess | `agynd` prepends it when spawning |
 | Interactive session | The [Terminal Proxy](terminal-proxy.md#session-kinds) prepends it in the command it binds, expanded inside the container so the image's own `PATH` survives |
+| Persistent shell | The [tmux configuration](agynd-cli.md#shell-supervision) prepends it in the command the server spawns — the same construction, in the only place that reaches a shell the client did not start |
 | Platform-invoked process | Not at all — invoked by absolute path |
 
 ### config.json
@@ -194,7 +207,9 @@ sequenceDiagram
 Two workloads deviate from this sequence:
 
 - **A workspace-only environment** (no agent runtime image) runs the two platform init containers alone. No agent CLI and no `config.json` are present.
-- **A [sandbox](../product/sandboxes/sandboxes.md)** runs `agynd` as a long-lived holder, whether or not its environment names an agent runtime image. It fetches the environment-scoped configuration, prepares the agent CLI as far as the environment determines — its configuration file, its [first-run state](agynd-cli.md#agent-cli-first-run-state), any file placeholder — and runs the environment's [init scripts](resource-definitions.md#initscript), there being no agent and so no agent-scoped ones. Then it holds, spawning no agent CLI and running no inbox loop — preparing a CLI it will not spawn because a person will, by hand, and an unconfigured one stops to ask them a question. See [Preparation in Holder Mode](agynd-cli.md#preparation-in-holder-mode). Because nothing is spawned, nothing extends `PATH` from inside the container, and the binaries under `/agyn/bin` are reachable only by absolute path unless a session establishes `PATH` itself. Interactive sessions do: the [Terminal Proxy](terminal-proxy.md#session-kinds) prepends `/agyn/bin` to `$PATH` in the command it binds, expanded inside the container so the image's own `PATH` survives. That is what puts `agyn` and the environment's agent CLI on `PATH` for a person driving a sandbox by hand.
+- **A [sandbox](../product/sandboxes/sandboxes.md)** runs `agynd` as a long-lived holder, whether or not its environment names an agent runtime image. It fetches the environment-scoped configuration, prepares the agent CLI as far as the environment determines — its configuration file, its [first-run state](agynd-cli.md#agent-cli-first-run-state), any file placeholder — and runs the environment's [init scripts](resource-definitions.md#initscript), there being no agent and so no agent-scoped ones. Then it holds, spawning no agent CLI and running no inbox loop — preparing a CLI it will not spawn because a person will, by hand, and an unconfigured one stops to ask them a question. See [Preparation in Holder Mode](agynd-cli.md#preparation-in-holder-mode). What it does start is the [tmux server](agynd-cli.md#shell-supervision) that holds the sandbox's [persistent shells](terminal-proxy.md#persistent-shells), which is the one thing in a holder that must exist before anyone connects.
+
+No agent CLI being spawned, nothing extends `PATH` for the container at large, and `/agyn/bin` is reachable only by absolute path unless a session establishes `PATH` itself. Both kinds of session do, in the two places listed above, which is what puts `agyn` and the environment's agent CLI on `PATH` for a person driving a sandbox by hand.
 
 ## Environment Variable Contract
 
