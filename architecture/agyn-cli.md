@@ -573,7 +573,10 @@ Credential provisioning runs only once both hold, so `start` never reports a pro
 | Resolve | The installed chart version and the one being moved to, before anything changes |
 | Upgrade | Each release in turn, animated while rollouts settle, naming the workloads still restarting |
 | Restore the browser-facing port | Only after a release actually moved — that is what reverts the browser-facing URLs to the chart's default. An upgrade that changed nothing does no repair work on a cluster it did not touch |
+| Wait for the rollout | After the repair, never before it — see below. Names the workloads still behind as they land |
 | Result | `agyn-platform 0.51.0 → 0.52.0`, one line |
+
+**The rollout is waited on by the CLI, not by Helm, and the order is load-bearing.** An upgrade reverts the browser-facing URLs to the chart's port, and on a VM serving any other one the workloads holding those URLs cannot start until they are pointed back. A Helm upgrade that waits is therefore waiting for pods that are waiting for the repair that is waiting for it — a deadlock that resolves only at Helm's timeout, and only on a VM that is not on the default port. Helm applies; the CLI repairs; the CLI waits.
 
 An upgrade interrupted partway — a closed laptop, a killed terminal — leaves the release mid-flight, and every later attempt is refused by Helm with the lock rather than the way out of it. The state is invisible to a release listing, so `upgrade` reads the release's own status and reports what happened along with `agyn local upgrade --resume`.
 
