@@ -251,6 +251,18 @@ The k8s-runner translates the gRPC bidirectional stream into the Kubernetes SPDY
 | `StreamWorkloadLogs` | Kubernetes API pod log streaming (`/log` subresource, `follow=true`) |
 | `StreamEvents` | Watch Pod events via the Kubernetes API |
 
+## Workload State Reporting
+
+The runner watches the Pods it manages and reports each runtime transition to the platform as it happens, via `ReportWorkloadState` on the [Runners Gateway](gateway.md) — the outbound connection it already holds for [enrollment](#authentication) and catalog reporting. See [Runners — Runner-Reported Workload State](runners.md#runner-reported-workload-state) for what may and may not be reported.
+
+**A Pod informer, not an extra process.** A `SharedInformer` over Pods in the runner's own [namespace](#namespace), filtered to `agyn.io/workload-id`, runs as a goroutine inside the runner alongside its gRPC server. It holds one watch connection to the Kubernetes API and an in-memory cache of exactly the workload Pods the runner already manages. No additional Pod, container or ServiceAccount, and no new [RBAC](#rbac) — `watch` on Pods is already granted.
+
+The informer rather than a bare `Watch` for its two recovery properties: it reconnects when the API server drops the watch, and it re-lists on a resync interval, so a transition missed during a disconnect is re-derived rather than lost. `StreamEvents` above is the opposite shape deliberately — created per RPC, living only as long as the caller's stream.
+
+The Pod carries `agyn.io/workload-id`, so a Pod maps to a workload record with no lookup.
+
+**Reporting is best-effort.** Failures are retried with backoff and never fail the runner: the platform's own reconciliation is the backstop, and a runner that cannot report is degraded in latency, not in correctness.
+
 ### Storage
 
 | RPC | Kubernetes Implementation |

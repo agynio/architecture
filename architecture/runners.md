@@ -39,6 +39,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 |--------|-------------|
 | **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID, sets `status=starting`, and supplies the generalized owner (`owner_kind=agent_instance` or `sandbox`, `owner_id=<id>`). Called before `Runner.StartWorkload` to avoid a reconciliation race |
 | **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
+| **ReportWorkloadState** | A runner reports the runtime state it observes for a workload on itself — status, containers, `observed_at`. Writes through the same path as `UpdateWorkload`, so the same events fire, and rejects a report older than the recorded state. Runner-facing, on the [Runners Gateway](gateway.md). See [Runner-Reported Workload State](#runner-reported-workload-state) |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload metadata and containers for views such as Console Workload Detail |
 | **ListWorkloads** | List workloads in an organization with server-side sort, filter, and pagination. Response items include owner-aware display fields and `runner_name`. See [ListWorkloads request shape](#listworkloads-request-shape) |
@@ -326,12 +327,31 @@ The [Agents Orchestrator](agents-orchestrator.md), [`agynd`](agynd-cli.md), and 
 **Orchestrator** calls the Runners service to record workload lifecycle events:
 
 1. **Start**: orchestrator starts a workload on a runner via Runner `StartWorkload`, then calls `CreateWorkload` on the Runners service with the runner ID, workload ID, `owner_kind`, `owner_id`, nullable agent class fields for agent-instance workloads, and initial container list. `last_activity_at` is set to `created_at`; `agent_state` is initialized to `processing` for agent-instance workloads (the orchestrator only starts those workloads in response to unacked messages, so the agent is expected to begin producing output immediately). Sandbox workloads do not use `agent_state` for lifecycle decisions. Volume records are populated separately by the volume sync loop — not as part of the start flow.
-2. **Update**: orchestrator detects status changes during reconciliation (via Runner `InspectWorkload`) and calls `UpdateWorkload` to update status and container states. When the call promotes `status` from `starting` to `running`, the Runners service also resets `last_activity_at = now()` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh window to make its first `TouchWorkload`.
+2. **Update**: the runner reports the transition as it observes it (see [Runner-Reported Workload State](#runner-reported-workload-state)); the orchestrator's reconciliation pass is the fallback that catches whatever a report missed, detecting status changes via Runner `InspectWorkload` and calling `UpdateWorkload`. Either writer promoting `status` from `starting` to `running` also resets `last_activity_at = now()` so the [Agent Activity Sweep](#agent-activity-sweep) gives `agynd` a fresh window to make its first `TouchWorkload`.
 3. **Stop**: orchestrator calls `UpdateWorkload(status=stopping)`, stops the workload via Runner `StopWorkload`, then calls `UpdateWorkload(status=stopped, removed_at=now)`. The record is retained for audit. The metering sampling loop handles the tail sample on its next tick.
 
 **Activity reporters** call `TouchWorkload` to update `last_activity_at`: [`agynd`](agynd-cli.md) calls it via [Gateway](gateway.md) while an agent workload is actively processing, and Terminal Proxy calls it internally while a sandbox terminal session is attached. See [Idle Timeout](#idle-timeout).
 
-The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator, `agynd`, and Terminal Proxy tell it.
+The Runners service is a passive store — it does not interact with runners directly. It records what the orchestrator, the runner, `agynd`, and Terminal Proxy tell it.
+
+## Runner-Reported Workload State
+
+A runner reports the runtime state it observes, as it observes it, through `ReportWorkloadState` on the [Runners Gateway](gateway.md) — the same outbound, authenticated path it already uses for [`EnrollRunner`](#enrollment) and [`ReportRunnerCatalog`](#catalog-reporting).
+
+**Because the runner is the only thing that can see the pod.** Every other arrangement has the platform asking. The orchestrator used to be the sole writer of `running`, discovering it by dialing the runner and calling `InspectWorkload` on its reconcile interval — so a workload was ready and serving for up to a full interval before anything recorded it, and the sandbox behind it stayed `starting` for exactly that long. The [`workload.status_changed`](notifications.md) event existed the whole time, but it fired *from the orchestrator's own write*, which meant subscribing to it told the orchestrator only what it had just concluded.
+
+| | |
+|---|---|
+| **Reports** | Observed runtime state only — running, failed, gone — plus the container list, for workloads on that runner |
+| **Never reports** | Desired state. A runner cannot mark a workload `stopped` that the platform intends to keep running; lifecycle stays with the orchestrator |
+| **Carries** | `observed_at`. Reports are retried and resent on resync, so the service drops any report older than the record it would overwrite — otherwise a delayed message walks a status backwards |
+| **Idempotent** | Re-reporting a state already recorded changes nothing and publishes nothing, since notifications fire only on an actual change |
+
+The orchestrator's reconciliation remains, unchanged, as the fallback. A runner that restarts, loses its watch, or predates this RPC simply leaves the platform converging on the interval it always did — the report removes latency, never correctness.
+
+### Version skew
+
+A runner reporting to a platform that does not implement the RPC receives `Unimplemented` and continues serving, exactly as [catalog reporting](#catalog-reporting) already does. Reporting is an optimization a runner offers, not a contract the platform requires.
 
 ## Idle Timeout
 

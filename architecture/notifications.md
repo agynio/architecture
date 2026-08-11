@@ -152,6 +152,7 @@ External `Subscribe` (through the Gateway) requires an authenticated caller. Roo
 |------|-------------|
 | `agent_instances` | Platform only (see below). Carries every `instance.updated` and `message.created` in the cluster. |
 | `sandboxes` | Platform only. Carries every `sandbox.updated` in the cluster. |
+| `workloads` | Platform only. Carries every `workload.status_changed` in the cluster, so the [Orchestrator](agents-orchestrator.md) learns a workload became ready from the [runner that saw it](runners.md#runner-reported-workload-state) rather than by polling for it. |
 
 Flat literals, like `egress_rules` and `llm_subscriptions`, and for the same reason: the [Orchestrator](agents-orchestrator.md) reconciles every instance and sandbox there is, so it cannot enumerate what to subscribe to.
 

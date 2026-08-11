@@ -25,7 +25,7 @@ graph TB
 | Dependency | Usage |
 |-----------|-------|
 | **Agents Service** | List instances with unacked inbox items (the primary desired-state source). Fetch agent (class) and environment definitions with their sub-resources (volumes, MCPs, ENVs, init scripts, skills). Call `PauseInstance` when an instance cannot be recovered (start failures exhausted, volume lost, runner deprovisioned). Subscribe to `agent.updated` and `environment.updated` via Notifications to trigger [configuration-driven retry](#start-decision) |
-| **Notifications** | Subscribe to `message.created` events on `instance_inbox:*` (for reactivity when an instance has new inbox items) and `agent.updated` events (for class configuration changes) |
+| **Notifications** | Hold the three [cluster-wide rooms](notifications.md#cluster-wide-rooms) — `agent_instances`, `sandboxes`, `workloads` — as the [platform](#subscribing-as-the-platform). Never an inbox: what an instance was sent is the instance's business, and the wake saying one has work reaches `agent_instances` |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
 | **Runner** | Start and stop agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
@@ -54,14 +54,22 @@ graph LR
     Wait --> Fetch
 ```
 
-1. On startup, the orchestrator subscribes to Notifications for `message.created` events on `instance_inbox:*` and `agent.updated` events, and fetches the current state from the Agents Service and the [Runners](runners.md) service.
+1. On startup, the orchestrator subscribes to the three cluster-wide Notifications rooms and fetches the current state from the Agents Service and the [Runners](runners.md) service. The room set is a **constant** — see [Why the rooms are named, not derived](#why-the-rooms-are-named-not-derived).
 2. **Compare:** For each `active` instance with unacked inbox items — check if a workload is running. For each running workload — check if it still has unacked items or recent activity. Instances in states `paused` or `terminated` are skipped entirely.
 3. **Act:**
    - **Start:** If an instance has unacked inbox items, apply the [Start Decision](#start-decision) policy. When the policy clears a start → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
    - **Stop:** If a running workload has been idle beyond the configured timeout → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity. The instance persists across stops (see [Agent Instances — Lifecycle](agent-instances.md#lifecycle)).
 4. **Wait:** Block until a notification arrives or the poll interval expires, then repeat from step 2.
 
-The polling loop is a consistency fallback. Notifications handle the latency-sensitive path — `message.created` on an `instance_inbox:*` room wakes the orchestrator when new items arrive, and `agent.updated` wakes it when a class (or any of its sub-resources) changes. The latter powers the [configuration-driven fast-retry](#start-decision) path: a fixed class configuration unblocks a backed-off instance within one tick instead of waiting out the backoff window.
+The polling loop is a consistency fallback. Notifications handle the latency-sensitive path: `message.created` and `instance.updated` on `agent_instances` wake the main loop, `sandbox.updated` on `sandboxes` wakes the sandbox loop, and `workload.status_changed` on `workloads` wakes whichever loop owns the workload that moved.
+
+Every loop selects on both its wake channel and its ticker, so the interval remains the backstop with no extra machinery: a lost event costs latency until the next tick, never correctness.
+
+### Why the rooms are named, not derived
+
+The room set is three literals, fixed for the life of the process. It is deliberately **not** derived from the instances, sandboxes or organizations that exist.
+
+A derived set cannot be made correct here. The orchestrator reconciles every instance and sandbox in the cluster, and the event announcing one in an organization it has not enumerated yet goes to a room it does not hold — Notifications is Redis pub/sub with no replay, so that event is simply dropped, and the resource waits for the reconcile tick. **The room that would have told it about the organization is the room it could not know to subscribe to.** Naming the rooms outright removes the listing, the periodic re-derivation, the resubscribe on every change, and the gap.
 
 Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for subscribe/fetch/dedup.
 
@@ -461,9 +469,9 @@ This applies to workload and volume reconciliation reads on Runners, the meterin
 
 [Notifications](notifications.md) is the exception, and it cannot be served the same way: it authorizes every room against a caller, so it has no reading of an absent identity to fall back on. The Orchestrator therefore identifies itself there — `x-identity-id` set to the [platform identity](identity-service.md), `x-identity-type: platform` — and Notifications settles that claim against `admin` on `cluster:global` rather than believing the header. It is the same identity [Identity](identity-service.md) registers from `PLATFORM_IDENTITY_ID` and grants cluster admin at startup; the Orchestrator reads the id from the same configuration value.
 
-That grant is what admits it to `sandbox_org:{organization_id}`, whose gate is `can_list_sandboxes` — `owner or admin from cluster`. It is deliberately **not** admitted to the identity-keyed rooms: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` stay closed to it. The wake it needs when an instance has work waiting reaches `agent_instance:{id}`, which [Agents](agents-service.md) publishes `message.created` to alongside the instance's own inbox, so the Orchestrator never subscribes to an inbox to learn that one is non-empty.
+That grant is what admits it to the three [cluster-wide rooms](notifications.md#cluster-wide-rooms), which carry every organization's lifecycle and are the platform's alone. It is deliberately **not** admitted to the identity-keyed rooms: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` stay closed to it. The wake saying an instance has work waiting reaches `agent_instances`, which [Agents](agents-service.md) publishes `message.created` to alongside the instance's own inbox — carrying ids and a source kind, never the message — so the Orchestrator learns an inbox is non-empty without ever being able to read one.
 
-**This replaced borrowing a principal's identity.** The Orchestrator had no way to say what it was, so it named one of the agent instances it reconciles — electing one per organization and setting that instance's id as its own — to pass checks written for that instance. It worked for the instance's own rooms and could never work for `sandbox_org:`, since an instance is a `member` of its organization and the room wants `can_list_sandboxes`; the denial retried every thirty seconds for the life of the process, and the sandbox loop fell back to its poll interval.
+**This replaced borrowing a principal's identity.** The Orchestrator had no way to say what it was, so it named one of the agent instances it reconciles — electing one per organization and setting that instance's id as its own — to pass checks written for that instance. It worked for the instance's own rooms and could never work for the organization-scoped sandbox room, since an instance is a `member` of its organization and that room wants `can_list_sandboxes`; the denial retried every thirty seconds for the life of the process, and the sandbox loop fell back to its poll interval.
 
 ## Egress CA Distribution
 
