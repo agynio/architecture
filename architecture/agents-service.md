@@ -21,6 +21,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 | **Agents** | Agent class definitions: identity, model, [environment](resource-definitions.md#environment) reference, behavioral configuration, [availability](#availability). See [Agents vs. Agent Instances](#agents-vs-agent-instances) | ✓ |
 | **Environments** | Runtime definitions: runner reference + [flavor](resource-definitions.md#flavor) name + a workspace [image](resource-definitions.md#image) and optional agent runtime image, each with a tag. Referenced by agents and sandboxes; owner of the volumes, MCPs, init scripts, and ENVs a workload in it carries, and attachment target for egress rules. Create/update validates that the runner is visible to the organization and that each image reference resolves to a visible image of the required type with an existing tag; the flavor name is not validated — it is late-bound against the runner's [reported catalog](runners.md#runner-catalog) at workload start. Delete is rejected while any agent or sandbox references the environment. See [Flavors and Environments](../product/environments/environments.md) | ✓ |
 | **Sandboxes** | On-demand workloads started by users: name, environment reference, owner, status, idle timeout, TTL, and the identities the owner has shared it with. `CreateSandbox` accepts an `idle_timeout`, validated against the organization's `sandbox_max_idle_timeout` and falling back to its `sandbox_default_idle_timeout`; both the resolved value and the TTL are stored on the sandbox. Reconciled by the [Agents Orchestrator](agents-orchestrator.md). See [Sandboxes](../product/sandboxes/sandboxes.md) | Create, Get, List, Stop, Delete, Share, Unshare, ListShares |
+| **Sandbox Layouts** | Sub-resource of a sandbox, one per identity that has worked in it: the ordered set of tabs a client reopens to, each naming a [shell](terminal-proxy.md#persistent-shells) and its last known directory. See [Sandbox Layout](#sandbox-layout) | Get, Set |
 | **Agent Instances** | Instantiations of a class with their own state and [inbox](agent-instances.md#inbox). See [Agent Instances](agent-instances.md) | Create, Get, List, Pause, Resume, Delete |
 | **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Mount declarations: name, mount path, persistence, size, storage class, TTL. Belong to an environment or an MCP. A definition, not a disk — see [Resource Definitions — Volume](resource-definitions.md#volume) | ✓ |
@@ -175,11 +176,27 @@ Metering is unchanged: `FLAVOR_SECONDS` records stay attributed to the organizat
 
 Shares live on the sandbox, so they do not survive it. Deleting a sandbox and creating another starts with an empty share list.
 
+## Sandbox Layout
+
+The set of tabs a client reopens a sandbox to, stored per identity as a [Sandbox Layout](resource-definitions.md#sandbox-layout). Two methods, because it is one document:
+
+| Method | Description |
+|--------|-------------|
+| **GetSandboxLayout** | Returns the calling identity's layout for a sandbox, and its `version`. A sandbox never worked in returns an empty layout at version `0` rather than `NotFound` — no client needs to distinguish those |
+| **SetSandboxLayout** | Replaces the layout. Carries the `version` the caller read; a mismatch is `FailedPrecondition` and the caller refetches and reapplies. Returns the new version |
+
+**The service does not look in the container.** It stores what clients tell it and never asks whether a named shell exists — [attaching creates one that does not](terminal-proxy.md#persistent-shells), so a layout naming a shell the container lost is not an inconsistency to detect but the ordinary case after a restart. This is also why there is no listing method reaching the workload: nothing a client draws requires one.
+
+**Whole-document writes, guarded by a version.** Opening, closing, and reordering are the same write, and the fields this record is expected to grow arrive without a method each. The version is what makes two devices safe: the second writer is told to refetch rather than silently overwriting the first one's new tab.
+
+Layouts are deleted when their sandbox is purged, and when it transitions to `terminated` — a record retained for usage history has nothing left to reopen. A `stopped` sandbox keeps its layouts, which is the reason they live here rather than in the container.
+
 ## Internal API
 
 | Method | Description |
 |--------|-------------|
 | `ResolveAgentIdentity` | Resolves an OpenZiti platform `identity_id` to the corresponding `agent_id` and `organization_id` |
+| `SetSandboxLayoutDirectories` | Writes `cwd` onto the tabs of every layout of one sandbox, matching by `shell_id` and ignoring ids it does not find. Called by the [Orchestrator](agents-orchestrator.md#layout-snapshot-before-stop) immediately before a planned stop. Version-free — it touches one field the caller is the sole writer of, and failing a concurrent tab reorder would lose the snapshot for no benefit |
 
 This method derives agent and organization attribution from an authenticated OpenZiti connection identity. It is internal only — not exposed through the [Gateway](gateway.md).
 
@@ -210,6 +227,7 @@ The Agents service publishes events to the [Notifications](notifications.md) ser
 | `message.created` | `instance_inbox:{instance_id}` | A new [inbox item](agent-instances.md#inbox) is written for an instance (via `FanoutInboxItem` from Threads or `WriteInboxItem` from an app) |
 | `instance.updated` | `agent:{class_id}` | Instance state transitions (`active`, `paused`, `terminated`) or metadata changes on any instance of the class |
 | `sandbox.updated` | `sandbox_owner:{owner_id}`, `sandbox:{sandbox_id}`, and `sandbox_org:{organization_id}` | Sandbox lifecycle or bookkeeping changes: create, status transition, stop, delete/terminate, `last_session_at` update, share list change, or workload association update |
+| `sandbox_layout.updated` | `sandbox_layout:{identity_id}` | An identity's [layout](#sandbox-layout) changed for any sandbox — a tab opened, closed, renamed, reordered, or its directory snapshotted. Carries the sandbox id and the new version, not the document; a client holding that sandbox open refetches, and one that made the change recognizes its own version and does nothing |
 
 **Transitive `updated_at` propagation.** A successful write to a sub-resource bumps its owner's `updated_at` in the same transaction — an agent sub-resource bumps the agent, an environment sub-resource bumps the environment, and an MCP sub-resource bumps the MCP's own owner. Consumers that compare timestamps — for example, the [Agents Orchestrator's Start Decision](agents-orchestrator.md#start-decision), which compares the later of the agent's and its environment's `updated_at` against `failed_workload.removed_at` to decide whether a configuration change warrants a retry — therefore only need to read the two parent records. No traversal of sub-resources is required.
 
@@ -248,7 +266,9 @@ Agent and environment access is split into two layers: organization-level gates 
 | `StopSandbox`, `DeleteSandbox` | `can_stop` / `can_delete` on `sandbox:<id>` |
 | `EnsureSandboxRunning` | `can_connect` on `sandbox:<id>` |
 | `ShareSandbox`, `UnshareSandbox`, `ListSandboxShares` | `can_share` on `sandbox:<id>` — the owner only |
+| `GetSandboxLayout`, `SetSandboxLayout` | `can_connect` on `sandbox:<id>`. The layout addressed is always the caller's own — the identity comes from authenticated context and is not a parameter, so there is no request that reads or writes another person's tabs |
 | `UpdateSandboxLastSession` | Internal only (Terminal Proxy via Istio) |
+| `SetSandboxLayoutDirectories` | Internal only (Agents Orchestrator via Istio) |
 
 `SetAgentRole` rejects identities that are not members of the agent's organization. The check is performed against the `member` relation on the agent's org before the role tuple is written.
 

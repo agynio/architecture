@@ -50,7 +50,8 @@ The selected organization persists in local storage, as in the Console.
 | `AgentsGateway` | `ShareSandbox`, `UnshareSandbox`, `ListSandboxShares` | `can_share` on the sandbox — the owner |
 | `AgentsGateway` | `ListEnvironments`, `GetEnvironment` (metadata) | `member` on the organization. The response's `can_use` field drives the environment picker — see [Agents Service — Environment Metadata](agents-service.md#environment-metadata) |
 | `RunnersGateway` | `ListVolumes` filtered to `owner_kind=sandbox` | `can_view_volumes` on the organization — organization owners only. The app degrades without it and does not require it |
-| `TerminalGateway` | `CreateTerminalSession` (`kind: SHELL`) | `can_connect` on the sandbox, checked in the [Terminal Proxy](terminal-proxy.md#authorization) at ticket issuance |
+| `AgentsGateway` | `GetSandboxLayout`, `SetSandboxLayout` | `can_connect` on the sandbox. Always the caller's own layout — see [Agents Service — Sandbox Layout](agents-service.md#sandbox-layout) |
+| `TerminalGateway` | `CreateTerminalSession` (`kind: SHELL_ATTACH`) | `can_connect` on the sandbox, checked in the [Terminal Proxy](terminal-proxy.md#authorization) at ticket issuance |
 | `ExposeGateway` | `ListExposures`, `AddExposure`, `RemoveExposure` — all passing the sandbox's `workload_id` explicitly | `can_connect` on the sandbox for add and remove; `member` on the organization for list. See [Expose Service — Authorization](expose-service.md#authorization) |
 | `OrganizationsGateway` | `ListMyMemberships` | Any authenticated user — populates the organization switcher |
 | `UsersGateway` | `GetMe`, `SearchUsers` | Any authenticated user. `SearchUsers` backs the share picker |
@@ -60,9 +61,17 @@ The app calls no method that requires organization ownership. A member with no e
 
 ## Terminal
 
-The terminal follows the standard two-step establishment: `CreateTerminalSession(workload_id, container_name, kind: SHELL)` over the Gateway returns a ticket, then a WebSocket to the Terminal Proxy carrying the ticket and a handshake with the initial terminal size. Long-lived credentials never appear in the WebSocket URL. Rendering is xterm.js over the [wire protocol](terminal-proxy.md#wire-protocol); resize is forwarded on every pane resize.
+Each tab follows the standard two-step establishment: `CreateTerminalSession(workload_id, container_name, kind: SHELL_ATTACH, shell_id, cwd)` over the Gateway returns a ticket, then a WebSocket to the Terminal Proxy carrying the ticket and a handshake with the initial size and the app's `TERM`. Long-lived credentials never appear in the WebSocket URL. Rendering is xterm.js over the [wire protocol](terminal-proxy.md#wire-protocol); resize is forwarded on every pane resize.
 
 The `workload_id` comes from the sandbox record. A sandbox in any state other than `running` has no workload to attach to, so the detail page calls `EnsureSandboxRunning` first and attaches once the sandbox reports `running`.
+
+**The tab strip is drawn from the [layout](resource-definitions.md#sandbox-layout), not from the container.** `GetSandboxLayout` on mount gives the tabs, their order, and each one's last known directory; `SetSandboxLayout` writes back on open, close, rename, and reorder, carrying the version it read. Because [attaching creates a shell that does not exist](terminal-proxy.md#persistent-shells), the app never asks whether one is live — a tab whose shell the sandbox lost simply opens.
+
+**Nothing the strip displays requires a call into the container.** A tab's name comes from the title its shell announces, which xterm.js already parses out of the byte stream it is rendering; failing that, from the stored directory; failing that, from the tab's number. Directories are written by the [Orchestrator](agents-orchestrator.md#layout-snapshot-before-stop) before a stop, not polled by the app.
+
+**Attaching displaces whatever held the shell**, including this app on another device. A tab whose session ends with `reason: displaced` says so and offers to take it back, rather than reconnecting into a fight with the other device.
+
+Every open tab holds its own session, so a background tab keeps rendering and keeps its scrollback. It no longer has to: a detached shell survives, so a client could attach only what is visible. Keeping them attached is what makes a background tab's output live, and the cost is one WebSocket per tab rather than the loss of the shell it used to be.
 
 ## Ports
 
@@ -82,8 +91,11 @@ The app subscribes to [Notifications](notifications.md) rooms over a `Notificati
 |------|-------|---------|
 | `sandbox_owner:{caller_identity_id}` | Sandboxes list | `sandbox.updated` for the caller's own sandboxes |
 | `sandbox:{sandbox_id}` | Sandbox detail; one per shared sandbox on the list | `sandbox.updated` for a single sandbox, reaching collaborators as well as the owner |
+| `sandbox_layout:{caller_identity_id}` | Sandbox detail | `sandbox_layout.updated` — a tab opened, closed, renamed, or reordered by this person somewhere else |
 
 The owner room covers a member's own list in one subscription. Collaborated sandboxes are not covered by it — it is keyed by owner identity — so the app subscribes per shared sandbox. It follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol): subscribe, buffer, fetch through `ListSandboxes`/`GetSandbox`, then apply. On reconnect it refetches the current view.
+
+The layout room is what makes a second device converge: it is keyed by the caller rather than by the sandbox, because a layout is only ever their own. The event carries a version, so the client that made the change recognizes its own write and refetches nothing.
 
 Status changes therefore surface whatever their cause — the idle timeout stopping a workload, the CLI starting one, a collaborator stopping a shared sandbox.
 

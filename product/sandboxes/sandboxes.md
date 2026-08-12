@@ -9,7 +9,7 @@ The primary use case is running agents in "manual mode": an engineer gets the sa
 ```bash
 agyn sandbox start                 # start a sandbox, drop into a shell
 # ... laptop sleeps, wifi drops ...
-agyn sandbox connect brave-otter   # reattach to the same sandbox
+agyn sandbox connect brave-otter   # back in the same shell, build still running
 
 agyn sandbox sync                  # keep the working directory and /workspace in step
 ```
@@ -33,7 +33,8 @@ agyn sandbox sync                  # keep the working directory and /workspace i
 | Term | Definition |
 |---|---|
 | **Sandbox** | An org-scoped resource owned by the user who created it: one workload running an [environment](../environments/environments.md), started on demand rather than by inbox traffic. Its storage is whatever the environment declares. |
-| **Shell session** | An interactive terminal attached to the sandbox's main container. A sandbox can have zero or more concurrent sessions; the workload keeps running between sessions. |
+| **Shell** | A command line living in the sandbox's main container, with whatever is running in it. It outlives the connections that reach it: closing a laptop, reloading a page, or connecting from somewhere else does not end it. A sandbox can have several. |
+| **Session** | One connection to one shell, from a terminal or a browser tab. Sessions come and go; the shell stays until it is closed or the sandbox stops. |
 | **Sync session** | A continuous two-way reconciliation between a directory on the engineer's machine and a directory in the sandbox. Runs in the background on the engineer's machine, independent of any shell session. |
 
 ## CLI
@@ -43,7 +44,8 @@ Sandboxes are managed through a new `agyn sandbox` command group:
 | Command | Description |
 |---|---|
 | `agyn sandbox start [--env NAME] [--name NAME] [--sync PATH] [--idle-timeout DURATION]` | Create a sandbox, wait for the workload to run, attach a shell. `--env` selects the environment; defaults to the organization's sole environment when exactly one exists, otherwise required. `--name` sets the sandbox name; auto-generated (`adjective-noun`) when omitted. `--idle-timeout` overrides how long the sandbox survives unattended — see [Choosing an idle timeout](#choosing-an-idle-timeout) |
-| `agyn sandbox connect [NAME]` | Attach a shell to an existing sandbox. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
+| `agyn sandbox connect [NAME] [--new] [--tab ID]` | Return to a shell in an existing sandbox — the one you were last in, or a new one with `--new`. Calls `EnsureSandboxRunning` first: a no-op when `running`, a restart when `stopped`, a fresh start attempt when `failed` — the shell attaches only once the workload is running. With no argument: connects when the caller owns exactly one non-terminated sandbox, otherwise lists candidates |
+| `agyn sandbox tabs [NAME]` | List your shells in a sandbox — what they are called, where they are, and whether something is attached. The same list the browser shows as tabs |
 | `agyn sandbox list [--all] [--terminated]` | List the caller's sandboxes: name, environment, status, age, last session, idle timeout, remaining TTL. Terminated sandboxes are hidden unless `--terminated` is passed; `failed` ones are shown (they are actionable). `--all` lists every sandbox in the organization (owners) |
 | `agyn sandbox stop [NAME]` | Stop the workload; keep the sandbox record and its persistent volumes. Warns first when the environment declares none — stopping discards everything |
 | `agyn sandbox delete [NAME]` | Terminate the sandbox and delete the volumes provisioned for it |
@@ -121,13 +123,21 @@ Two sandboxes in the same environment never share storage — same layout, separ
 
 The experience is SSH-parity — a real PTY with no platform-imposed limitations:
 
-- Raw, 8-bit-clean byte stream: no line buffering, no filtering. Colors (through truecolor), alternate screen, mouse reporting, and full-screen TUIs (`vim`, `htop`, `tmux`) work.
+- Colors (through truecolor), alternate screen, mouse reporting, and full-screen TUIs (`vim`, `htop`, `tmux`) work. What holds the shell open between connections sits in the byte path and forwards what it understands, so a local terminal with capabilities beyond that — inline images, say — loses them where a plain `Exec` would not. This is the price of a screen that comes back correct after a disconnect.
 - Terminal resize propagates (SIGWINCH), signals behave normally (`Ctrl-C`, job control), `isatty()` is true.
 - No session wall timeout, idle timeout, or output cap. An attached session keeps the sandbox alive indefinitely; the sandbox `idle_timeout` counts only detached time.
-- Multiple concurrent sessions per sandbox are allowed, each with its own PTY — several from the owner, or the owner and a [collaborator](#sharing) working side by side.
+- Multiple shells per sandbox, each with its own PTY — several from the owner, or the owner and a [collaborator](#sharing) working side by side.
 - The shell's exit code becomes the CLI's exit code.
 
-A dropped connection ends the session but not the sandbox — like a dropped SSH connection, the foreground process group gets SIGHUP while the container keeps running. Anything that must survive a session drop should run under `nohup`/`tmux` (from the image); `agyn sandbox connect` opens a fresh shell. See [Terminal Proxy — Terminal Semantics](../../architecture/terminal-proxy.md#terminal-semantics).
+### Shells survive disconnection
+
+**A dropped connection does not end your work.** The shell and everything running in it belong to the sandbox, not to the connection: a closed laptop, a dropped network, a reloaded browser page, or a switch to another machine leaves it running, and reconnecting returns to it — same processes, same scrollback, redrawn at whatever size the new terminal is. `nohup` is no longer the price of leaving.
+
+**One connection at a time.** Attaching from somewhere else takes the shell over, and the connection that had it says so rather than going quiet. This is deliberate: it is what makes reconnecting immediate instead of waiting for the last connection to be given up on, and it means a shell always fits the screen actually looking at it.
+
+**The sandbox stopping still ends everything.** Shells live in the container, so an [idle timeout](#lifecycle) or an explicit stop takes them and their processes with them — nothing is frozen and thawed. What comes back when the sandbox starts again is the same set of shells, with the same names, in the same directories, empty of what was running. A four-hour build survives a train journey; it does not survive a night, unless the idle timeout says it should.
+
+See [Terminal Proxy — Persistent Shells](../../architecture/terminal-proxy.md#persistent-shells).
 
 ## Workspace Sync
 

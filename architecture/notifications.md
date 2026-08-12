@@ -92,6 +92,7 @@ Rooms are scoped by resource type and ID:
 | `sandbox_owner:{owner_id}` | `sandbox_owner:550e8400-...` | Agents → `sandbox.updated` events for a sandbox owner's own list/detail views |
 | `sandbox:{sandbox_id}` | `sandbox:3f2b1a8c-...` | Agents → `sandbox.updated` events for one sandbox, subscribed by clients displaying a sandbox shared with the caller |
 | `sandbox_org:{organization_id}` | `sandbox_org:9f8e7d6c-...` | Agents → `sandbox.updated` events for organization-owner list-all views |
+| `sandbox_layout:{identity_id}` | `sandbox_layout:550e8400-...` | Agents → `sandbox_layout.updated` events for one identity's [tab sets](resource-definitions.md#sandbox-layout), across every sandbox they work in |
 | `trace:{trace_id}` | `trace:5b8efff7-...` | Tracing → span created/updated events for a trace |
 | `organization:{id}` | `organization:9f8e7d6c-...` | EgressRules → `egress_rule.updated` / `egress_rule_attachment.updated` events |
 
@@ -108,7 +109,7 @@ For identity-scoped rooms, the literal string `me` is reserved as the id segment
 
 The Notifications service rewrites `:me` to the caller's `identity_id` on receipt, before authorization. Authorization rules are unchanged — the rewritten room passes the existing `id == caller.identity_id` check by construction.
 
-`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies only to self-addressed identity rooms (`thread_participant:`, `instance_inbox:`). `sandbox_owner:{owner_id}` is also identity-keyed, but callers subscribe with the concrete owner id because it is a UI room pattern for sandbox lists, not a self-subscription sentinel target. For `workload:`, `agent:`, `sandbox:`, `sandbox_org:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
+`:me` lets a client subscribe to its own room without first resolving its `identity_id` through another channel. It applies only to self-addressed identity rooms (`thread_participant:`, `instance_inbox:`). `sandbox_owner:{owner_id}` and `sandbox_layout:{identity_id}` are also identity-keyed, but callers subscribe with the concrete id because they are UI room patterns held by an app that has already resolved who it is signed in as, not self-subscription sentinel targets. For `workload:`, `agent:`, `sandbox:`, `sandbox_org:`, and `trace:` the id segment is a resource id and `:me` has no meaning.
 
 Identity ids are UUIDs, so the literal `me` cannot collide with any real id.
 
@@ -143,6 +144,7 @@ External `Subscribe` (through the Gateway) requires an authenticated caller. Roo
 | `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality — only the sandbox owner subscribes to their own live sandbox list/detail room). `:me` is not accepted for this room pattern. |
 | `sandbox:{sandbox_id}` | `can_read` on `sandbox:<sandbox_id>`. Resource-keyed rather than identity-keyed, so it reaches the identities a sandbox owner has shared with — the owner room cannot, being keyed by an owner id that is not theirs. |
 | `sandbox_org:{organization_id}` | `can_list_sandboxes` on `organization:<organization_id>` (organization owners only; backs list-all sandbox views). |
+| `sandbox_layout:{identity_id}` | `identity_id == caller.identity_id`. A [layout](resource-definitions.md#sandbox-layout) is only ever the caller's own, so the room is keyed by who it belongs to rather than by which sandbox it is for — one subscription follows a person across every sandbox they have open, which is what the room is for: the same person's other device. `:me` is not accepted, as for `sandbox_owner:`. |
 | `trace:{trace_id}` | `member` on `organization:<trace.org_id>` (org resolved from stored span data) |
 | `organization:{id}` | `member` on `organization:<id>` (used by the [Egress Gateway](egress-gateway.md) to receive `egress_rule.updated` / `egress_rule_attachment.updated` events published by the [EgressRules service](egress-rules-service.md); the gateway subscribes per org for which it has cached rules) |
 
@@ -164,7 +166,7 @@ Unlike the other flat rooms these carry every organization's lifecycle, so they 
 
 A caller presenting `identity_type == platform` is a platform service watching what it operates rather than a principal acting through one — the [Orchestrator](agents-orchestrator.md) reconciling instances and sandboxes across every organization. The type alone admits nothing: it is settled by `admin` on `cluster:global`, the tuple [Identity](identity-service.md) writes for the one configured platform identity and that nothing can request. A caller that sets the header without holding the relation is refused exactly as any other.
 
-A verified platform caller may hold the **operational** rooms — the two cluster-wide rooms above, plus `agent_instance:`, `agent:`, `sandbox:`, `sandbox_org:`, `workload:` and `volume:` — and no others. The **identity-keyed** rooms stay closed to it: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` belong to a principal, and the platform places and reaps workloads rather than reading what they exchange. A platform caller naming one of those falls through to the ordinary check, which denies it.
+A verified platform caller may hold the **operational** rooms — the two cluster-wide rooms above, plus `agent_instance:`, `agent:`, `sandbox:`, `sandbox_org:`, `workload:` and `volume:` — and no others. The **identity-keyed** rooms stay closed to it: `instance_inbox:`, `thread_participant:`, `sandbox_owner:` and `sandbox_layout:` belong to a principal, and the platform places and reaps workloads rather than reading what they exchange. A platform caller naming one of those falls through to the ordinary check, which denies it.
 
 This exists because there was no way for a platform service to say what it was. The Orchestrator instead borrowed an agent instance's `identity_id` to pass checks written for that instance — which worked for the instance's own rooms and could never work for `sandbox_org:`, since an instance is a `member` of its organization and that room wants `can_list_sandboxes`.
 

@@ -163,7 +163,7 @@ The model name pins a model for reproducibility. Unset — the common case, and 
 
 **Placeholder credentials split by kind**, and `agynd` writes one of the two. Agent CLIs refuse to start, or prompt interactively, with no credential present, so something has to be there — see [Placeholder Delivery](providers.md#placeholder-delivery).
 
-An **environment-variable** placeholder is not `agynd`'s to write. It must be on the container spec, injected by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), because in a [sandbox](../product/sandboxes/sandboxes.md) the engineer's shell is started by the runner's `Exec` against the pod and inherits the container spec's environment, not anything PID 1 assembled. A variable set by `agynd` would be invisible to exactly the session that needs it.
+An **environment-variable** placeholder is not `agynd`'s to write. It must be on the container spec, injected by the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly), because a [sandbox](../product/sandboxes/sandboxes.md) shell may reach the engineer by either of two routes and only the spec covers both: an ephemeral session is started by the runner's `Exec` against the pod and inherits the container spec, while a [persistent shell](terminal-proxy.md#persistent-shells) is spawned by the server `agynd` runs and inherits `agynd`'s own environment. A variable `agynd` assembled at runtime would be missing from exactly the session that arrives by the first route.
 
 A **file** placeholder is the opposite: `agynd` writes it, in both agent and holder mode, before the agent CLI is spawned or the container idles. It is not delivered — `agynd` derives it. The CLI it runs, read from [`config.json`](agent-init.md#configjson), is what determines the path and the contents both, so nothing has to be relayed and no other service holds a copy. The file lands on the container filesystem and stays there, so a session exec'd hours later finds it.
 
@@ -214,6 +214,41 @@ An agent CLI ends a turn with plain assistant text. No agent CLI protocol carrie
 When the class sets [`final_message`](resource-definitions.md#agent) to `default_thread`, `agynd` additionally posts that final text to the instance's [`default_thread_id`](agent-instances.md#default-thread), after the turn completes and before acking the turn's inbox items. The post is unconditional — `agynd` does not inspect whether the agent already sent something, which is why the default is `discard` for agents that manage their own sends. Nothing is posted when the final text is empty or the instance's default thread is NULL; `agynd` logs and continues to ack.
 
 `agynd` never derives a target from the turn's inbox items. An instance handling a sub-thread reply is frequently answering a *different* thread than the one that woke it — see [Agent Instances — Outbound](agent-instances.md#outbound).
+
+## Shell Supervision
+
+`agynd` owns the tmux server behind [persistent shells](terminal-proxy.md#persistent-shells). It starts the server at container startup — in holder mode and agent mode alike — on a platform-private socket, with the configuration [delivered beside it](agent-init.md#tmux):
+
+```sh
+/agyn/bin/tmux -L agyn -f /agyn/tmux.conf start-server
+```
+
+**Started by `agynd`, not by the first client, for two reasons.** A tmux server captures its environment from whoever starts it, and shells created hours apart must not differ by which client happened to arrive first. And a server already running is one less thing for an attach to do at the moment a person is waiting on it.
+
+`-L agyn` keeps the platform off the default socket. An engineer running `tmux` inside a shell gets their own server and their own `~/.tmux.conf`, rather than joining a server whose configuration is the platform's — tmux configuration is server-wide, so sharing one would silently discard theirs.
+
+### What the configuration must assert
+
+| Setting | Why |
+|---|---|
+| The command spawned for a new shell | `/bin/sh -lc 'PATH=/agyn/bin:$PATH exec ${SHELL:-sh}'` — the [`PATH` construction](agent-init.md#shared-volume-contract) belongs here because the shell is the server's child, not the bound command's. The login-profile ordering is the same and for the same reason |
+| The shell to spawn | Named explicitly rather than resolved from `getpwuid`. Kubernetes commonly runs a UID with no `/etc/passwd` entry, where the lookup fails and `HOME` may be unset |
+| No prefix key, no bindings | The multiplexer is platform machinery, not a UI. Every key belongs to the program in the shell, including an engineer's own nested `tmux` |
+| No status line | The client draws whatever it draws; a status bar is a row taken from the program for something no consumer reads |
+| Mouse reporting on | Wheel scrolling reaches tmux's scrollback, and mouse events still reach a program that asked for them |
+| One client per shell | The newest attachment drives the size and displaces the previous one, which is what the [Terminal Proxy](terminal-proxy.md#persistent-shells) presents as the attach semantics |
+| Clipboard passthrough | A selection made in the shell reaches the client's clipboard, since no window system is shared with it |
+| Scrollback limit | Bounded per shell. It is held in the container's memory and charged to the sandbox's flavor |
+
+The configuration is the platform's alone: a `~/.tmux.conf` is not sourced into it. The settings the model depends on are exactly the ones a personal configuration likes to change.
+
+### Environment
+
+Shells inherit **`agynd`'s** environment, because the server is `agynd`'s child. This differs from an ephemeral session, which inherits the container spec through `Runner.Exec`. Variables set on the container spec reach both — `agynd` is started from the same spec — so nothing the [Orchestrator](agents-orchestrator.md#workload-spec-assembly) injects is lost. What changes is that anything `agynd` assembles for itself is now visible to shells, and anything a session's own command sets reaches only that session's client.
+
+### Failure
+
+The server is a child of `agynd` and dies with the container, as every shell does. `agynd` does not restart shells or attempt to preserve them: a lost server means lost PTYs and lost processes, which is the same outcome as the workload stopping and is reported the same way. Losing the server without losing the container is not distinguished from either, and the next attach creates a shell rather than finding one.
 
 ## Agent Communication Protocol
 

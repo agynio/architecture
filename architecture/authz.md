@@ -64,7 +64,7 @@ type organization
     define member: [identity]
     define owner: [identity]
     define can_invite: owner
-    define can_manage_members: owner
+    define can_manage_members: owner or admin from cluster
     define can_view_threads: owner or admin from cluster
     define can_view_workloads: owner or admin from cluster
     define can_view_volumes: owner or admin from cluster
@@ -300,7 +300,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 
 - `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
 - `can_create_sandbox` and `can_create_environment` follow `member`; every active organization member can create a sandbox and author an environment.
-- `can_add_member`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` is held only by a sandbox's `owner` and the identities that owner has shared it with.
+- `can_add_member`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` is held only by a sandbox's `owner` and the identities that owner has shared it with.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
