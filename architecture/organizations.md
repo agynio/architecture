@@ -124,9 +124,9 @@ Who can do what is governed by the [authorization model](authz.md):
 | **Create membership (invite)** | `can_invite` on the organization | Organization owners (via `owner` implies `can_invite`) | Creates membership with `status: pending`. No OpenFGA tuple until accepted |
 | **Accept membership** | Target identity matches the caller | The invited identity itself | Transitions `pending` → `active`. Writes OpenFGA tuple |
 | **Decline membership** | Target identity matches the caller | The invited identity itself | Deletes the `pending` membership |
-| **Remove member** | `can_manage_members` on the organization | Organization owners (via `owner` implies `can_manage_members`) | Deletes the membership (any status). Deletes OpenFGA tuple if `active` |
-| **Update member role** | `can_manage_members` on the organization | Organization owners (via `owner` implies `can_manage_members`) | Updates the role. If `active`, deletes old OpenFGA tuple and writes new one |
-| **List members** | `can_manage_members` on the organization | Organization owners | Returns memberships for the organization |
+| **Remove member** | `can_manage_members` on the organization | Organization owners and cluster admins | Deletes the membership (any status). Deletes OpenFGA tuple if `active` |
+| **Update member role** | `can_manage_members` on the organization | Organization owners and cluster admins | Updates the role. If `active`, deletes old OpenFGA tuple and writes new one |
+| **List members** | `can_manage_members` on the organization | Organization owners and cluster admins | Returns memberships for the organization |
 | **List my memberships** | Caller is the identity | Any identity | Returns the caller's own memberships across all organizations |
 | **Update sandbox settings** | `owner` on the organization | Organization owners | Validates and stores new default sandbox TTL/idle-timeout values for future sandbox creation |
 
