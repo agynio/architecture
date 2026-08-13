@@ -35,7 +35,7 @@ An image is a small record, and registering one is a single step:
 | `name` | Unique within the organization. What every picker shows |
 | `type` | `workspace`, `agent_runtime`, or `mcp` — see [Types](#types) |
 | `repository` | The upstream repository (e.g. `ghcr.io/agynio/devcontainer-go`) |
-| `username` / `password` | Credential for reading the repository. Optional for public repositories |
+| `username` / `secret` | Credential for reading the repository. The password is a [secret](../../architecture/secrets.md) the image names rather than a value typed onto it, so it can be rotated in one place and shared between images. Optional for public repositories |
 | `visibility` | `public` or `internal` — see [Visibility](#visibility) |
 | `description` | Free text, shown beside the name |
 | `tag_filter` | Optional pattern limiting which tags appear in pickers |
@@ -98,7 +98,7 @@ There is no `latest` in the platform's own vocabulary. A tag by that name upstre
 
 ## How Images Are Pulled
 
-No workload pulls a catalog image from its upstream registry. Every reference to one is rewritten to the platform's [image proxy](../../architecture/image-proxy.md), which authenticates upstream using the credential on the image record and streams the result back. The platform's own containers — the two binary init images and the Ziti sidecar — are pulled directly from a public registry instead, since the proxy cannot serve the components a workload needs before the proxy itself is reachable.
+No workload pulls a catalog image from its upstream registry. Every reference to one is rewritten to the platform's [image proxy](../../architecture/image-proxy.md), which authenticates upstream using the credential the image record names and streams the result back. The platform's own containers — the two binary init images and the Ziti sidecar — are pulled directly from a public registry instead, since the proxy cannot serve the components a workload needs before the proxy itself is reachable.
 
 This is what keeps registry credentials inside the platform. Handing them to a runner means writing an organization's registry password into the cluster its workloads run in, where anyone able to read a secret there can take it — and for a public image consumed by another organization, it would mean handing one organization's credential to another's cluster outright.
 

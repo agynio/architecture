@@ -558,8 +558,11 @@ Files are org-scoped. Access is determined by organization membership. No separa
 | `CreateImage`, `UpdateImage`, `DeleteImage` | `owner` on `organization:<org_id>` |
 | `GetImage`, `ListImages`, `ListVersions`, `RefreshImage` | `member` on `organization:<org_id>`, or the image is `public` |
 | `ResolveVersion` | Internal only (Agents Service, Image Proxy via Istio) |
+| `CountImagesReferencingSecret` | Internal only (Secrets Service via Istio) |
 
 No `image` OpenFGA type is introduced — both visibility values resolve against existing organization relations, so images need no per-resource tuples.
+
+`secret_id` is checked separately from the operation: the secret an image names must belong to the image's organization. Owner on the organization is not enough, because it would otherwise let an owner name a secret they cannot read and have discovery send its value to a registry they choose.
 
 ### LLM Service
 
