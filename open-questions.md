@@ -143,11 +143,14 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Egress Gateway: Conditions List per Rule
 
-**Context:** v1 enforces one `EgressRule` per `(organization, matcher.domain_pattern)`. The rule has a single matcher and a single effect. Operators who need "allow GET on *.github.com, deny POST/DELETE on *.github.com" cannot express it as two rules (uniqueness conflict) and cannot express it within one rule (single effect).
+**Context:** A rule has a single matcher and a single effect. The `(organization, matcher.domain_pattern)` uniqueness constraint is gone, so "allow GET on *.github.com, deny POST/DELETE on *.github.com" is now expressible as two rules — but for **public** destinations each rule still provisions its own OpenZiti service, and two services with the same `intercept.v1` address are ambiguous for any identity authorized to dial both. The record layer allows what the interception layer does not.
+
+Private destinations do not have this problem: a private-target rule provisions no interception of its own, so any number of them share the resource's single service and combine per [Multiple rules in scope](product/egress-gateway/egress-gateway.md#multiple-rules-in-scope).
 
 **Questions:**
-- Extend the rule schema with a `conditions: [{ matcher_clause, effect_clause }]` list, where the top-level `matcher` provides the OpenZiti intercept boundary (domain + ports) and each condition narrows by method/path with its own effect?
-- Or relax the uniqueness constraint and deduplicate at the OpenZiti-service layer (one Ziti service per unique domain, multiple rules share the service)?
+- Deduplicate at the OpenZiti-service layer for public targets — one Ziti service per unique `(domain_pattern, ports)`, shared by every rule that names it, with attachment Dial policies pointing at the shared service? This makes public targets behave the way private ones already do.
+- Or extend the rule schema with a `conditions: [{ matcher_clause, effect_clause }]` list, where the top-level `matcher` provides the intercept boundary and each condition narrows by method/path with its own effect?
+- Until one of those lands, should `CreateEgressRuleAttachment` reject attaching two public rules with overlapping interceptions to one target, the way it already rejects a rule colliding with a [private resource](architecture/private-networks.md#hostname-collisions)?
 
 ---
 
@@ -190,16 +193,6 @@ Unresolved product and architectural decisions requiring discussion.
 **Questions:**
 - Should the platform offer tooling to convert an ENV-based secret usage to an EgressRule with `effect.inject`?
 - Is there a transitional period where both work, and how does the platform detect the duplication?
-
----
-
-## Egress Gateway: Per-Agent Credentials to One Private Resource
-
-**Context:** A [PrivateResource](architecture/resource-definitions.md#private-resource) can be named by at most one [EgressRule](architecture/resource-definitions.md#egress-rule), inheriting the one-rule-per-destination constraint from public destinations. Every agent attached to that rule therefore injects the same credential toward the internal host. Two agents needing distinct tokens to the same internal GitLab cannot be expressed.
-
-**Questions:**
-- Does relaxing this want the same fix as [Conditions List per Rule](#egress-gateway-conditions-list-per-rule) — many rules per destination sharing one interception — or a per-attachment credential override, which is a smaller change but a new concept on the attachment?
-- If per-attachment overrides: does the same mechanism make sense for public destinations, where the constraint has the same shape?
 
 ---
 

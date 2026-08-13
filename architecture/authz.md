@@ -656,7 +656,7 @@ An [environment principal](private-networks.md#why-an-environment-is-a-principal
 | `CreatePrivateResourceAccess` (`user`, `app`, or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
 | `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
 | `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |
-| `SetPrivateResourceMediation` (internal) | Internal only (EgressRules service via Istio). Mediation is derived from which rules exist; the caller-facing check ran on the rule |
+| `SetPrivateResourceMediation`, `ListPrivateResourcesReachableBy` (internal) | Internal only (EgressRules service via Istio). Mediation is derived from which rules exist; the caller-facing check ran on the rule |
 
 An agent or environment can also reach a private resource through an [egress rule attachment](#egressrules-service), which is authorized by the identical check to the grant in this table. Neither surface is a way around the other.
 
@@ -684,7 +684,7 @@ An agent or environment can also reach a private resource through an [egress rul
 | `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
 | `ListEgressRulesByAgent` (internal) | Internal only (Egress Gateway via Istio) |
 | `CountRulesReferencingSecret` (internal) | Internal only (Secrets service via Istio) |
-| `CountRulesReferencingPrivateResource`, `ListMediatedPrivateResources` (internal) | Internal only (Networks service via Istio) |
+| `CountRulesReferencingPrivateResource`, `ListMediatedPrivateResources`, `ListAttachedRuleDomains` (internal) | Internal only (Networks service via Istio) |
 
 No new OpenFGA types are introduced. Rules use existing organization-level checks; each attachment uses its target's `can_edit_config` / `can_read_config` — from the [agent](#agent) type or the [environment](#environment) type — plus that type's `org` relation for the cross-org guard.
 

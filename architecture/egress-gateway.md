@@ -16,7 +16,7 @@ This document describes the **Egress Gateway** data-plane service. The control-p
 |---|---|---|
 | `.agyn` hostnames (`gateway.agyn`, `llm-proxy.agyn`, `tracing.agyn`, exposed services) | Existing OpenZiti services bound by their respective platform services | Each platform service |
 | Hostnames matched by an attached rule's `matcher.domain_pattern` on a port in `matcher.ports` | Per-rule OpenZiti service → Egress Gateway → upstream | Egress Gateway |
-| The `intercept_host` of a [PrivateResource](private-networks.md#privateresource) named by any rule | The resource's OpenZiti service → Egress Gateway → resource's upstream service → Tunnel → target | Egress Gateway |
+| The `intercept_host` of a [PrivateResource](private-networks.md#privateresource) named by any rule | The resource's OpenZiti service → Egress Gateway → resource's upstream service for that port → Tunnel → target | Egress Gateway |
 | The `intercept_host` of a PrivateResource no rule names | The resource's OpenZiti service → Tunnel → target, gateway not in the path | [Networks service](networks-service.md) |
 | Hostnames not matched by any attached rule | Direct from the agent container's `eth0` to public internet (subject to NetworkPolicy) | Pod's CNI |
 | Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by the workload-namespace NetworkPolicy installed with the [k8s-runner](k8s-runner.md#workload-egress-networkpolicy) | Cluster network policy |
@@ -59,7 +59,7 @@ The Egress Gateway binds the OpenZiti services that represent egress rules. Each
 | Role attributes (gateway identity) | `["egress-gateway-hosts"]` |
 | Service role (bound services) | `["egress-services"]` (the gateway binds by role, not by individual service) |
 | Enrollment | Self-enrollment via Ziti Management at pod startup (same as Gateway and LLM Proxy) |
-| SDK usage | `zitiContext.ListenWithOptions("@egress-services", ...)` (binds every service tagged `egress-services`); `zitiContext.Dial("private-<resource_id>-upstream")` for the upstream leg of a mediated private resource |
+| SDK usage | `zitiContext.ListenWithOptions("@egress-services", ...)` (binds every service tagged `egress-services`); `zitiContext.Dial("private-<resource_id>-upstream-<intercept_port>")` for the upstream leg of a mediated private resource |
 
 ### Static Policies
 
@@ -69,7 +69,7 @@ Provisioned at infrastructure bootstrap:
 |---|---|---|---|---|
 | `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service, and every mediated private resource's front service |
 
-The gateway's Dial access to a mediated resource's upstream service is per-resource, not static: the [Networks service](networks-service.md) creates it as part of the mediation flip and deletes it on the way back.
+The gateway's Dial access to a mediated resource's upstream services is per-resource, not static: the [Networks service](networks-service.md) creates it as part of the mediation flip and deletes it on the way back.
 
 ### Dynamic Per-Rule Resources
 
@@ -79,7 +79,7 @@ The [EgressRules service](egress-rules-service.md) owns the dynamic OpenZiti res
 |---|---|---|---|
 | OpenZiti service `egress-rule-<rule_id>` (with attached `intercept.v1` and `host.v1` configs) | EgressRules service | A public-target rule is created | That rule is deleted |
 | Dial policy per attachment | EgressRules service | Rule is attached to an agent or environment | Rule is detached or deleted, or the target is deleted |
-| `egress-services` role attribute + forwarding `host.v1` on `private-<resource_id>`, the `private-<resource_id>-upstream` service, and the gateway's Dial policy on it | [Networks service](networks-service.md) | The resource's first rule is created | The resource's last rule is deleted |
+| `egress-services` role attribute + forwarding `host.v1` on `private-<resource_id>`, the `private-<resource_id>-upstream-<intercept_port>` services (one per intercept port), and the gateway's Dial policies on them | [Networks service](networks-service.md) | The resource's first rule is created | The resource's last rule is deleted |
 
 #### Service Configs
 
@@ -191,9 +191,9 @@ A spliced connection still emits a span, with `egress.outcome: spliced` and no m
 
 ### The upstream leg
 
-The gateway dials `private-<resource_id>-upstream` through the OpenZiti SDK. That service is bound by the resource's Network tunnels and carries the resource's `target_host` in its `host.v1`, so the gateway never learns or resolves the private target's address — it names a service and the tunnel does the rest.
+The gateway recovers the port the agent dialed from the accepted connection (`forwardPort: true` on the mediated front service) and dials `private-<resource_id>-upstream-<intercept_port>` through the OpenZiti SDK. That service is bound by the resource's Network tunnels and names the paired `target_ports` entry statically in its `host.v1`, so the gateway never learns or resolves the private target's address or port — it names a service and the tunnel does the rest.
 
-The port the agent dialed is recovered from the accepted connection (`forwardPort: true` on the mediated front service) and passed to the upstream dial; the tunnel side maps it to the paired entry in `target_ports`.
+**The gateway never forwards a port to the tunnel.** Intercept and target ports differ routinely (`443` → `8443`), and the gateway sees only the intercept side; forwarding it would reach the wrong port, or be refused by the upstream's `allowedPortRanges`. There is one upstream service per intercept port and each hard-codes its target port, so choosing the service *is* applying the mapping. See [Private Networks — OpenZiti resources per mediation state](private-networks.md#openziti-resources-per-mediation-state).
 
 For an `https` resource the gateway re-originates TLS to the target. The system CA bundle it uses for public destinations is usually wrong here — internal endpoints commonly present a corporate-CA or self-signed certificate, and the hostname the agent dialed (`intercept_host`) need not be the name on it. The rule's [`upstream_tls`](resource-definitions.md#upstream-tls) block covers both: `server_name` overrides the SNI and verification hostname, `ca_bundle_secret_id` supplies the trust anchors (resolved through [Secrets](secrets.md) and cached like any other secret value), and `insecure_skip_verify` accepts anything. With no `upstream_tls` set, verification is the same as for a public destination — system bundle, hostname `intercept_host` — which is the correct default for an internal endpoint holding a publicly-issued certificate and a loud failure for one that does not.
 
@@ -205,6 +205,13 @@ For an `https` resource the gateway re-originates TLS to the target. The system 
 | Upstream service missing (mediation half-applied) | `502 Bad Gateway`. Reconciliation on the Networks side repairs the topology |
 | `upstream_tls.ca_bundle_secret_id` references a deleted secret | `502 Bad Gateway`, naming the rule and secret — same behavior as a missing injection secret |
 | Target's certificate fails verification | `502 Bad Gateway`, `egress.outcome: tls_error`. The operator's fix is `server_name`, a CA bundle, or `insecure_skip_verify` |
+| Rule cache miss while the EgressRules service is unreachable | Connection refused, `egress.outcome: rules_unavailable`. See below |
+
+### When the rule set cannot be determined
+
+The splice decision needs the caller's rule set, and a cache miss during an EgressRules outage leaves the gateway unable to tell "no rule applies" from "cannot tell". The two are not interchangeable for a private destination: guessing *splice* silently drops any `deny` the caller was under and sends the request onward without the credential it was supposed to carry, which reaches the internal host as an unauthenticated call rather than a failure. **The gateway refuses the connection instead.**
+
+This is deliberately stricter than the public path, where the same outage is harmless — a public destination the gateway holds no rules for is one the sidecar would never have routed here at all. A mediated resource has no path around the gateway, so refusing costs reachability for callers whose access came from a grant and who no rule concerns. That cost is accepted: it is bounded by the outage and by cache misses within it, warm entries keep serving throughout, and the alternative trades a temporary loss of reach for a silent, unlogged policy bypass.
 
 ## Rule Evaluation
 
@@ -234,13 +241,17 @@ For each request (after TLS termination if HTTPS):
 
 | Cache | Lifetime | Invalidation |
 |---|---|---|
-| Attached rules per `agent_id` | In-memory, no TTL | [Notifications](notifications.md) on `egress_rule.updated` and `egress_rule_attachment.updated` |
+| Attached rules per `agent_id` | In-memory, no TTL | [Notifications](notifications.md) on `egress_rule.updated`, `egress_rule_attachment.updated`, and `private_resource.updated` |
 | Resolved secret values per `secret_id` | TTL ~60s | TTL expiry; refresh on demand |
 | Leaf certificates per `(SNI, ca_fingerprint)` | LRU, ~10-minute TTL | TTL expiry; capacity eviction |
 
 Cache misses fall through to the source services (EgressRules, Secrets). Cold-cache latency for a first request to an agent's rule set is one `ListEgressRulesByAgent` call to the EgressRules service plus, if needed, one Secrets-service `ResolveSecretValue` call per injected secret-backed header.
 
-For private-target rules, the lookup response carries the referenced resource's `intercept_host`, `intercept_ports`, and `protocol` alongside the rule. The gateway needs those to label spans and to know whether to expect TLS on the inbound connection, and denormalizing them here keeps the [Networks service](networks-service.md) off the request path entirely.
+For private-target rules, the lookup response carries the referenced resource's `intercept_host` and `protocol` alongside the rule. The gateway needs those to label spans and to know whether to expect TLS on the inbound connection, and denormalizing them here keeps the [Networks service](networks-service.md) off the request path entirely.
+
+**Denormalized values need an invalidation path of their own.** `UpdatePrivateResource` may legally change `intercept_host`, the port lists, and `protocol`, and none of those writes touches a rule — so the rule-scoped events would never fire and a no-TTL cache would serve the old values indefinitely. The gateway therefore also subscribes to `private_resource.updated` in the organization's [Notifications](notifications.md) room and drops every cached entry holding a rule that names the changed resource. This is the same mechanism it already uses for rule changes, and the Networks service already emits the event for the Console.
+
+Routing does not depend on any of it: the destination comes from the OpenZiti service the connection arrived on and the upstream from `(resource_id, intercept port)`, both read live off the connection. A stale entry mislabels a span or mispredicts TLS; it cannot send traffic to the wrong host.
 
 ## Propagation Timing
 
@@ -384,7 +395,7 @@ One span per outbound request. Span name: `egress.request`. Attributes:
 | `egress.port` | Destination port |
 | `egress.path` | Request path with query string stripped — absent on a spliced connection |
 | `egress.private_resource_id` | Resource UUID, on private-target traffic only |
-| `egress.outcome` | `allow`, `deny`, `spliced`, `upstream_error`, `tls_error` |
+| `egress.outcome` | `allow`, `deny`, `spliced`, `rules_unavailable`, `upstream_error`, `tls_error` |
 | `egress.matched_rule_ids` | Comma-separated UUIDs of all rules whose `effect.action` or `effect.inject` was applied |
 | `agyn.agent.id` | Agent UUID resolved from the OpenZiti identity |
 | `agyn.workload.id` | Workload UUID |
@@ -426,7 +437,7 @@ One `COUNT` record per request to the [Metering](metering.md) service, fire-and-
 - **Replicas** — the gateway can run with multiple replicas. Each binds the same `egress-services` role; OpenZiti load-balances dial requests across binders. Each replica maintains its own caches and subscribes independently to Notifications; there is no shared cache state.
 - **HTTP/2 support** — both legs (agent-facing and upstream) negotiate HTTP/2 via ALPN. The gateway must handle HTTP/2 frame multiplexing on the TLS termination layer. Most modern destinations (GitHub, OpenAI, Anthropic) prefer HTTP/2 by default.
 - **Pod outbound** — the gateway pod makes outbound TLS connections to arbitrary upstream destinations on the public internet. The gateway pod's namespace must permit unrestricted egress (no NetworkPolicy blocking outbound, or a permissive one that allows it).
-- **Graceful degradation** — if the Secrets service is unreachable, requests matched by a rule whose `effect.inject` requires secret resolution return `502 Bad Gateway` with a clear error message identifying the failure (e.g., `"failed to resolve secret: <secret_id> (timeout / not_found / unavailable)"`). Rules with `effect.inject` empty or containing only literal-valued headers continue to evaluate. If the EgressRules service is unreachable, cached rules continue to apply; new agents have no rules until cache populates.
+- **Graceful degradation** — if the Secrets service is unreachable, requests matched by a rule whose `effect.inject` requires secret resolution return `502 Bad Gateway` with a clear error message identifying the failure (e.g., `"failed to resolve secret: <secret_id> (timeout / not_found / unavailable)"`). Rules with `effect.inject` empty or containing only literal-valued headers continue to evaluate. If the EgressRules service is unreachable, cached rules continue to apply; new agents have no rules until cache populates — harmless for public destinations, which the sidecar would not have routed here without a rule, but a connection to a mediated private resource is refused rather than guessed at (see [When the rule set cannot be determined](#when-the-rule-set-cannot-be-determined)).
 - **Missing secrets** — if a rule's `effect.inject` references a `secret_id` that has been deleted from the Secrets service, the gateway returns `502 Bad Gateway` with `"egress rule <id> references missing secret <secret_id>"`. The rule should be detached or its `effect.inject` updated. The Secrets service refuses to delete a Secret while any active EgressRule references it (referential integrity check).
 - **WebSocket / HTTP upgrade** — requests with `Upgrade: websocket` (or any other `Upgrade` header) are refused with `426 Upgrade Required`. The gateway does not proxy upgraded connections in v1.
 - **CA rotation** — cert-manager rotates the CA per the `Certificate` resource's `renewBefore`. The gateway picks up the new private key and cert on its next pod restart. Live agent connections holding leaves signed by the previous CA continue until those connections close; new connections get leaves signed by the new CA. As long as both old and new CA certs remain valid trust anchors during the rotation window (cert-manager's standard rotation includes overlap), there is no break for in-flight traffic. Existing agent workloads continue to trust only the CA they were started with; agent workloads must be drained and restarted to pick up a new CA.

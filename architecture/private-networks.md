@@ -418,9 +418,9 @@ sequenceDiagram
     alt A rule is attached to this caller
         EG->>EG: Terminate TLS with an Egress CA leaf for gitlab.corp
         EG->>EG: Match method + path, apply effect, resolve secrets
-        EG->>T: Ziti circuit on private-<id>-upstream, re-originated TLS
+        EG->>T: Ziti circuit on private-<id>-upstream-443, re-originated TLS
     else No rule is attached to this caller
-        EG->>T: Ziti circuit on private-<id>-upstream, bytes spliced unmodified
+        EG->>T: Ziti circuit on private-<id>-upstream-443, bytes spliced unmodified
     end
     T->>Target: TCP connect
     Target-->>T: Connected
@@ -450,7 +450,18 @@ The two writers stay out of each other's way through the [ownership tag](#openzi
 
 ### Hostname collisions
 
-The collision the two primitives used to have is now a validation error with a fix attached. A rule whose `domain_pattern` equals an existing resource's `intercept_host`, and a resource whose `intercept_host` equals an existing rule's `domain_pattern`, are both rejected at create time — pointing the operator at a private-target rule instead of letting the OpenZiti Controller reject the second `CreateService` call.
+An intercept is ambiguous only for an identity authorized to dial both sides of it, so the check belongs where a principal acquires that authorization, not where a resource or a rule is created. An organization may hold a public rule for `gitlab.corp` and a private resource intercepting `gitlab.corp` at the same time; nothing is wrong until one agent can dial both.
+
+`CreateEgressRuleAttachment` and `CreatePrivateResourceAccess` therefore each check the destination the *other* surface has already given the target:
+
+| Act | Rejected when |
+|---|---|
+| Attach a public rule to an agent or environment | That target can already dial a PrivateResource whose `intercept_host` matches the rule's `domain_pattern` on an overlapping port — by grant or by another attachment |
+| Grant a PrivateResource to an agent or environment | That target already has a public rule attached whose `domain_pattern` matches the resource's `intercept_host` on an overlapping port |
+
+The error names both sides and points at a private-target rule as the way to express the intent. Grants to `user`, `app`, and `group` principals are outside the check: rules cannot attach to them, so they can never hold both.
+
+Two rules claiming overlapping interceptions on one target is a different question, and an open one — see [Egress Gateway: Conditions List per Rule](../open-questions.md#egress-gateway-conditions-list-per-rule). It does not arise for private targets, which provision no interception of their own.
 
 ## Gateway Mediation
 
@@ -471,10 +482,12 @@ The front service `private-<resource_id>` keeps its `intercept.v1` in both state
 |---|---|---|
 | `private-<id>` role attribute | `network-resources-<network_id>` (bound by the network's Tunnels) | `egress-services` (bound by the Egress Gateway via the static `egress-gateway-bind` policy) |
 | `private-<id>` `host.v1` | `address: target_host`, port ranges from `target_ports` | `forwardAddress: true`, `forwardPort: true`, `allowedAddresses: [intercept_host]`, `allowedPortRanges: intercept_ports` |
-| `private-<id>-upstream` | — | Service with `host.v1` (`address: target_host`, `forwardPort: true`, port ranges from `target_ports`) and role attribute `network-resources-<network_id>`, so the network's existing Bind policy covers it |
-| Gateway Dial policy | — | `identityRoles: ["#egress-gateway-hosts"]`, `serviceRoles: ["@<openziti_upstream_service_id>"]` |
+| `private-<id>-upstream-<intercept_port>` | — | **One service per entry in `intercept_ports`**, each with a static `host.v1` (`address: target_host`, single `port: target_ports[i]`, no forwarding) and role attribute `network-resources-<network_id>`, so the network's existing Bind policy covers them |
+| Gateway Dial policy | — | `identityRoles: ["#egress-gateway-hosts"]`, `serviceRoles: ["@<id>"]` per upstream service |
 
-The upstream service has no `intercept.v1`: nothing intercepts it. The gateway dials it by name (`private-<resource_id>-upstream`) through the OpenZiti SDK, which is derivable from the resource ID the gateway already has and keeps the gateway free of any Networks-owned identifier.
+The upstream services have no `intercept.v1`: nothing intercepts them. The gateway dials one by name — `private-<resource_id>-upstream-<intercept_port>` — from the resource ID it read off the accepted service and the port `forwardPort` gave it, so it holds no Networks-owned identifier and makes no lookup.
+
+**The port mapping lives in which service the gateway dials, not in a table either side has to carry.** A resource intercepting `443` onto target port `8443` gets one upstream service whose `host.v1` names `8443` outright; the gateway dials `…-upstream-443` and the tunnel connects to `8443` because that is the only port that service describes. A resource with `intercept_ports: [80, 443] → target_ports: [8080, 8443]` gets two, and the positional pairing the resource already declares is what decides which is which. A single upstream service forwarding the dialed port cannot express this: the gateway knows only the intercept port, and forwarding it would reach the wrong port on the target — or be refused outright by `allowedPortRanges`, which lists target ports.
 
 Dial policies — from access grants and from rule attachments alike — continue to target `@private-<resource_id>` in both states, so access survives a flip untouched. The identity dialing the front service is authorized the same way regardless of who binds it.
 
@@ -489,11 +502,11 @@ For a caller who reached the resource through an access grant rather than a rule
 The [Networks service](networks-service.md) runs a periodic reconciliation loop, structurally analogous to [EgressRules service — Reconciliation](egress-rules-service.md#reconciliation):
 
 1. **Missing OpenZiti services for live resources.** For each `PrivateResource` row, verify the corresponding `private-<id>` service exists. If absent, re-create it; if its `intercept.v1` or `host.v1` drifts from the resource record, update the configs.
-2. **Drifted mediation.** Re-derive each resource's desired `mediation` from the [EgressRules service](egress-rules-service.md)'s `ListMediatedPrivateResources`. Where it differs from the row, apply the flip; where it matches, verify the state's OpenZiti objects (front-service role attribute and `host.v1`, upstream service, gateway Dial policy) and repair drift.
+2. **Drifted mediation.** Re-derive each resource's desired `mediation` from the [EgressRules service](egress-rules-service.md)'s `ListMediatedPrivateResources`. Where it differs from the row, apply the flip; where it matches, verify the state's OpenZiti objects (front-service role attribute and `host.v1`, one upstream service per intercept port, gateway Dial policies) and repair drift.
 3. **Missing Dial policies for live access grants.** For each `PrivateResourceAccess` row, verify the corresponding Dial policy exists. If absent, re-create it.
 4. **Missing Bind policy per Network.** For each `Network` row, verify the `network-<id>-bind` policy exists. If absent, re-create it.
 5. **Orphaned OpenZiti services.** List OpenZiti services with role attribute `network-resources-<id>` for any live network. Services whose IDs do not correspond to a live `PrivateResource` row → delete. An `egress-services`-tagged service owned by this service (per [tagging](#openziti-resource-tagging)) whose resource is no longer mediated → return it to the tunnel state.
-6. **Orphaned Dial policies.** List Dial policies tagged `agyn.managed_by: networks-service` that reference a `@private-<id>` service. Policies whose `(resource_id, principal)` do not correspond to a live grant → delete. Attachment policies on the same service belong to the [EgressRules service](egress-rules-service.md) and are skipped by the tag filter. The gateway Dial policy on `@private-<id>-upstream` is live exactly while the resource is mediated.
+6. **Orphaned Dial policies.** List Dial policies tagged `agyn.managed_by: networks-service` that reference a `@private-<id>` service. Policies whose `(resource_id, principal)` do not correspond to a live grant → delete. Attachment policies on the same service belong to the [EgressRules service](egress-rules-service.md) and are skipped by the tag filter. The gateway Dial policies on the `@private-<id>-upstream-<port>` services are live exactly while the resource is mediated.
 7. **Orphaned Tunnel identities.** List OpenZiti identities with role attribute `tunnels`. Identities whose IDs do not correspond to a live `TunnelCredential` row → delete.
 
 ## Authorization
@@ -535,7 +548,7 @@ All deletes cascade through dependent resources within a single transactional op
 |---|---|
 | `Network` | All TunnelCredentials in the network (identities deleted from Controller), all PrivateResources in the network (services + configs deleted), all PrivateResourceAccess grants on those resources (policies deleted), the network's Bind policy |
 | `TunnelCredential` | The corresponding OpenZiti identity. If the tunneler holding it is online, it loses its session immediately. Other credentials in the network are unaffected |
-| `PrivateResource` | The OpenZiti service + configs, all PrivateResourceAccess grants on the resource (policies deleted), and — while [mediated](#gateway-mediation) — the upstream service and the gateway's Dial policy. Refused while any [EgressRule](egress-rules-service.md) names the resource |
+| `PrivateResource` | The OpenZiti service + configs, all PrivateResourceAccess grants on the resource (policies deleted), and — while [mediated](#gateway-mediation) — the upstream services and the gateway's Dial policies on them. Refused while any [EgressRule](egress-rules-service.md) names the resource |
 | `PrivateResourceAccess` | The corresponding Dial policy |
 
 If the operator deletes the last `TunnelCredential` in a Network, the Network's resources become unreachable until a new credential is issued and a tunneler enrolls. The resources themselves remain configured.

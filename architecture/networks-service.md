@@ -12,8 +12,8 @@ Structurally analogous to the [EgressRules service](egress-rules-service.md) —
 |---|---|
 | **Network CRUD** | Create, read, update, delete `Network` resources. Provisions the per-network Bind policy on create; deletes the policy on delete |
 | **TunnelCredential CRUD** | Issue and revoke tunnel enrollment credentials. Each credential maps 1:1 to an OpenZiti identity with role attributes `["tunnels", "network-<id>"]` |
-| **PrivateResource CRUD** | Create, read, update, delete `PrivateResource` resources. Validates intercept hostname against reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, `::1/128`), collision with an existing [EgressRule](egress-rules-service.md) `domain_pattern`, and the per-org uniqueness constraint per port in `intercept_ports`. Provisions the OpenZiti service + configs with the [tagging convention](private-networks.md#openziti-resource-tagging) |
-| **Gateway mediation** | Materialize a resource's `mediation` state on request from the [EgressRules service](egress-rules-service.md): rebind `private-<id>` between the network's Tunnels and the [Egress Gateway](egress-gateway.md), maintain the `private-<id>-upstream` service and the gateway's Dial policy on it. See [Private Networks — Gateway Mediation](private-networks.md#gateway-mediation) |
+| **PrivateResource CRUD** | Create, read, update, delete `PrivateResource` resources. Validates intercept hostname against reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`, `localhost`, `127.0.0.0/8`, `::1/128`) and the per-org uniqueness constraint per port in `intercept_ports`. Provisions the OpenZiti service + configs with the [tagging convention](private-networks.md#openziti-resource-tagging) |
+| **Gateway mediation** | Materialize a resource's `mediation` state on request from the [EgressRules service](egress-rules-service.md): rebind `private-<id>` between the network's Tunnels and the [Egress Gateway](egress-gateway.md), maintain the `private-<id>-upstream-<intercept_port>` services and the gateway's Dial policies on them. See [Private Networks — Gateway Mediation](private-networks.md#gateway-mediation) |
 | **PrivateResourceAccess CRUD** | Create and delete access grants. Each grant materializes as exactly one OpenZiti Dial policy. Principals: `agent`, `environment`, `user`, `app`, `group`. List grants by resource, by principal, by organization |
 | **Tunnel liveness tracking** | Poll the OpenZiti Controller for per-identity session info; surface `enrolled_at` and `last_seen_at` on `TunnelCredential`; emit `tunnel_status.changed` notifications on transitions |
 | **Reconciliation** | Periodic sweep to repair drift between resource records and actual OpenZiti state |
@@ -30,9 +30,9 @@ Control plane — Gateway-exposed CRUD with periodic reconciliation. Not on a re
 | **Repository** | `agynio/networks` |
 | **API** | gRPC (internal) + Gateway (external via ConnectRPC) |
 | **State** | PostgreSQL — `networks`, `tunnel_credentials`, `private_resources`, `private_resource_access` tables |
-| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (caller-permission checks + cross-org guard via OpenFGA `org` relation on the principal — covers `agent`, `user`, `app`, and `group` principals uniformly), [Identity](identity.md) (existence check + type validation for individual principals `agent`/`user`/`app` via `GetIdentityType`), [Groups](groups-service.md) (existence check for `group` principals via `GetGroup`), [Agents](agents-service.md) (existence and organization check for `environment` principals via `GetEnvironment` — an environment is a configuration resource, not an identity, so it is not in the Identity registry), [EgressRules](egress-rules-service.md) (hostname-collision check on resource create, referential-integrity guards on delete and protocol change, mediation reconciliation), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
+| **External dependencies** | [Ziti Management](openziti.md), [Authorization](authz.md) (caller-permission checks + cross-org guard via OpenFGA `org` relation on the principal — covers `agent`, `user`, `app`, and `group` principals uniformly), [Identity](identity.md) (existence check + type validation for individual principals `agent`/`user`/`app` via `GetIdentityType`), [Groups](groups-service.md) (existence check for `group` principals via `GetGroup`), [Agents](agents-service.md) (existence and organization check for `environment` principals via `GetEnvironment` — an environment is a configuration resource, not an identity, so it is not in the Identity registry), [EgressRules](egress-rules-service.md) (hostname-collision check on access grants, referential-integrity guards on delete and protocol change, mediation reconciliation), [Messaging](messaging.md) (event-bus publication + subscription), [Notifications](notifications.md) (client-facing UI updates) |
 
-The [EgressRules](egress-rules-service.md) dependency runs both ways — that service calls `GetPrivateResource` and `SetPrivateResourceMediation` here. Both directions are request-scoped and neither is on a startup path, so the mutual dependency does not sequence deployment. It exists because the two services own opposite halves of one destination: this one owns the resource's OpenZiti objects, that one owns the policy that decides whether the gateway sits in front of them.
+The [EgressRules](egress-rules-service.md) dependency runs both ways — that service calls `GetPrivateResource`, `SetPrivateResourceMediation`, and `ListPrivateResourcesReachableBy` here. Both directions are request-scoped and neither is on a startup path, so the mutual dependency does not sequence deployment. It exists because the two services own opposite halves of one destination: this one owns the resource's OpenZiti objects, that one owns the policy that decides whether the gateway sits in front of them.
 
 ## API
 
@@ -59,18 +59,19 @@ The [EgressRules](egress-rules-service.md) dependency runs both ways — that se
 
 | Method | Description |
 |---|---|
-| **CreatePrivateResource** | Create a resource. Validates: `intercept_host` not in reserved zones and not equal to an existing EgressRule's `domain_pattern` (via `EgressRules.ListEgressRules`), unique `(org_id, intercept_host, intercept_port)`, `target_ports` cardinality matches `intercept_ports`. Provisions the OpenZiti service `private-<id>` with attached `host.v1` and `intercept.v1` configs |
+| **CreatePrivateResource** | Create a resource. Validates: `intercept_host` not in reserved zones, unique `(org_id, intercept_host, intercept_port)`, `target_ports` cardinality matches `intercept_ports`. Provisions the OpenZiti service `private-<id>` with attached `host.v1` and `intercept.v1` configs |
 | **GetPrivateResource** | Fetch a resource by ID. Also called internally by the [EgressRules service](egress-rules-service.md) to validate a rule's private target |
 | **ListPrivateResources** | List resources, filterable by `network_id` or `organization_id`. Cursor pagination |
 | **UpdatePrivateResource** | Update mutable fields. If `target_host`/`target_ports` or `intercept_host`/`intercept_ports` change, updates the corresponding OpenZiti config. Changing `protocol` to `tcp` is rejected while any rule names the resource (`EgressRules.CountRulesReferencingPrivateResource`) |
-| **DeletePrivateResource** | Delete a resource. Rejected while any rule names it, listing the rules — same referential-integrity shape the [Secrets](secrets.md) service uses. Otherwise cascades to all access grants, deletes the OpenZiti service and attached configs, and (if mediated) the upstream service and the gateway's Dial policy |
+| **DeletePrivateResource** | Delete a resource. Rejected while any rule names it, listing the rules — same referential-integrity shape the [Secrets](secrets.md) service uses. Otherwise cascades to all access grants, deletes the OpenZiti service and attached configs, and (if mediated) the upstream services and the gateway's Dial policies on them |
 | **SetPrivateResourceMediation** | **Internal-only.** Set a resource's `mediation` to `tunnel` or `egress_gateway` and materialize the OpenZiti change. Called by the [EgressRules service](egress-rules-service.md) when a resource gains its first rule or loses its last. Idempotent — the desired state is the argument, not a delta |
+| **ListPrivateResourcesReachableBy** | **Internal-only.** Given an `agent` or `environment` principal, return the resources it can dial by grant, with their `intercept_host` and `intercept_ports`. Called by the [EgressRules service](egress-rules-service.md) to detect a [hostname collision](private-networks.md#hostname-collisions) before attaching a public-target rule |
 
 ### PrivateResourceAccess CRUD
 
 | Method | Description |
 |---|---|
-| **CreatePrivateResourceAccess** | Grant access. Validates: principal exists (for `agent` / `user` / `app` via `Identity.GetIdentityType` — also confirms `principal_type` matches the registered identity type; for `group` via `Groups.GetGroup`; for `environment` via `Agents.GetEnvironment`); the principal belongs to the resource's organization (cross-org `Check` via [Authorization](authz.md) `org` relation on `<principal_type>:<principal_id>`, which the [`environment` type](authz.md#environment) carries like every other principal); the grant is unique on `(resource_id, principal_type, principal_id)`. Creates the per-grant Dial policy |
+| **CreatePrivateResourceAccess** | Grant access. Validates: principal exists (for `agent` / `user` / `app` via `Identity.GetIdentityType` — also confirms `principal_type` matches the registered identity type; for `group` via `Groups.GetGroup`; for `environment` via `Agents.GetEnvironment`); the principal belongs to the resource's organization (cross-org `Check` via [Authorization](authz.md) `org` relation on `<principal_type>:<principal_id>`, which the [`environment` type](authz.md#environment) carries like every other principal); the grant is unique on `(resource_id, principal_type, principal_id)`; and — for `agent` and `environment` principals — that no public egress rule attached to that principal claims a `domain_pattern` colliding with the resource's `intercept_host` (via `EgressRules.ListAttachedRuleDomains`). Creates the per-grant Dial policy |
 | **DeletePrivateResourceAccess** | Revoke access. Deletes the Dial policy |
 | **ListPrivateResourceAccess** | List grants, filterable by `resource_id`, by `principal_type` + `principal_id`, or by `network_id` |
 
@@ -102,13 +103,15 @@ For each PrivateResource, one OpenZiti service with attached configs:
 | **Service config update** | `UpdateService` (config edits) | On `UpdatePrivateResource` when target or intercept changes |
 | **Service** deletion | `DeleteService` | On `DeletePrivateResource` |
 
-For each **mediated** PrivateResource, an upstream service and the gateway's Dial policy on it, plus a rewrite of the front service. Created on `SetPrivateResourceMediation(egress_gateway)`, reversed on `SetPrivateResourceMediation(tunnel)`:
+For each **mediated** PrivateResource, one upstream service per intercept port with a gateway Dial policy on each, plus a rewrite of the front service. Created on `SetPrivateResourceMediation(egress_gateway)`, reversed on `SetPrivateResourceMediation(tunnel)`:
 
 | Resource | Ziti Management RPC | Effect |
 |---|---|---|
 | **Front service** `private-<resource_id>` | `UpdateService` | Role attribute `network-resources-<network_id>` → `egress-services`; `host.v1` replaced with the forwarding shape |
-| **Service** `private-<resource_id>-upstream` (with `host.v1` carrying `target_host`/`target_ports`, role attribute `network-resources-<network_id>`) | `CreateService` / `DeleteService` | The tunnel-bound leg the gateway dials. The network's existing Bind policy covers it via the role attribute |
-| **Dial policy** (`identityRoles: ["#egress-gateway-hosts"]`, `serviceRoles: ["@<openziti_upstream_service_id>"]`) | `CreateServicePolicy` / `DeleteServicePolicy` | Lets the Egress Gateway reach the tunnel |
+| **Service** `private-<resource_id>-upstream-<intercept_port>`, one per entry in `intercept_ports` (static `host.v1` naming `target_host` and the paired `target_ports` entry, role attribute `network-resources-<network_id>`) | `CreateService` / `DeleteService` | The tunnel-bound legs the gateway dials. The network's existing Bind policy covers them via the role attribute, and the per-service target port is what applies the intercept→target mapping |
+| **Dial policy** per upstream service (`identityRoles: ["#egress-gateway-hosts"]`, `serviceRoles: ["@<id>"]`) | `CreateServicePolicy` / `DeleteServicePolicy` | Lets the Egress Gateway reach the tunnel |
+
+`UpdatePrivateResource` on a mediated resource that changes `intercept_ports` or `target_ports` recreates the upstream services to match the new pairing, since each encodes one mapping.
 
 Config shapes for both mediation states are in [Private Networks — OpenZiti resources per mediation state](private-networks.md#openziti-resources-per-mediation-state).
 
@@ -214,7 +217,9 @@ Separately from the service-to-service event bus, the Networks service publishes
 | `private_resource.updated` | A `PrivateResource` is created, updated, or deleted — including a [mediation](private-networks.md#gateway-mediation) flip |
 | `private_resource_access.updated` | A `PrivateResourceAccess` is created or deleted |
 
-These are fire-and-forget [Notifications](notifications.md) updates for the browser. They are distinct from the durable event bus and not consumed by other services. See [Messaging — Overview](messaging.md#overview) for the distinction.
+These are fire-and-forget [Notifications](notifications.md) updates for the browser, distinct from the durable event bus. See [Messaging — Overview](messaging.md#overview) for the distinction.
+
+One has a second consumer: the [Egress Gateway](egress-gateway.md#caching-and-invalidation) subscribes to `private_resource.updated` to invalidate the resource fields it caches alongside private-target rules, the same way it already consumes `egress_rule.updated`. Delivery is best-effort, which is why nothing on the routing path depends on those cached values.
 
 ## Authorization
 

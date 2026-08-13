@@ -127,7 +127,9 @@ PrivateResource and [EgressRule](../egress-gateway/egress-gateway.md) describe d
 | Header injection or deny rules on a private host (e.g., a token to an internal GitLab) | EgressRule with that PrivateResource as its destination |
 | Any of the above for a user's device, an app, or a group | PrivateResource + access grant — rules attach to agents and environments only |
 
-Creating a rule for a resource is what puts the platform's [Egress Gateway](../egress-gateway/egress-gateway.md) in front of it. Only `http` and `https` resources qualify; a `tcp` resource has no requests to inspect, and credentials for one still travel through the agent's ENVs.
+Creating a rule for a resource is what puts the platform's [Egress Gateway](../egress-gateway/egress-gateway.md) in front of it. Only `http` and `https` resources qualify: a `tcp` resource is an opaque byte stream — a postgres or ssh session has no headers to inject and no method or path to match — so credentials for one still travel through the agent's ENVs.
+
+A resource can carry several rules. Two rules on one internal GitLab, attached to different agents, is how each agent reaches it with its own token.
 
 ### Two ways to grant access
 
@@ -184,8 +186,7 @@ Resources are created, edited, and deleted by organization owners through the Co
 - A Tunnel belongs to one Network. Running one tunneler for two networks requires two separate tunneler installations.
 - Runners are not eligible group members and not eligible access principals — they are infrastructure, not actors in the access model.
 - Environments are not group members. A group collects identities; an environment is a configuration resource, and it is a principal here only because it is what an agent workload and a sandbox have in common.
-- An `intercept_host` equal to an existing EgressRule's public domain pattern is rejected at create time, and vice versa — the two would claim the same interception. The fix is a rule with the resource as its destination.
-- A resource can be named by at most one egress rule, so every agent attached to that rule injects the same credential. Per-agent credentials to one internal host are not expressible in v1.
+- An `intercept_host` may equal some egress rule's public domain pattern; what is refused is giving **one** agent or environment both, since its dials would be ambiguous. The check runs when access is granted or the rule is attached, not when either is created. The fix is a rule with the resource as its destination.
 - Deleting a resource, or changing its protocol to `tcp`, is refused while any egress rule names it.
 
 ## Related Architecture

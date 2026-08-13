@@ -63,7 +63,9 @@ The policy is static infrastructure parameterized at runner install time, not pe
 
 ## Rule shape
 
-A rule has two parts: a **matcher** that says which requests it applies to, and an **effect** that says what happens to those requests. One rule per destination — `(organization, domain pattern)` for a public rule, `(organization, private resource)` for a private one. Uniqueness lets each rule map cleanly to one interception target.
+A rule has two parts: a **matcher** that says which requests it applies to, and an **effect** that says what happens to those requests.
+
+Several rules may name one destination. Two rules on the same private resource, attached to different agents, is how each agent gets its own credential to one internal host; a request matching more than one rule combines their effects per [Multiple rules in scope](#multiple-rules-in-scope).
 
 ### Matcher
 
@@ -72,9 +74,9 @@ The first choice when creating a rule is the destination type. It determines one
 | Field | Description |
 |---|---|
 | **Destination type** | `Public` or `Private`. Fixed at create time — changing where a rule points means deleting it and writing a new one. |
-| **Domain pattern** | *Public only.* The hostname the rule applies to. Examples: `api.github.com`, `*.github.com`. Subdomain wildcards supported. Unique per organization. Reserved zones — `*.agyn`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range — are rejected, as is a hostname already claimed by a private resource. |
+| **Domain pattern** | *Public only.* The hostname the rule applies to. Examples: `api.github.com`, `*.github.com`. Subdomain wildcards supported. Reserved zones — `*.agyn`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range — are rejected. |
 | **Ports** | *Public only.* List of destination ports to intercept (e.g., `[443]`, `[80, 443]`, `[8443]`). Defaults to `[80, 443]` when unset. |
-| **Private resource** | *Private only.* One of the organization's [private resources](../private-networks/private-networks.md), picked from a list. Only `http` and `https` resources are offered — a `tcp` resource carries no HTTP requests to act on. The rule covers every port the resource declares. |
+| **Private resource** | *Private only.* One of the organization's [private resources](../private-networks/private-networks.md), picked from a list. Only `http` and `https` resources are offered — a `tcp` resource is an opaque byte stream (postgres wire protocol, ssh) with no headers to inject and no method or path to match. The rule covers every port the resource declares. |
 | **Methods** | List of HTTP methods the rule applies to (e.g., `["GET", "HEAD"]`). Empty means any method. |
 | **Path pattern** | Glob over the request path (e.g., `/repos/**`, `/users/*/issues`). Empty means any path. |
 
@@ -227,9 +229,9 @@ Rules are created, edited, and deleted by organization owners through the Consol
 - Only HTTP and HTTPS are subject to interception. Other protocols (raw TCP, SMTP, database wire protocols) are out of scope for v1. A `tcp` private resource cannot be named by a rule; reach it through an access grant and pass credentials another way.
 - The agent's container image must trust the Platform CA via one of the standard mechanisms (env-var-honoring HTTP client, or CA installed into the system trust store).
 - Wildcard patterns in `matcher.domain_pattern` cover one subdomain segment (`*.github.com` matches `api.github.com` but not `code.api.github.com`); multi-segment wildcards are out of scope for v1.
-- Two rules cannot share a destination — the same `(organization, domain pattern)`, or the same private resource. Express finer-grained method or path policies within a single rule's `matcher.methods` and `matcher.path_pattern`. (Future: per-condition sub-policies inside one rule.) One consequence for private destinations: every agent attached to a resource's rule gets the same injected credential, so per-agent credentials to one internal host are not expressible in v1.
 - A rule's destination type is fixed at create time. Repointing a rule from public to private, or between resources, means deleting it and creating another.
-- Reserved domain patterns are rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`). A domain pattern equal to a private resource's hostname is rejected too, pointing at a private-destination rule instead.
+- Reserved domain patterns are rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
+- A public rule and a private resource claiming the same hostname are rejected **when they meet on one target** — attaching such a rule to an agent that can already reach the resource, or granting that agent the resource while the rule is attached, fails with both named. Creating either alone is allowed: the ambiguity is per dialing identity, and an organization may legitimately hold both as long as no single target sees both.
 - Cluster-internal services are not reachable from agent workloads regardless of rule configuration — the platform's NetworkPolicy blocks them at the cluster network layer.
 - Secrets referenced by `effect.inject` headers are not auto-refreshed. Rotating the secret value via the [Secrets](../../architecture/secrets.md) service takes effect on the next request. Tokens that require an active refresh (OAuth access tokens, short-lived STS credentials) must be refreshed externally.
 

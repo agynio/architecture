@@ -32,7 +32,7 @@ The service is structurally analogous to [Expose Service](expose-service.md) —
 | **Private resource mediation** | On the first rule naming a [PrivateResource](private-networks.md#privateresource) and the deletion of the last one, call the [Networks service](networks-service.md)'s `SetPrivateResourceMediation` so it rebinds the resource's service to or from the Egress Gateway |
 | **Reconciliation** | Periodic sweep to repair drift between rule/attachment records and actual OpenZiti state |
 | **Change notifications** | Publish `egress_rule.updated` and `egress_rule_attachment.updated` events to the organization's [Notifications](notifications.md) room for cache invalidation by the gateway |
-| **Internal rule lookup** | Provide `ListEgressRulesByAgent(agent_id)` and `ListEgressRulesByEnvironment(environment_id)` for the Egress Gateway data path. The gateway's effective rule set for a workload is the union of both. Private-target rules carry the referenced resource's `intercept_host`, `intercept_ports`, and `protocol` in the response, so the gateway needs no Networks call on the request path |
+| **Internal rule lookup** | Provide `ListEgressRulesByAgent(agent_id)` and `ListEgressRulesByEnvironment(environment_id)` for the Egress Gateway data path. The gateway's effective rule set for a workload is the union of both. Private-target rules carry the referenced resource's `intercept_host` and `protocol` in the response, so the gateway needs no Networks call on the request path — the gateway invalidates those denormalized values on [`private_resource.updated`](egress-gateway.md#caching-and-invalidation) |
 | **Private-resource reference lookup** | Provide `CountRulesReferencingPrivateResource` and `ListMediatedPrivateResources` for the Networks service's referential-integrity guards and mediation reconciliation |
 
 ## Classification
@@ -54,7 +54,7 @@ Mixed plane — control plane for CRUD (Gateway-exposed) and data plane for `Lis
 
 | Method | Description |
 |---|---|
-| **CreateEgressRule** | Create a rule. Validates: exactly one of `matcher.domain_pattern` / `matcher.private_resource_id`; uniqueness on whichever is set; header `value` xor `secret_id` per entry. Public targets additionally: no overlap with reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`) and no collision with an existing `intercept_host`. Private targets additionally: the resource exists, is in the rule's organization, and has protocol `http` or `https` (via `Networks.GetPrivateResource`), and `upstream_tls` sets at most one of `ca_bundle_secret_id` / `insecure_skip_verify`. Provisions `egress-rule-<rule_id>` for a public target; calls `Networks.SetPrivateResourceMediation` for a private one |
+| **CreateEgressRule** | Create a rule. Validates: exactly one of `matcher.domain_pattern` / `matcher.private_resource_id`; header `value` xor `secret_id` per entry. Public targets additionally: no overlap with reserved zones (`*.agyn`, `*.svc`, `*.cluster.local`, `100.64.0.0/10`). Private targets additionally: the resource exists, is in the rule's organization, and has protocol `http` or `https` (via `Networks.GetPrivateResource`), and `upstream_tls` sets at most one of `ca_bundle_secret_id` / `insecure_skip_verify`. Provisions `egress-rule-<rule_id>` for a public target; calls `Networks.SetPrivateResourceMediation` for a private one. Rules are not unique per destination — several may name one domain pattern or one resource |
 | **GetEgressRule** | Fetch a rule by ID |
 | **ListEgressRules** | List rules in an organization. Cursor pagination, filterable by target kind and by `private_resource_id` |
 | **UpdateEgressRule** | Update mutable fields. The target is immutable — a rule cannot be repointed from public to private or between resources; delete and recreate. If `matcher.domain_pattern` or `matcher.ports` changes, updates the OpenZiti service's `intercept.v1` config |
@@ -64,12 +64,13 @@ Mixed plane — control plane for CRUD (Gateway-exposed) and data plane for `Lis
 | **CountRulesReferencingSecret** | **Internal-only.** Returns the count (and IDs) of active rules whose `effect.inject` or `upstream_tls.ca_bundle_secret_id` references a given `secret_id`. Called by the [Secrets](secrets.md) service to enforce referential integrity before deleting a secret |
 | **CountRulesReferencingPrivateResource** | **Internal-only.** Returns the count (and IDs) of rules whose `matcher.private_resource_id` is a given resource. Called by the [Networks service](networks-service.md) before deleting a resource or changing its `protocol` |
 | **ListMediatedPrivateResources** | **Internal-only.** Returns the IDs of every private resource in an organization named by at least one rule. Called by the Networks service's reconciliation loop to re-derive desired `mediation` in one round trip per organization |
+| **ListAttachedRuleDomains** | **Internal-only.** Given an `agent` or `environment` principal, return the `domain_pattern` and `ports` of every public-target rule attached to it. Called by the Networks service to detect a [hostname collision](private-networks.md#hostname-collisions) before granting that principal a resource |
 
 ### Egress Rule Attachment CRUD
 
 | Method | Description |
 |---|---|
-| **CreateEgressRuleAttachment** | Attach a rule to an agent or an environment (exactly one target). Validates: the target belongs to the rule's organization (via an [Authorization](authz.md) check), attachment is unique on `(rule_id, target)`. Creates the per-attachment Dial policy via Ziti Management |
+| **CreateEgressRuleAttachment** | Attach a rule to an agent or an environment (exactly one target). Validates: the target belongs to the rule's organization (via an [Authorization](authz.md) check), attachment is unique on `(rule_id, target)`, and — for a public-target rule — that the target cannot already dial a PrivateResource whose `intercept_host` collides with the rule's `domain_pattern` (via `Networks.ListPrivateResourcesReachableBy`). See [Private Networks — Hostname collisions](private-networks.md#hostname-collisions). Creates the per-attachment Dial policy via Ziti Management |
 | **DeleteEgressRuleAttachment** | Detach a rule from its target. Deletes the Dial policy |
 | **ListEgressRuleAttachments** | List attachments, filterable by `rule_id`, `agent_id`, or `environment_id` |
 
