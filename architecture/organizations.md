@@ -13,6 +13,7 @@ Not all resources belong to organizations. Threads, files, agent state, and work
 | `id` | string (UUID) | Unique organization identifier |
 | `name` | string | Display name |
 | `slug` | string | Cluster-wide unique short name. Max 63 chars, pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. See [Slug](#slug) |
+| `state` | enum | `active` or `deleting`. See [Deletion](#deletion) |
 | `sandbox_default_idle_timeout` | duration string | Idle timeout applied when the creator names none. Platform-bounded; default `30m` |
 | `sandbox_max_idle_timeout` | duration string | Ceiling on an idle timeout a creator may ask for. Platform-bounded; defaults to the platform maximum |
 | `sandbox_default_ttl` | duration string | Default hard lifetime snapshotted onto newly created sandboxes. Platform-bounded; default `72h`, maximum `336h` |
@@ -34,6 +35,8 @@ The slug is mutable — renaming an organization is a legitimate operation — b
 
 Because slugs are cluster-wide and reusable, a released slug can be claimed by another organization. Anything that stored an app address as text rather than an ID would then resolve somewhere else. Addresses are for humans and CLI input; stored references use IDs.
 
+A slug is released by a rename immediately, and by a [deletion](#deletion) only once the purge has finished. The asymmetry is deliberate: a rename leaves nothing behind on the old slug, while an organization being dismantled still has live exposures answering on `<entity>.<org-slug>.agyn` until its records are gone. Handing that name to a new organization in the meantime would put two organizations' entities in one hostname zone.
+
 ## Sandbox Settings
 
 Organizations own the default sandbox lifecycle settings used by the [Agents service](agents-service.md) when creating [Sandboxes](resource-definitions.md#sandbox):
@@ -44,7 +47,7 @@ Organizations own the default sandbox lifecycle settings used by the [Agents ser
 | `sandbox_max_idle_timeout` | Platform maximum | Platform minimum/maximum | The largest idle timeout a creator may ask for. `CreateSandbox` rejects a larger value rather than clamping it, naming this ceiling |
 | `sandbox_default_ttl` | `72h` | Platform maximum `336h` | Hard sandbox lifetime from creation. On expiry the sandbox is terminated and the volumes provisioned for it are deleted |
 
-Only organization owners may update these settings. Values are validated by Organizations before persistence. The Agents service snapshots the resolved values onto each sandbox at creation; changing organization settings never mutates existing sandboxes.
+Updating these settings requires `can_manage_organization` — organization owners and cluster admins. Values are validated by Organizations before persistence. The Agents service snapshots the resolved values onto each sandbox at creation; changing organization settings never mutates existing sandboxes.
 
 **Two settings for idle timeout, not one.** The default is what an engineer who has not thought about it gets; the maximum is what the organization is willing to pay for when someone has. Collapsing them would mean the default is also the most expensive option available, which inverts what a default is for. The ceiling defaults to the platform maximum — an organization narrows it deliberately, and `sandbox_default_ttl` remains the hard backstop underneath either way: an idle timeout can keep a sandbox alive, but never past its TTL.
 
@@ -56,7 +59,7 @@ The Organizations service is a **control plane** service.
 
 | Concern | Description |
 |---------|-------------|
-| **Organization CRUD** | Create, read, update, delete organizations |
+| **Organization CRUD** | Create, read, update, delete organizations. Deletion is a lifecycle the service drives to completion across every org-scoped service — see [Deletion](#deletion) |
 | **List accessible organizations** | Return organizations an identity can access, based on active memberships in the `memberships` table |
 | **Members management** | Add, remove, list members, update member roles, and manage membership invites. See [Members Management](#members-management) |
 
@@ -128,7 +131,9 @@ Who can do what is governed by the [authorization model](authz.md):
 | **Update member role** | `can_manage_members` on the organization | Organization owners and cluster admins | Updates the role. If `active`, deletes old OpenFGA tuple and writes new one |
 | **List members** | `can_manage_members` on the organization | Organization owners and cluster admins | Returns memberships for the organization |
 | **List my memberships** | Caller is the identity | Any identity | Returns the caller's own memberships across all organizations |
-| **Update sandbox settings** | `owner` on the organization | Organization owners | Validates and stores new default sandbox TTL/idle-timeout values for future sandbox creation |
+| **Update sandbox settings** | `can_manage_organization` on the organization | Organization owners and cluster admins | Validates and stores new default sandbox TTL/idle-timeout values for future sandbox creation |
+| **Rename organization or change slug** | `can_manage_organization` on the organization | Organization owners and cluster admins | Updates `name` and/or `slug`. See [Slug](#slug) for what a slug change moves |
+| **Delete organization** | `can_manage_organization` on the organization | Organization owners and cluster admins | Moves the organization to `deleting` and starts the purge. See [Deletion](#deletion) |
 
 The Organizations service does not perform explicit identity type checks (e.g., "is the caller a cluster admin?"). All access decisions flow through [Authorization](authz.md) `Check` calls. See [Authorization — Organization Permissions](authz.md#organization-permissions) for how `can_add_member`, `can_invite`, and `can_manage_members` are defined.
 
@@ -143,7 +148,10 @@ The Organizations service does not perform explicit identity type checks (e.g., 
 | **UpdateMembershipRole** | Update the role of a membership. Caller must have `can_manage_members`. If `active`, updates the OpenFGA tuple |
 | **ListMembers** | List memberships for an organization. Supports filtering by `status` (`pending`, `active`, or all). Caller must have `can_manage_members` |
 | **ListMyMemberships** | List the calling identity's own memberships across all organizations. Supports filtering by `status`. Used by Chat for the organization switcher and by Console for pending invite display |
-| **UpdateOrganization** | Update organization details and sandbox defaults. Caller must be owner |
+| **UpdateOrganization** | Update the organization's name, [slug](#slug), and sandbox defaults. Caller must have `can_manage_organization`. A slug that another organization holds — including one in `deleting` — is rejected as taken |
+| **DeleteOrganization** | Request deletion of the organization and everything scoped to it. Caller must have `can_manage_organization`. Returns once the organization is in `deleting`; the purge completes asynchronously. See [Deletion](#deletion) |
+
+Every org-scoped service exposes the other half of the lifecycle: `DeleteOrganizationResources(organization_id)`, internal and callable only by Organizations, removing that service's records for the organization. See [Teardown Order](#teardown-order).
 
 ### CreateMembership Flow
 
@@ -232,6 +240,61 @@ Org-scoped services include `organization_id` as a column on org-scoped tables. 
 Independent resources do not filter by organization. Access control is enforced through [Authorization](authz.md) checks on the specific resource or its parent.
 
 Object storage (S3) keys are not prefixed by organization — files are independent resources identified by UUID.
+
+## Deletion
+
+Deleting an organization deletes its resources first and the organization last. That order is the specification, not an implementation detail: the organization record is what every one of those resources is scoped *by*, and an organization that outlives its contents is still a thing anyone can point at and finish, while contents that outlive their organization are unreachable, unlistable, and unowned.
+
+**A non-empty organization is not refused.** The alternative — an owner emptying a dozen sections by hand before the button works — turns the platform's bookkeeping into the user's chore. The organization is the boundary; removing it removes what is inside it.
+
+**The teardown is driven, not announced.** Organizations calls each org-scoped service in a fixed [order](#teardown-order) and waits for it, rather than publishing a fact and letting each service purge whenever it gets to it. Order is the whole reason: the platform's own deletion rules are ordered. An environment is refused while an agent or a sandbox references it. A group is named by private-resource grants. An image is named by environments and MCPs. Unordered purging would need every service to grow a *second* deletion path that skips its own invariants; a driven cascade uses the paths that already exist and hits them when their references are already gone.
+
+### Phases
+
+| Phase | What happens |
+|---|---|
+| **1. Close** | The organization moves to `deleting`. Its `member` and `owner` OpenFGA tuples are deleted. The call returns |
+| **2. Cascade** | Organizations calls `DeleteOrganizationResources` on each org-scoped service in [teardown order](#teardown-order), retrying a failing step until it succeeds |
+| **3. Remove** | Memberships, any tuples still on `organization:<id>`, and the organization row are deleted. The slug becomes claimable |
+
+**Revoking access is not part of deleting the organization** — it is what makes deleting its resources safe. Without it, a member creates an agent into an organization the cascade has already walked past, and that agent outlives the organization. So the access tuples go first, at the request, while the memberships they were written from stay until phase 3 with the rest of the record.
+
+An organization in `deleting` is excluded from `ListAccessibleOrganizations` and `ListMyMemberships` — which follows from the tuples being gone — and every write to it is refused. A repeated `DeleteOrganization` is a no-op, not an error.
+
+Cluster admins are the exception, holding `can_manage_organization` through `admin from cluster` rather than through a tuple on the organization. `ListOrganizations` continues to return the organization with its `state` and the step the cascade has reached, which is what makes a stalled teardown visible.
+
+### Teardown Order
+
+Each step is one `DeleteOrganizationResources(organization_id)` call to the named service — an [internal RPC](authz.md#internal-rpc-authorization), callable only by Organizations. A step completes when the service has removed everything listed.
+
+| Step | Service | Removes | Why here |
+|---|---|---|---|
+| 1 | [Agents](agents-service.md) | Sandboxes and their shares, agent instances and their state, agents and their sub-resources (MCPs, skills, ENVs, init scripts, volume declarations), environments | First. Almost everything else in the organization is either referenced by these or refuses to be deleted while they exist |
+| 2 | [Runners](runners.md) | Workload records, provisioned volume records, org-scoped runners | After their owners. Removing the records is what makes the running pods and disks orphans, which the [Orchestrator](agents-orchestrator.md#reconciliation) then stops and deprovisions — no stop-everything path is added for a case reconciliation already covers |
+| 3 | [Apps](apps-service.md) | Installations into the organization, apps published by it, and those apps' installations in *other* organizations | After the agents those installations could reach. Publishing an app is a commitment that outlives the publisher's own use of it, and deleting the publisher ends it |
+| 4 | [Chat](chat.md), [Threads](threads.md) | Chats, then threads carrying the organization's `organization_id` and their messages | After the agent instances that participated in them |
+| 5 | [Networks](networks-service.md), [EgressRules](egress-rules-service.md) | Networks, tunnel credentials, private resources, access grants and the OpenZiti objects behind them; egress rules and their agent attachments | After agents, whose attachments and grants name them |
+| 6 | [Images](images-service.md), [LLM](llm.md), [Secrets](secrets.md) | Images — including `public` ones other organizations were reading; providers and models; secret providers and secret references | Last of the configuration, because environments, MCPs, and agents named all three |
+| 7 | [Groups](groups-service.md) | Groups and their memberships | After the grants that named them |
+| 8 | [Identity](identity.md) | `org_nicknames` entries for the organization | After the identities that held them. The identity records themselves are deleted by the services that registered them, in the steps above |
+
+Secret *values* live in the external store the provider names and are not touched. The platform deletes its reference to them, not the credential.
+
+### What Survives
+
+| Not deleted | Why |
+|---|---|
+| [Metering](metering.md) and [tracing](tracing.md) data | Time series with their own retention. Deleting on request would rewrite billing history. Both are unreachable regardless — every query is org-scoped and the organization is gone |
+| File objects | The [Files service](media.md) has no deletion path. Objects are keyed by UUID and become unreachable once the threads referencing them are deleted, but they stay in object storage |
+| [User](users.md) records | System-wide. A user whose only organization was deleted keeps their account, profile, `username`, devices, and API tokens |
+
+### Failure and Stalls
+
+`DeleteOrganizationResources` is idempotent: a retried step finds nothing left and succeeds. A step that keeps failing is retried with backoff and the cascade does not advance past it, because advancing would delete the references that make the failed step possible at all.
+
+A cascade that cannot finish leaves the organization in `deleting`, at a named step, visible to cluster admins and retryable. That is the failure mode to prefer over a row that disappears while its resources do not — a stuck teardown is finishable, an orphaned one is not.
+
+The teardown order is a configured list. A service that owns org-scoped records and is not in it is never called, and its rows outlive the organization. Adding an org-scoped service means adding it here.
 
 ## Request Flow
 

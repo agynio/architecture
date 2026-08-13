@@ -26,6 +26,8 @@ The Console is the platform's management interface for organizations, users, age
 - As an organization owner, I want to see the status and audit log reported by an installed app so I can diagnose configuration problems and understand what the app is doing.
 - As an organization owner, I want to publish apps from my organization so other organizations can install them.
 - As an organization owner, I want to invite users to my organization and assign roles so teammates can collaborate.
+- As an organization owner, I want to rename my organization and change its slug so its name and its addresses match what we actually call it.
+- As an organization owner, I want to delete my organization and everything in it so a trial, a mistake, or a wound-down team leaves nothing behind.
 - As an organization owner, I want to monitor active agent workloads so I can see what is running and troubleshoot issues.
 - As an organization owner, I want to list and read all threads in my organization so I can inspect agent conversations and troubleshoot issues.
 - As an organization owner, I want to see my agent instances with their state and pause reason so I can tell why an agent stopped picking up work and resume it.
@@ -131,6 +133,9 @@ The groups follow the platform's own model: the organization itself, the actors 
 | Overview | Organization summary (see [Overview](#overview)) |
 | Members | Member and invite management (see [Members](#members)) |
 | Groups | Membership groups used as grant principals (see [Groups](#groups)) |
+| Settings | The organization's name, slug, sandbox defaults, and deletion (see [Settings](#settings)) |
+
+Settings is last in the group. It is the least-visited section here — a name and a slug are set once — and it ends in the danger zone, which is not something to place above the sections people use daily.
 
 **Agents & Apps** — the non-human thread participants. Both are definitions carrying their own platform [identity](../../architecture/identity.md), and both are grantable principals on [private resources](../private-networks/private-networks.md#granting-access).
 
@@ -240,7 +245,9 @@ Threads, Instances, Workloads, and Provisioned Storage in the [Operations](#oper
 
 Actions that permanently remove data (delete agent, remove member, uninstall app, delete organization, etc.) require confirmation. The Console shows a confirmation dialog stating what will be deleted and any consequences (e.g., "Removing this member will revoke their access to the organization immediately."). No undo — deletions are permanent.
 
-Non-destructive mutations (update name, change role, toggle settings) apply optimistically — the UI updates immediately and rolls back on server error with an error message.
+**Deleting an organization asks for its name to be typed**, and it is the only action that does. A click-through confirmation is proportionate to losing one agent; this one loses every agent, every secret, and every thread at once, and there is no other action in the Console whose blast radius is the whole context the user is standing in.
+
+Non-destructive mutations (update name, change role, toggle settings) apply optimistically — the UI updates immediately and rolls back on server error with an error message. Changing an organization's [slug](#settings) is the exception: it is confirmed first and applied on the server's answer, because the server may refuse it as taken and because it moves addresses that people have already shared.
 
 ## Resource Management
 
@@ -282,6 +289,31 @@ Named sets of identities — users, agents, and apps — used as a single grant 
 **Group detail** — name, description, and the member list (identity name, identity type — `user`, `agent`, or `app`). Actions: add member (search the organization's identities), remove member, rename, delete.
 
 Groups are also reachable as an inline "Create group" affordance in the [private resource access picker](../private-networks/private-networks.md#granting-access) — same data, two entry points.
+
+### Settings
+
+What the organization *is*, as opposed to what it contains. Three blocks on one page: identity, sandbox defaults, and the danger zone. Available to organization owners and cluster admins (`can_manage_organization`); nothing here is readable by a member, who has no Console access to begin with.
+
+**Identity** — the organization's **name** and its [**slug**](../../architecture/organizations.md#slug), edited and saved together.
+
+The name is free text and changing it costs nothing. The slug is not: it is a DNS label (lowercase alphanumerics and hyphens, no leading or trailing hyphen, at most 63 characters), it is unique across the whole platform, and it appears in addresses people have already copied. The field validates the shape as it is typed, and a slug another organization holds is rejected by the server on save — the Console cannot know it is free until it asks.
+
+**A slug change is confirmed, not optimistic.** It is the one non-destructive edit in the Console that does not apply optimistically, for two reasons: the server may refuse it as taken, and its consequences are worth reading before they happen. The dialog states them:
+
+- Every [app address](../../architecture/apps.md#identification) in the organization changes, from `{old-slug}/{app-slug}` to `{new-slug}/{app-slug}`.
+- Every [image reference](../../architecture/image-proxy.md#reference-rewriting) changes, costing a one-time image pull per node. Nothing breaks — no consumer stores a resolved reference.
+- Every [exposed port address](../port-exposure/port-exposure.md) changes, from `<entity>.<old-slug>.agyn` to `<entity>.<new-slug>.agyn`. **Links already shared with teammates stop resolving** — this is the one that actually breaks something.
+- The old slug is released immediately and another organization may claim it.
+
+**Sandbox defaults** — the three organization-level [sandbox settings](../../architecture/organizations.md#sandbox-settings): default idle timeout, maximum idle timeout, and default TTL. Each shows the platform bounds it is validated against, and the section states that these apply to sandboxes created from now on — a running sandbox keeps the values snapshotted onto it at creation and is not re-read against settings that have since moved. This is the only surface that edits them.
+
+**Danger zone** — **Delete organization**, at the bottom, separated from the rest.
+
+The dialog requires the organization's name to be typed to confirm, rather than a single click. It lists what is removed — agents, environments, sandboxes, images, providers, models, secrets, apps and their installations in other organizations, networks, egress rules, groups, org-scoped runners, threads and their messages — and states plainly that there is no undo.
+
+On confirmation the organization disappears from the context switcher and the Console switches to another context, or to the empty state if this was the user's only organization. Deletion continues in the background, and it works inward-out: the platform deletes the organization's resources first, service by service, and the organization itself only once they are gone. The slug stays reserved for the whole of it. See [Organizations — Deletion](../../architecture/organizations.md#deletion).
+
+An owner sees nothing further — their access ended when they confirmed, which is what stops anyone creating an agent into an organization that is being emptied. Only a cluster admin can watch a teardown that gets stuck, in [Cluster Administration → Organizations](#organizations-cluster-admin).
 
 ### Agents
 
@@ -468,9 +500,11 @@ Rules that control and shape agent outbound HTTP/HTTPS traffic — denying desti
 
 ### Organizations (Cluster Admin)
 
-**Organization list** — all organizations on the platform. Columns: name, member count, agent count, created date. Default sort: creation time, newest first.
+**Organization list** — all organizations on the platform. Columns: name, slug, state (`active` or `deleting`), member count, agent count, created date. Default sort: creation time, newest first.
 
-**Organization detail** — name, member count, agent count, runner count. Cluster admin can update the organization name or delete the organization.
+**Organization detail** — name, slug, state, member count, agent count, runner count. A cluster admin holds `can_manage_organization` on every organization and gets the same [Settings](#settings) affordances here as an owner has in the organization context: rename, change slug, edit sandbox defaults, delete.
+
+An organization in `deleting` is read-only and shows the [teardown step](../../architecture/organizations.md#teardown-order) it has reached. This is the only place a stalled deletion is visible — the organization has already vanished from its own members' context switchers, so nobody else can see it. See [Organizations — Failure and Stalls](../../architecture/organizations.md#failure-and-stalls).
 
 ### Overview (Cluster Admin)
 

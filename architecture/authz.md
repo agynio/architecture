@@ -65,6 +65,7 @@ type organization
     define owner: [identity]
     define can_invite: owner
     define can_manage_members: owner or admin from cluster
+    define can_manage_organization: owner or admin from cluster
     define can_view_threads: owner or admin from cluster
     define can_view_workloads: owner or admin from cluster
     define can_view_volumes: owner or admin from cluster
@@ -79,7 +80,7 @@ type organization
     define inbox_write: [identity]
 ```
 
-`owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`. `owner` does **not** imply `can_create_thread` or `can_create_sandbox` directly — instead those permissions are computed from `member`, and owners are also members, so owners can always create threads and sandboxes.
+`owner` implies `member`, `can_invite`, `can_manage_members`, `can_manage_organization`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`. `owner` does **not** imply `can_create_thread` or `can_create_sandbox` directly — instead those permissions are computed from `member`, and owners are also members, so owners can always create threads and sandboxes.
 
 `thread_create`, `thread_write`, `participant_add`, and `inbox_write` are **app installation permissions** — direct relations written when an app is installed. See [App Installation Permissions](#app-installation-permissions). `inbox_write` is consumed by the [`agent_instance`](#agent_instance) type via `inbox_write from org`.
 
@@ -283,6 +284,7 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 | **member** | role (assignable) | Chat. View tracing. View resources (read-only). Create threads |
 | **can_invite** | computed | Create pending memberships (invites) for the organization |
 | **can_manage_members** | computed | Remove members, update member roles, list members |
+| **can_manage_organization** | computed | Rename the organization, change its slug, change its sandbox defaults, delete it. Held by owners and cluster admins |
 | **can_add_member** | computed | Create active memberships directly (skip invite) |
 | **can_view_threads** | computed | List and read all threads in the organization, regardless of participation. Held by owners and cluster admins |
 | **can_view_workloads** | computed | List and read active workloads (and their containers and logs) in the organization. Held by owners and cluster admins |
@@ -298,9 +300,9 @@ Other types (agent, thread, organization, etc.) reference groups via `group#memb
 
 #### Computed relations
 
-- `owner` implies `member`, `can_invite`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
+- `owner` implies `member`, `can_invite`, `can_manage_members`, `can_manage_organization`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes`.
 - `can_create_sandbox` and `can_create_environment` follow `member`; every active organization member can create a sandbox and author an environment.
-- `can_add_member`, `can_manage_members`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` is held only by a sandbox's `owner` and the identities that owner has shared it with.
+- `can_add_member`, `can_manage_members`, `can_manage_organization`, `can_view_threads`, `can_view_workloads`, `can_view_volumes`, and `can_list_sandboxes` each include `admin from cluster` — any identity with the `admin` relation on `cluster:global` holds these permissions on every organization. Modeled as cross-type computed relations, not as explicit per-organization tuples. Cluster-admin listing does not extend to terminal attach — `can_connect` is held only by a sandbox's `owner` and the identities that owner has shared it with.
 - `can_create_thread` is computed from `member` or `thread_create` — any org member can create threads, as can any app identity that has been granted the `thread:create` installation permission.
 
 See [Organizations — Members Management](organizations.md#members-management) for how these permissions govern membership operations.
@@ -379,7 +381,7 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Cluster admin granted | `identity:<id>, admin, cluster:global` | Users (via gateway) / bootstrap |
 | Cluster admin revoked | Delete `identity:<id>, admin, cluster:global` | Users (via gateway) |
 
-Resources that are deleted (threads archived, organizations deleted) do not require explicit tuple cleanup beyond what is listed above — thread tuples become orphaned but are harmless since the thread record no longer exists to authorize against. For organizations, membership tuples are deleted as part of the deletion flow.
+Resources that are deleted (threads archived, organizations deleted) do not require explicit tuple cleanup beyond what is listed above — thread tuples become orphaned but are harmless since the thread record no longer exists to authorize against. For organizations, membership tuples are deleted when deletion is *requested*, not when the purge completes — see [Organizations — Deletion](organizations.md#deletion). Access ends at the request, so nothing can be created inside an organization that is being dismantled. A cluster admin still reaches it, holding `can_manage_organization` through `admin from cluster` rather than through a tuple on the organization.
 
 ## Per-Service Authorization Reference
 
@@ -430,11 +432,13 @@ The [Ziti Management Service](#ziti-management-service) is the canonical example
 | `CreateOrganization` | Any authenticated identity (creator becomes owner) |
 | `GetOrganization` | `member` on `organization:<id>` |
 | `ListOrganizations` | Returns organizations where caller is a `member` (uses `ListObjects`), or every organization if caller has `admin` on `cluster:global` |
-| `UpdateOrganization`, `DeleteOrganization` | `owner` on `organization:<id>` |
+| `UpdateOrganization`, `DeleteOrganization` | `can_manage_organization` on `organization:<id>` |
 | `CreateMembership` | `can_add_member` on `organization:<id>` (→ active) or `can_invite` (→ pending) |
 | `AcceptMembership`, `DeclineMembership` | Self only (invitee's `identity_id` matches the membership target) |
 | `RemoveMembership`, `UpdateMembershipRole`, `ListMembers` | `can_manage_members` on `organization:<id>` |
 | `ListMyMemberships` | Self only (returns caller's own memberships) |
+
+Every org-scoped service additionally exposes `DeleteOrganizationResources` (internal) — internal only (Organizations via Istio), one step of the [organization teardown](organizations.md#teardown-order). It is not listed per service below; the caller allowlist is the same everywhere and holds one entry.
 
 ### Agents Service
 

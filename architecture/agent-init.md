@@ -70,6 +70,8 @@ All three init containers write into an `emptyDir` mounted at `/agyn`, which the
 │   ├── tmux       # shell multiplexer        (agynd-cli-init)
 │   ├── agyn       # platform CLI binary      (agyn-cli-init)
 │   └── codex      # agent CLI binary         (agent runtime image)
+├── terminfo/      # curated terminal database (agynd-cli-init)
+├── run/           # writable; the shell server's socket  (agynd-cli-init)
 ├── tmux.conf      # platform tmux config     (agynd-cli-init)
 └── config.json    # runtime config for agynd (agent runtime image)
 ```
@@ -84,7 +86,11 @@ Init containers run in order and write disjoint paths, so the three images compo
 
 It is **statically linked against musl**, with the terminfo entries it needs compiled in. Both properties are requirements rather than preferences: a sandbox runs whatever image its environment names, and a distro build would fail on a musl base for its libc and on a slim base for `libtinfo`, while a glibc static build would fail `getpwuid` — which tmux calls to find the user's shell — because NSS cannot be linked statically. Compiled-in terminfo removes the last filesystem dependency, so the server starts in an image carrying no terminal database at all.
 
-Two things it still needs from the image, and neither is new: a shell for it to spawn, and a writable directory for its socket. The [Sandboxes App](../product/sandboxes/sandboxes-app.md#constraints) already states the first; `agynd` handles the second by placing the socket where the platform controls it rather than in the image's `/tmp`.
+**`terminfo/` is for the programs inside a shell, not for tmux.** `vim` and `htop` do their own lookup and get nothing from a binary's compiled-in fallbacks, so a curated tree ships beside it and `agynd` names it through `TERMINFO_DIRS` when it starts the server. The variable ends in an empty element, which ncurses reads as "and the compiled-in defaults too", so an image carrying a good database of its own keeps it — this supplements, it does not replace.
+
+**`run/` is the one writable path on the volume.** The shell server's socket has to live somewhere the platform controls: the image's `/tmp` may be read-only, and a socket there would also collide with an engineer running their own `tmux`. The init container creates it world-writable because the main container may run as a uid that could not create it, which is the single exception to the volume being a read-only delivery surface.
+
+The other thing tmux needs from the image is not new: a shell for it to spawn. The [Sandboxes App](../product/sandboxes/sandboxes-app.md#constraints) already states that requirement.
 
 Delivering it on `PATH` rather than beside the configuration is deliberate. It shadows any `tmux` the image ships, which is the point: a client and a server disagreeing on protocol version fail to connect, and an engineer running `tmux` inside a shell would otherwise meet that error with no way to interpret it. One binary means one version. The platform's own server is kept off the default socket regardless, so a personal `tmux` still gets its own server and its own configuration.
 
