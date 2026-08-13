@@ -124,6 +124,8 @@ Cross-links from product surfaces to the architecture docs that support them.
 - [Egress Gateway](../architecture/egress-gateway.md)
 - [EgressRules Service](../architecture/egress-rules-service.md)
 - [Resource Definitions — Egress Rule](../architecture/resource-definitions.md#egress-rule)
+- [Private Networks — Gateway Mediation](../architecture/private-networks.md#gateway-mediation)
+- [Networks Service](../architecture/networks-service.md)
 - [Agents Orchestrator](../architecture/agents-orchestrator.md)
 - [OpenZiti Integration](../architecture/openziti.md)
 - [Secrets](../architecture/secrets.md)

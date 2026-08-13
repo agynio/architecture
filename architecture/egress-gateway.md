@@ -4,7 +4,9 @@
 
 The Egress Gateway is a standalone service that mediates outbound HTTP and HTTPS traffic from agent workloads when that traffic targets a destination covered by an attached [Egress Rule](resource-definitions.md#egress-rule). It terminates TLS using a platform-managed CA, evaluates the rules attached to the originating agent, injects header credentials (resolving secret references via the [Secrets](secrets.md) service), and forwards the request to the upstream destination.
 
-The gateway is reached via the OpenZiti overlay — there is no in-pod proxy and no client-side configuration. Traffic to a rule-covered destination is intercepted by the existing Ziti sidecar (using a per-rule OpenZiti service with a wildcard-hostname intercept) and tunneled to the gateway. Traffic to destinations not covered by any rule flows directly from the agent container, bypassing the gateway entirely. This is **default-allow** at the egress layer — see [Product — Egress Gateway](../product/egress-gateway/egress-gateway.md) for the user-facing model.
+A destination is either a public hostname pattern or a [PrivateResource](private-networks.md#privateresource) behind an operator's tunnel. The gateway's work is the same for both — terminate, match, inject, forward — and differs only in how the connection arrives and where it goes next. See [Private Resource Targets](#private-resource-targets).
+
+The gateway is reached via the OpenZiti overlay — there is no in-pod proxy and no client-side configuration. Traffic to a rule-covered destination is intercepted by the existing Ziti sidecar (using a per-rule OpenZiti service with a wildcard-hostname intercept, or the private resource's own service) and tunneled to the gateway. Traffic to public destinations not covered by any rule flows directly from the agent container, bypassing the gateway entirely. This is **default-allow** at the egress layer for public destinations, and default-deny for private ones, which are reachable only by an explicit grant or rule attachment — see [Product — Egress Gateway](../product/egress-gateway/egress-gateway.md) for the user-facing model.
 
 This document describes the **Egress Gateway** data-plane service. The control-plane companion is the [EgressRules service](egress-rules-service.md), which owns the `EgressRule` resource lifecycle, per-rule OpenZiti service provisioning, attachment policies, and reconciliation.
 
@@ -14,6 +16,8 @@ This document describes the **Egress Gateway** data-plane service. The control-p
 |---|---|---|
 | `.agyn` hostnames (`gateway.agyn`, `llm-proxy.agyn`, `tracing.agyn`, exposed services) | Existing OpenZiti services bound by their respective platform services | Each platform service |
 | Hostnames matched by an attached rule's `matcher.domain_pattern` on a port in `matcher.ports` | Per-rule OpenZiti service → Egress Gateway → upstream | Egress Gateway |
+| The `intercept_host` of a [PrivateResource](private-networks.md#privateresource) named by any rule | The resource's OpenZiti service → Egress Gateway → resource's upstream service → Tunnel → target | Egress Gateway |
+| The `intercept_host` of a PrivateResource no rule names | The resource's OpenZiti service → Tunnel → target, gateway not in the path | [Networks service](networks-service.md) |
 | Hostnames not matched by any attached rule | Direct from the agent container's `eth0` to public internet (subject to NetworkPolicy) | Pod's CNI |
 | Cluster-internal addresses (cluster pod CIDR, cluster service CIDR, operator-declared internal CIDRs) | Blocked by the workload-namespace NetworkPolicy installed with the [k8s-runner](k8s-runner.md#workload-egress-networkpolicy) | Cluster network policy |
 | Pod-local (`localhost`, MCP sidecars on loopback) | Never leaves the pod | — |
@@ -48,14 +52,14 @@ The Egress Gateway is a **data plane** service — it sits on the live request p
 
 ## OpenZiti Integration
 
-The Egress Gateway binds the OpenZiti services that represent egress rules. Each rule has its own OpenZiti service named `egress-rule-<rule_id>`, provisioned and reconciled by the [EgressRules service](egress-rules-service.md). The gateway binds them all via a single `serviceRoles` policy.
+The Egress Gateway binds the OpenZiti services that represent egress rules. Each public-target rule has its own OpenZiti service named `egress-rule-<rule_id>`, provisioned and reconciled by the [EgressRules service](egress-rules-service.md). A [mediated private resource](private-networks.md#gateway-mediation)'s service `private-<resource_id>` carries the same `egress-services` role attribute while any rule names it, so it is bound by the same policy and needs no gateway-side change. The gateway binds them all via a single `serviceRoles` policy.
 
 | Aspect | Detail |
 |---|---|
 | Role attributes (gateway identity) | `["egress-gateway-hosts"]` |
-| Service role (per-rule services) | `["egress-services"]` (the gateway binds by role, not by individual service) |
+| Service role (bound services) | `["egress-services"]` (the gateway binds by role, not by individual service) |
 | Enrollment | Self-enrollment via Ziti Management at pod startup (same as Gateway and LLM Proxy) |
-| SDK usage | `zitiContext.ListenWithOptions("@egress-services", ...)` (binds every service tagged `egress-services`) |
+| SDK usage | `zitiContext.ListenWithOptions("@egress-services", ...)` (binds every service tagged `egress-services`); `zitiContext.Dial("private-<resource_id>-upstream")` for the upstream leg of a mediated private resource |
 
 ### Static Policies
 
@@ -63,7 +67,9 @@ Provisioned at infrastructure bootstrap:
 
 | Policy | Type | Identity Roles | Service Roles | Purpose |
 |---|---|---|---|---|
-| `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service |
+| `egress-gateway-bind` | Bind | `#egress-gateway-hosts` | `#egress-services` | The Egress Gateway hosts every per-rule egress service, and every mediated private resource's front service |
+
+The gateway's Dial access to a mediated resource's upstream service is per-resource, not static: the [Networks service](networks-service.md) creates it as part of the mediation flip and deletes it on the way back.
 
 ### Dynamic Per-Rule Resources
 
@@ -71,8 +77,9 @@ The [EgressRules service](egress-rules-service.md) owns the dynamic OpenZiti res
 
 | Resource | Owner | Created when | Deleted when |
 |---|---|---|---|
-| OpenZiti service `egress-rule-<rule_id>` (with attached `intercept.v1` and `host.v1` configs) | EgressRules service | Rule is created | Rule is deleted |
-| Dial policy per attachment | EgressRules service | Rule is attached to an agent | Rule is detached or deleted, or the agent is deleted |
+| OpenZiti service `egress-rule-<rule_id>` (with attached `intercept.v1` and `host.v1` configs) | EgressRules service | A public-target rule is created | That rule is deleted |
+| Dial policy per attachment | EgressRules service | Rule is attached to an agent or environment | Rule is detached or deleted, or the target is deleted |
+| `egress-services` role attribute + forwarding `host.v1` on `private-<resource_id>`, the `private-<resource_id>-upstream` service, and the gateway's Dial policy on it | [Networks service](networks-service.md) | The resource's first rule is created | The resource's last rule is deleted |
 
 #### Service Configs
 
@@ -159,16 +166,52 @@ sequenceDiagram
 
 On the first stage of a TLS-bearing connection, the gateway already knows the destination host (from `forwardAddress`) and port. If every attached rule that matches the host has `effect.action: deny` — even without the method and path the gateway cannot yet see — the gateway closes the connection with `403` before generating a leaf certificate or doing the TLS handshake. This is a cheap pre-filter; the full evaluation runs again after the request line is visible (when method and path are known).
 
+The same stage decides whether to inspect at all when the destination is a private resource — see [Splice vs. inspect](#splice-vs-inspect).
+
 ### Plain HTTP
 
 For port 80 traffic, the gateway does not perform TLS termination. It reads the HTTP request line and headers directly from the OpenZiti connection, runs the full rule match (method + host + path), applies injection, and forwards.
+
+## Private Resource Targets
+
+A rule whose `matcher.private_resource_id` is set puts the gateway between the agent and an operator's tunnel. The resource's own OpenZiti service is rebound to the gateway while any rule names it — see [Private Networks — Gateway Mediation](private-networks.md#gateway-mediation) — so the connection arrives on `private-<resource_id>` rather than on a per-rule service. The gateway reads the resource ID from the accepted service's name; no `Host` header or SNI is needed to identify the destination, and none is trusted for it.
+
+### Splice vs. inspect
+
+Mediation is a property of the service, so **every** dialer of a mediated resource lands on the gateway — including principals that reached it through a [PrivateResourceAccess](private-networks.md#privateresourceaccess) grant rather than a rule attachment, whose clients have no reason to trust the [Egress CA](#egress-ca). The gateway decides what to do with the connection before touching a single byte of it:
+
+1. Resolve the dialer identity from the OpenZiti connection (as for any other accepted connection).
+2. Look up the caller's attached rules — the same cached `ListEgressRulesByAgent` / `ListEgressRulesByEnvironment` result used for public destinations.
+3. **If no attached rule names this resource:** open the upstream circuit and splice the two connections byte-for-byte. No TLS termination, no leaf certificate, no HTTP parsing, no injection. A user's laptop dialing an internal GitLab sees the target's real certificate whether or not some agent has a rule on it.
+4. **If an attached rule names this resource:** proceed exactly as for a public destination — terminate TLS (or read the plaintext request line for an `http` resource), match `methods` and `path_pattern`, apply the effect, forward.
+
+The decision is per destination, not per request: `methods` and `path_pattern` are invisible until after the handshake, so a caller with a rule on the resource has every connection to it inspected, and a request the rule's narrowing excludes is simply forwarded unchanged. Only the presence of an attached rule decides whether TLS is terminated.
+
+A spliced connection still emits a span, with `egress.outcome: spliced` and no method or path — the gateway never parsed one.
+
+### The upstream leg
+
+The gateway dials `private-<resource_id>-upstream` through the OpenZiti SDK. That service is bound by the resource's Network tunnels and carries the resource's `target_host` in its `host.v1`, so the gateway never learns or resolves the private target's address — it names a service and the tunnel does the rest.
+
+The port the agent dialed is recovered from the accepted connection (`forwardPort: true` on the mediated front service) and passed to the upstream dial; the tunnel side maps it to the paired entry in `target_ports`.
+
+For an `https` resource the gateway re-originates TLS to the target. The system CA bundle it uses for public destinations is usually wrong here — internal endpoints commonly present a corporate-CA or self-signed certificate, and the hostname the agent dialed (`intercept_host`) need not be the name on it. The rule's [`upstream_tls`](resource-definitions.md#upstream-tls) block covers both: `server_name` overrides the SNI and verification hostname, `ca_bundle_secret_id` supplies the trust anchors (resolved through [Secrets](secrets.md) and cached like any other secret value), and `insecure_skip_verify` accepts anything. With no `upstream_tls` set, verification is the same as for a public destination — system bundle, hostname `intercept_host` — which is the correct default for an internal endpoint holding a publicly-issued certificate and a loud failure for one that does not.
+
+### Failure modes
+
+| Condition | Response |
+|---|---|
+| No tunnel in the resource's Network is online | `502 Bad Gateway`, `egress.outcome: upstream_error`. The circuit to the upstream service cannot be established |
+| Upstream service missing (mediation half-applied) | `502 Bad Gateway`. Reconciliation on the Networks side repairs the topology |
+| `upstream_tls.ca_bundle_secret_id` references a deleted secret | `502 Bad Gateway`, naming the rule and secret — same behavior as a missing injection secret |
+| Target's certificate fails verification | `502 Bad Gateway`, `egress.outcome: tls_error`. The operator's fix is `server_name`, a CA bundle, or `insecure_skip_verify` |
 
 ## Rule Evaluation
 
 For each request (after TLS termination if HTTPS):
 
 1. **Collect** all rules attached to the agent. Cached in memory; invalidated via [Notifications](notifications.md) (see [Caching and Invalidation](#caching-and-invalidation)).
-2. **Filter by matcher** — for each rule, the request matches if all three of `matcher.domain_pattern` (against the SNI/Host), `matcher.methods` (against the HTTP method; empty = any), and `matcher.path_pattern` (against the path; empty = any) hold.
+2. **Filter by matcher** — for each rule, the request matches if the destination and the request both match. The destination test is `matcher.domain_pattern` against the SNI/Host for a public target, or `matcher.private_resource_id` against the resource the connection arrived on for a private one. The request test is `matcher.methods` (against the HTTP method; empty = any) and `matcher.path_pattern` (against the path; empty = any).
 3. **Decide reachability from `effect.action`:**
    - Any matching rule with `effect.action: deny` → respond `403 Forbidden`.
    - Else continue to injection. (A request that reached the gateway is by definition covered by at least one attached rule's `intercept.v1` — the absence of a matching `effect.action: allow` is not itself a denial, since rules with `effect.action` unset are permitted to pass through for the sake of injection-only rules.)
@@ -176,7 +219,7 @@ For each request (after TLS termination if HTTPS):
    - For each matching rule with non-empty `effect.inject`, resolve each header's credential (literal `value`, or via [Secrets](secrets.md) for `secret_id`). If the header has a `scheme` (`bearer` / `basic`), the emitted value is `<Scheme> <credential>`; otherwise the credential is emitted verbatim. See [Resource Definitions — Header](resource-definitions.md#header).
    - Merge header sets across all matching rules. On name collision, the rule with the lexicographically later `id` wins.
    - Headers injected by rules **override** headers the agent's tool supplied for the same name — same precedence rule the LLM Proxy uses for `authMethod` injection ([llm-proxy.md:150](llm-proxy.md)).
-5. **Forward** to the upstream destination over a fresh connection. TLS to the upstream uses the gateway pod's standard system CA bundle (no platform CA involvement for the upstream leg).
+5. **Forward** to the upstream destination over a fresh connection — a direct TCP/TLS connection for a public destination, an OpenZiti circuit on `private-<resource_id>-upstream` for a private one. TLS to the upstream uses the gateway pod's standard system CA bundle unless the rule's [`upstream_tls`](resource-definitions.md#upstream-tls) says otherwise (no platform CA involvement for the upstream leg either way).
 6. **Stream** the response (and request body for `POST`/`PUT` etc.) bidirectionally. The agent's TLS session is decrypted at the gateway, re-encrypted as needed for the upstream leg.
 
 ### Conflict Semantics
@@ -196,6 +239,8 @@ For each request (after TLS termination if HTTPS):
 | Leaf certificates per `(SNI, ca_fingerprint)` | LRU, ~10-minute TTL | TTL expiry; capacity eviction |
 
 Cache misses fall through to the source services (EgressRules, Secrets). Cold-cache latency for a first request to an agent's rule set is one `ListEgressRulesByAgent` call to the EgressRules service plus, if needed, one Secrets-service `ResolveSecretValue` call per injected secret-backed header.
+
+For private-target rules, the lookup response carries the referenced resource's `intercept_host`, `intercept_ports`, and `protocol` alongside the rule. The gateway needs those to label spans and to know whether to expect TLS on the inbound connection, and denormalizing them here keeps the [Networks service](networks-service.md) off the request path entirely.
 
 ## Propagation Timing
 
@@ -334,11 +379,12 @@ One span per outbound request. Span name: `egress.request`. Attributes:
 
 | Attribute | Value |
 |---|---|
-| `egress.method` | HTTP method (`GET`, `POST`, …) |
-| `egress.host` | Destination host (e.g., `api.github.com`) — from SNI or `Host` header |
+| `egress.method` | HTTP method (`GET`, `POST`, …) — absent on a spliced connection |
+| `egress.host` | Destination host (e.g., `api.github.com`) — from SNI or `Host` header for a public destination, the resource's `intercept_host` for a private one |
 | `egress.port` | Destination port |
-| `egress.path` | Request path with query string stripped |
-| `egress.outcome` | `allow`, `deny`, `upstream_error`, `tls_error` |
+| `egress.path` | Request path with query string stripped — absent on a spliced connection |
+| `egress.private_resource_id` | Resource UUID, on private-target traffic only |
+| `egress.outcome` | `allow`, `deny`, `spliced`, `upstream_error`, `tls_error` |
 | `egress.matched_rule_ids` | Comma-separated UUIDs of all rules whose `effect.action` or `effect.inject` was applied |
 | `agyn.agent.id` | Agent UUID resolved from the OpenZiti identity |
 | `agyn.workload.id` | Workload UUID |
@@ -354,7 +400,7 @@ One `COUNT` record per request to the [Metering](metering.md) service, fire-and-
 
 | unit | value | labels | idempotency_key |
 |---|---|---|---|
-| `COUNT` | 1 | `resource=egress`, `agent_id`, `host`, `outcome` (`allow` \| `deny` \| `upstream_error`) | `request_id` |
+| `COUNT` | 1 | `resource=egress`, `agent_id`, `host`, `outcome` (`allow` \| `deny` \| `spliced` \| `upstream_error`) | `request_id` |
 
 ## Configuration
 

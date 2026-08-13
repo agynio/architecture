@@ -193,25 +193,13 @@ Unresolved product and architectural decisions requiring discussion.
 
 ---
 
-## Private Networks: Injection on Private Resources
+## Egress Gateway: Per-Agent Credentials to One Private Resource
 
-**Context:** [Private Networks](architecture/private-networks.md) and [EgressRule](architecture/egress-rules-service.md) are independent primitives in v1. An operator picks one or the other per destination. The intended longer-term design extends `EgressRule.matcher` to accept a `private_resource_id` reference; the PrivateResource's OpenZiti bind flips from `#network-<id>` to `#egress-gateway-hosts` when the first rule is attached, and a second OpenZiti service is provisioned that the gateway dials to deliver traffic to the tunnel.
-
-**Questions:**
-- Is the topology flip (bind switch on first rule attached, reverse on last rule removed) acceptable, given the brief reconnect of in-flight connections — same propagation behavior as existing EgressRule attachments?
-- Alternative: route all HTTP/HTTPS private resource traffic through the Egress Gateway by default (constant overhead, no flip). Worth the consistency cost?
-- Alternative: push injection into the agent's Ziti sidecar (per-workload config, no central choke point). Significantly more sidecar surface area; likely worth pursuing for other reasons too (local rate limiting, finer observability).
-- How does this compose with per-agent injection variance below — does a per-resource shared OpenZiti service simplify the model?
-
----
-
-## Private Networks: EgressRule and PrivateResource Hostname Conflicts
-
-**Context:** If an operator creates an EgressRule with `domain_pattern: <hostname>` and a PrivateResource with `intercept_host: <hostname>` in the same organization, the OpenZiti Controller rejects the second `CreateService` call due to intercept overlap. The error surfaces as whatever the Controller returns — no friendly cross-primitive validation in v1.
+**Context:** A [PrivateResource](architecture/resource-definitions.md#private-resource) can be named by at most one [EgressRule](architecture/resource-definitions.md#egress-rule), inheriting the one-rule-per-destination constraint from public destinations. Every agent attached to that rule therefore injects the same credential toward the internal host. Two agents needing distinct tokens to the same internal GitLab cannot be expressed.
 
 **Questions:**
-- Should the [Networks service](architecture/networks-service.md) and [EgressRules service](architecture/egress-rules-service.md) cross-check on create and surface a structured error?
-- Should the conflict be detected at the resource layer (validate that no `intercept_host` matches an existing `EgressRule.matcher.domain_pattern` and vice versa)?
+- Does relaxing this want the same fix as [Conditions List per Rule](#egress-gateway-conditions-list-per-rule) — many rules per destination sharing one interception — or a per-attachment credential override, which is a smaller change but a new concept on the attachment?
+- If per-attachment overrides: does the same mechanism make sense for public destinations, where the constraint has the same shape?
 
 ---
 
@@ -228,10 +216,10 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Private Networks: Tracing and Metering for Resource Traffic
 
-**Context:** [EgressRule](architecture/egress-gateway.md#observability) traffic emits tracing spans (`egress.*` attributes) and metering records. Private resource traffic in v1 does not — OpenZiti circuit metadata is captured at the edge router but not exported as platform observability.
+**Context:** [EgressRule](architecture/egress-gateway.md#observability) traffic emits tracing spans (`egress.*` attributes) and metering records — including traffic to a private resource named by a rule, which passes through the gateway. Private resource traffic with no rule on it, and all `tcp` resource traffic, still emits nothing: OpenZiti circuit metadata is captured at the edge router but not exported as platform observability.
 
 **Questions:**
-- Should the platform emit a `private_resource.*` span per dialed connection? At which point in the path — Tunnel side? Agent sidecar? Egress Gateway (when in path)?
+- Should the platform emit a `private_resource.*` span per dialed connection for the paths the gateway never sees? At which point — Tunnel side, or agent sidecar?
 - What metering granularity makes sense — connection count, bytes transferred, per-resource aggregation?
 - Does audit logging belong here (who-dialed-what-when-from-where) or as a separate concern?
 

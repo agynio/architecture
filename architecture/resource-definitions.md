@@ -394,25 +394,43 @@ Binds a [Subscription](#subscription) to an agent or an environment. Managed by 
 
 A rule that mediates outbound HTTP/HTTPS traffic from workloads. Org-scoped (direct `organization_id`). Managed by the [EgressRules service](egress-rules-service.md). Attached to [Agents](#agent) or [Environments](#environment) via [EgressRuleAttachment](#egress-rule-attachment).
 
+A rule's destination is either a **public** hostname pattern or a **private** [PrivateResource](#private-resource). Everything else about the rule — request narrowing, effect, attachments, propagation — is identical for both.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | | Human-readable label |
 | `matcher` | object | | Which requests the rule applies to. See [Matcher](#matcher) |
 | `effect` | object | | What happens to matching requests. See [Effect](#effect) |
-| `openziti_service_id` | string | | OpenZiti service ID returned by Ziti Management for this rule. The OpenZiti service name is `egress-rule-<id>`; Dial policy selectors target the concrete ID as `@<openziti_service_id>`. Internal — not returned through the Gateway |
+| `upstream_tls` | object \| null | `null` | TLS settings for the gateway's connection to the destination. Private targets only. See [Upstream TLS](#upstream-tls) |
+| `openziti_service_id` | string | | OpenZiti service ID returned by Ziti Management for this rule. **Public targets only** — a private-target rule provisions no OpenZiti service of its own; it rides the [PrivateResource](#private-resource)'s. The OpenZiti service name is `egress-rule-<id>`; Dial policy selectors target the concrete ID as `@<openziti_service_id>`. Internal — not returned through the Gateway |
 
 Reserved domain patterns are rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, and any pattern overlapping the OpenZiti synthetic range (`100.64.0.0/10`).
+
+Rules are not unique per destination — several may name one domain pattern or one PrivateResource, and a request matching more than one combines their effects per [Multiple rules in scope](../product/egress-gateway/egress-gateway.md#multiple-rules-in-scope). Whether two rules on one destination may claim overlapping *interceptions* is a separate question, open for public targets and settled for private ones: a private-target rule provisions no interception of its own, so any number of them share the resource's single OpenZiti service.
 
 `effect` must have at least one of `action` or `inject` non-empty (a rule with neither does nothing useful — surfaced as a create-time warning).
 
 ### Matcher
 
+`domain_pattern` and `private_resource_id` are mutually exclusive; exactly one is set and it is what makes the rule public or private.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `domain_pattern` | string | | Hostname pattern. Examples: `api.github.com`, `*.github.com`. Single-segment wildcards supported. Required |
-| `ports` | list<int> | `[80, 443]` | Destination ports to intercept. Each entry is a single TCP port number |
+| `domain_pattern` | string | | **Public target.** Hostname pattern. Examples: `api.github.com`, `*.github.com`. Single-segment wildcards supported |
+| `ports` | list<int> | `[80, 443]` | Destination ports to intercept. Each entry is a single TCP port number. Public targets only — a private target's ports are the resource's `intercept_ports`, all of them |
+| `private_resource_id` | string (UUID) | | **Private target.** Reference to a [PrivateResource](#private-resource) in the rule's organization. The resource's `protocol` must be `http` or `https`; a `tcp` resource carries no HTTP semantics to act on and is rejected |
 | `methods` | list<string> | `[]` (any) | HTTP methods the rule applies to (e.g., `["GET", "HEAD"]`) |
 | `path_pattern` | string | `""` (any) | Glob over the request path (e.g., `/repos/**`, `/users/*/issues`) |
+
+### Upstream TLS
+
+Set only on rules with a private target whose resource protocol is `https`. Public destinations present publicly-trusted certificates and are always verified against the gateway's system CA bundle; private ones frequently do not, and the hostname the agent dials (`intercept_host`) need not be the name on the target's certificate.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `server_name` | string | `""` | SNI and verification hostname for the gateway→target leg. Empty means the resource's `intercept_host` |
+| `ca_bundle_secret_id` | string (UUID) | | Reference to a [Secret](#secret) holding a PEM CA bundle to verify the target against. Mutually exclusive with `insecure_skip_verify`. Must reference a Secret in the rule's organization |
+| `insecure_skip_verify` | bool | `false` | Accept any certificate from the target. Mutually exclusive with `ca_bundle_secret_id` |
 
 ### Effect
 
@@ -456,6 +474,8 @@ A relationship binding an [Egress Rule](#egress-rule) to an [Agent](#agent) or a
 | `created_at` | timestamp | Creation time |
 
 Attachments are immutable — create and delete only. Exactly one of `agent_id` or `environment_id` is set. Unique on `(rule_id, target)`. Both rule and target must belong to the same organization — the [EgressRules service](egress-rules-service.md#authorization) enforces this on create.
+
+Every attachment materializes one OpenZiti Dial policy on the service the rule names. When the rule's target is a [PrivateResource](#private-resource), that policy is what grants the agent or environment reachability to the resource — equivalent to a [PrivateResourceAccess](#private-resource-access) grant for the same principal, and authorized by the same check. Detaching revokes it.
 
 ---
 
@@ -507,14 +527,16 @@ A single addressable endpoint behind a [Network](#network): a `target_host:targe
 | `target_ports` | list<uint16> | | Ports on the target. List of individual port numbers (e.g., `[5432]`, `[80, 443]`, `[9200, 9300]`). Port ranges are not supported in v1 |
 | `intercept_host` | string | | Hostname the agent dials. Reserved zones (see below) are rejected at create time |
 | `intercept_ports` | list<uint16> | | Ports the agent dials. Cardinality must match `target_ports` exactly; positional 1:1 mapping (i.e., `intercept_ports[i]` forwards to `target_ports[i]`) |
+| `mediation` | enum | `tunnel` | `tunnel` \| `egress_gateway`. Derived, not operator-set: `egress_gateway` while at least one [Egress Rule](#egress-rule) names this resource, `tunnel` otherwise. See [Private Networks — Gateway Mediation](private-networks.md#gateway-mediation) |
 | `provisioning_state` | enum | | `active` \| `failed` \| `removing`. Reflects whether the backing OpenZiti service was successfully provisioned. `failed` is retried by reconciliation |
 | `openziti_service_id` | string | | OpenZiti service ID created for this resource (`private-<id>`). Internal — not returned through the Gateway |
+| `openziti_upstream_service_id` | string | | OpenZiti service ID of `private-<id>-upstream`, the tunnel-bound service the Egress Gateway dials. Present only while `mediation` is `egress_gateway`. Internal — not returned through the Gateway |
 
 Uniqueness: for each `port` in `intercept_ports`, the tuple `(organization_id, intercept_host, port)` must be unique across all resources in the organization. Two resources in the same org may not claim the same intercept hostname on overlapping ports — OpenZiti routing would be ambiguous for any identity authorized to dial both.
 
-Reserved `intercept_host` patterns rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, anything overlapping `100.64.0.0/10` (OpenZiti synthetic CIDR), `localhost`, `127.0.0.0/8`, and `::1/128`.
+Reserved `intercept_host` patterns rejected at create time: `*.agyn`, `*.svc`, `*.cluster.local`, anything overlapping `100.64.0.0/10` (OpenZiti synthetic CIDR), `localhost`, `127.0.0.0/8`, and `::1/128`. An `intercept_host` matching an existing [Egress Rule](#egress-rule)'s `domain_pattern` is rejected too — the two would claim the same interception.
 
-The `protocol` field is platform metadata used to gate features like header injection (see [Private Networks — EgressRule Interaction](private-networks.md#egressrule-interaction)). OpenZiti itself sees only TCP streams.
+The `protocol` field is platform metadata that gates header injection: only an `http` or `https` resource can be named by an [Egress Rule](#egress-rule) (see [Private Networks — EgressRule Interaction](private-networks.md#egressrule-interaction)). OpenZiti itself sees only TCP streams. Changing `protocol` away from `http`/`https` is rejected while any rule names the resource, as is deleting the resource — detach by deleting those rules first.
 
 ---
 
@@ -531,6 +553,8 @@ A relationship granting a principal (agent, environment, user, app, or group) th
 | `openziti_dial_policy_id` | string | OpenZiti Dial policy created for this grant (one Dial policy per grant). Internal — not returned through the Gateway |
 
 Grants are immutable — create and delete only. Unique on `(private_resource_id, principal_type, principal_id)`. The resource and the principal must belong to the same organization — the [Networks service](networks-service.md#authorization) enforces this on create.
+
+This is not the only way an agent or environment reaches a resource: an [EgressRuleAttachment](#egress-rule-attachment) on a rule naming the resource grants the same reachability under the same authorization check, and adds injection with it. The two are independent records — holding one does not imply the other, and each is revoked where it was created.
 
 For `user` principals, the grant resolves to the user's enrolled device identities (any device with role attribute `user-<id>` can dial). For `app` principals, the grant resolves to the app's single OpenZiti identity (role attribute `app-<id>`). For `group` principals, the grant resolves to every member's identity transitively (any identity with role attribute `group-<id>` — includes apps, users' devices, and agent workloads that are members of the group). For `environment` principals, the grant resolves to every workload running that environment — agent workloads and [sandboxes](#sandbox) alike — and is the only principal type that reaches a sandbox, which carries no agent identity and cannot be a group member. See [Private Networks — Why an environment is a principal](private-networks.md#why-an-environment-is-a-principal).
 
