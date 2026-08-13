@@ -11,7 +11,9 @@ Threads is a generic messaging service. Chat adds the application-level logic sp
 | Method | Description |
 |--------|-------------|
 | **CreateChat** | Create a new chat thread between users (and optionally agents) |
-| **GetChats** | List chats for a user with pagination. Each chat carries an [`activity_status`](#activity-status), an [`unread_count`](#unread-counts), and the chat's [`active_workload_ids`](#active-workload-ids) for the caller |
+| **GetChats** | List chats for a user with pagination. Each chat carries an [`activity_status`](#activity-status), an [`unread_count`](#unread-counts), and the chat's [`active_workload_ids`](#active-workload-ids) for the caller. Excludes [deleted chats](#deleting-a-chat) |
+| **UpdateChat** | Update a chat's status (`open` / `closed`) or summary |
+| **DeleteChat** | Delete a chat. See [Deleting a Chat](#deleting-a-chat) |
 | **GetMessages** | List messages in a chat with pagination. Response includes the chat's [`unread_count`](#unread-counts) for the caller |
 | **SendMessage** | Send a message in a chat |
 | **MarkAsRead** | Mark all messages up to the latest in a chat as read for the caller (calls Threads `AckMessages`). See [Marking Messages as Read](#marking-messages-as-read) for trigger semantics |
@@ -53,6 +55,29 @@ The chat-app calls `MarkAsRead` on these triggers:
 | User leaves the conversation view | No further calls — incoming messages on other threads accumulate normally and bump their unread counts |
 
 `SendMessage` does not auto-ack the sender's own messages — Threads excludes the sender from the recipient list when creating `MessageRecipient` rows, so the sender has nothing to ack on their own outgoing message.
+
+## Deleting a Chat
+
+`DeleteChat` removes a chat from the app for every participant. It is a soft delete: the messages stay in [Threads](threads.md) so runs, traces, and metering records that reference them remain resolvable.
+
+Two things happen, in this order:
+
+1. `Threads.ArchiveThread(thread_id)` — the thread moves to [`archived`](threads.md#thread-status) and stops accepting new messages.
+2. Chat marks its own chat record deleted.
+
+The order is load-bearing. If the second step fails, the chat is still listed but frozen, and a retry closes the gap. The reverse order would leave a chat that is hidden from its participants while agents keep writing into it.
+
+`DeleteChat` is idempotent — deleting an already-deleted chat archives an already-archived thread and reports success, so a client retrying after a timeout does not see a failure for work that landed.
+
+A deleted chat is excluded from `GetChats`, and `UpdateChat` and `GetMessages` resolve it as `NOT_FOUND`. `SendMessage` is refused by Threads because the thread is archived.
+
+`GetMessages` is what tells a client holding a stale link that the conversation is gone — the chat-app opens a conversation by asking Chat for the unread count and Threads for the transcript, and the `NOT_FOUND` on the first call is the signal to drop the selection.
+
+That signal is not an access boundary. The messages stay in Threads, and a participant that asks `Threads.GetMessages` directly still gets them — which is the path the chat-app itself uses to page a transcript. The Console likewise still finds the thread through `Threads.ListOrganizationThreads` with `status_in = [archived]`. Deletion removes the conversation from the app; it does not revoke read access to what was said.
+
+Deletion does not stop agent workloads. A workload that is running when the chat is deleted keeps running until it idles out, and any message it tries to send fails with the thread-archived error — the reply is dropped, which is the intended outcome for a conversation the user removed.
+
+Chat publishes no notification on deletion. Other participants' clients drop the chat on their next `GetChats` refresh.
 
 ## Activity Status
 
@@ -133,6 +158,8 @@ Chat delegates authorization to [Threads](threads.md) for all messaging operatio
 |-----------|-------|
 | `CreateChat` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` (enforced by [Threads](threads.md#agent-availability-check)) |
 | `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
+| `UpdateChat` | Caller must be a thread participant |
+| `DeleteChat` | `participant` on `thread:<id>` or `owner` on `organization:<org_id>` (enforced by [Threads](threads.md) `ArchiveThread`) |
 | `GetMessages` | `can_read` on `thread:<id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |
 | `MarkAsRead` | Self only — caller must be a thread participant |
