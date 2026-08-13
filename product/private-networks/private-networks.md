@@ -186,7 +186,7 @@ Resources are created, edited, and deleted by organization owners through the Co
 - A Tunnel belongs to one Network. Running one tunneler for two networks requires two separate tunneler installations.
 - Runners are not eligible group members and not eligible access principals — they are infrastructure, not actors in the access model.
 - Environments are not group members. A group collects identities; an environment is a configuration resource, and it is a principal here only because it is what an agent workload and a sandbox have in common.
-- An `intercept_host` may equal some egress rule's public domain pattern; what is refused is giving **one** agent or environment both, since its dials would be ambiguous. The check runs when access is granted or the rule is attached, not when either is created. The fix is a rule with the resource as its destination.
+- An `intercept_host` may equal some egress rule's public domain pattern. What breaks is one agent holding both, since its dials to that hostname become ambiguous — the fix is a rule with the resource as its destination. Granting or attaching the second one directly is refused; arriving at the same state through group membership or a change of environment is not, and is reported by reconciliation instead.
 - Deleting a resource, or changing its protocol to `tcp`, is refused while any egress rule names it.
 
 ## Related Architecture

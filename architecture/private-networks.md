@@ -450,18 +450,34 @@ The two writers stay out of each other's way through the [ownership tag](#openzi
 
 ### Hostname collisions
 
-An intercept is ambiguous only for an identity authorized to dial both sides of it, so the check belongs where a principal acquires that authorization, not where a resource or a rule is created. An organization may hold a public rule for `gitlab.corp` and a private resource intercepting `gitlab.corp` at the same time; nothing is wrong until one agent can dial both.
+An intercept is ambiguous only for an identity authorized to dial both sides of it. An organization may hold a public rule for `gitlab.corp` and a private resource intercepting `gitlab.corp` at the same time; nothing is wrong until one workload identity can dial both, and then its sidecar resolves the hostname to one synthetic IP and picks a service nondeterministically.
 
-`CreateEgressRuleAttachment` and `CreatePrivateResourceAccess` therefore each check the destination the *other* surface has already given the target:
+**No write-time check can prevent this state, and the design does not claim to.** The authorization is assembled from five write paths across four services, and only two of them are about networking at all:
 
-| Act | Rejected when |
+| Write | Service | Adds |
+|---|---|---|
+| Attach a rule to an agent or environment | [EgressRules](egress-rules-service.md) | A Dial policy on the rule's service |
+| Grant a resource to any principal | [Networks](networks-service.md) | A Dial policy on the resource's service |
+| Add an identity to a group | [Groups](groups-service.md) | Every policy naming `#group-<id>`, transitively |
+| Point an agent at an environment | [Agents](agents-service.md) | Every policy naming `#environment-<id>` |
+| Create a workload | [Agents Orchestrator](agents-orchestrator.md) | The identity that carries all of the above at once |
+
+A rule attached to environment E and a resource granted to agent A collide on any workload of A running E, and neither write saw the other. A resource granted to group G collides with a rule attached to a member of G, and the membership that completes it is a Groups operation with no networking context. Repointing an agent at a different environment completes it with no write to either networking service. Gating all five would put a cross-service overlap query in the middle of group membership and environment selection, and would still race two concurrent writes that each see a clean state.
+
+So the collision is **caught, not prevented**, at two levels:
+
+**Fast-fail on the direct orderings.** `CreateEgressRuleAttachment` and `CreatePrivateResourceAccess` each check what the other surface has already given the target, expanding through the target's groups and — for an agent — its environment:
+
+| Act | Refused when |
 |---|---|
-| Attach a public rule to an agent or environment | That target can already dial a PrivateResource whose `intercept_host` matches the rule's `domain_pattern` on an overlapping port — by grant or by another attachment |
-| Grant a PrivateResource to an agent or environment | That target already has a public rule attached whose `domain_pattern` matches the resource's `intercept_host` on an overlapping port |
+| Attach a public rule to an agent or environment | The target can already dial a PrivateResource whose `intercept_host` matches the rule's `domain_pattern` on an overlapping port, whether by its own grant, a grant to one of its groups, or (for an agent) a grant to its environment |
+| Grant a PrivateResource to an agent or environment | A public rule whose `domain_pattern` matches the resource's `intercept_host` on an overlapping port is attached to that target, to one of its groups' members, or to the agent's environment |
 
-The error names both sides and points at a private-target rule as the way to express the intent. Grants to `user`, `app`, and `group` principals are outside the check: rules cannot attach to them, so they can never hold both.
+This is a convenience, not an invariant: it catches the operator who attaches a rule shadowing a resource they already exposed, and it names both sides. It does not fire when the completing write is a group membership change, an environment repoint, or a grant to a `group`, `user`, or `app` principal.
 
-Two rules claiming overlapping interceptions on one target is a different question, and an open one — see [Egress Gateway: Conditions List per Rule](../open-questions.md#egress-gateway-conditions-list-per-rule). It does not arise for private targets, which provision no interception of their own.
+**Detection that holds regardless of ordering.** Each reconciliation pass, the EgressRules service walks the role attributes named by its attachment policies and by the resource Dial policies it can see through `ListPrivateResourcesReachableBy`, expands group and environment attributes to the identities that carry them, and reports every identity authorized for two services with overlapping `intercept.v1` address and port. Each collision surfaces as a warning on both the rule and the resource in the Console, and as a log line and metric. Nothing is auto-resolved: which side the operator meant is not inferable, and silently revoking either would cut off traffic that works today.
+
+Two **rules** claiming overlapping interceptions on one target is the same defect from a different direction, unresolved since rule uniqueness was removed — see [Egress Gateway: Conditions List per Rule](../open-questions.md#egress-gateway-conditions-list-per-rule), where deduplicating interception per address is the structural fix for both. It does not arise for private targets, which provision no interception of their own.
 
 ## Gateway Mediation
 
