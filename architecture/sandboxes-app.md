@@ -51,7 +51,7 @@ The selected organization persists in local storage, as in the Console.
 | `AgentsGateway` | `ListEnvironments`, `GetEnvironment` (metadata) | `member` on the organization. The response's `can_use` field drives the environment picker — see [Agents Service — Environment Metadata](agents-service.md#environment-metadata) |
 | `RunnersGateway` | `ListVolumes` filtered to `owner_kind=sandbox` | `can_view_volumes` on the organization — organization owners only. The app degrades without it and does not require it |
 | `AgentsGateway` | `GetSandboxLayout`, `SetSandboxLayout` | `can_connect` on the sandbox. Always the caller's own layout — see [Agents Service — Sandbox Layout](agents-service.md#sandbox-layout) |
-| `TerminalGateway` | `CreateTerminalSession` (`kind: SHELL_ATTACH`) | `can_connect` on the sandbox, checked in the [Terminal Proxy](terminal-proxy.md#authorization) at ticket issuance |
+| `TerminalGateway` | `CreateTerminalSession` (`kind: SHELL`, with `shell_id`) | `can_connect` on the sandbox, checked in the [Terminal Proxy](terminal-proxy.md#authorization) at ticket issuance |
 | `ExposeGateway` | `ListExposures`, `AddExposure`, `RemoveExposure` — all passing the sandbox's `workload_id` explicitly | `can_connect` on the sandbox for add and remove; `member` on the organization for list. See [Expose Service — Authorization](expose-service.md#authorization) |
 | `OrganizationsGateway` | `ListMyMemberships` | Any authenticated user — populates the organization switcher |
 | `UsersGateway` | `GetMe`, `SearchUsers` | Any authenticated user. `SearchUsers` backs the share picker |
@@ -61,7 +61,7 @@ The app calls no method that requires organization ownership. A member with no e
 
 ## Terminal
 
-Each tab follows the standard two-step establishment: `CreateTerminalSession(workload_id, container_name, kind: SHELL_ATTACH, shell_id, cwd)` over the Gateway returns a ticket, then a WebSocket to the Terminal Proxy carrying the ticket and a handshake with the initial size and the app's `TERM`. Long-lived credentials never appear in the WebSocket URL. Rendering is xterm.js over the [wire protocol](terminal-proxy.md#wire-protocol); resize is forwarded on every pane resize.
+Each tab follows the standard two-step establishment: `CreateTerminalSession(workload_id, container_name, kind: SHELL, shell_id, shell_cwd)` over the Gateway returns a ticket, then a WebSocket to the Terminal Proxy carrying the ticket and a handshake with the initial size and the app's `TERM`. Long-lived credentials never appear in the WebSocket URL. Rendering is xterm.js over the [wire protocol](terminal-proxy.md#wire-protocol); resize is forwarded on every pane resize.
 
 The `workload_id` comes from the sandbox record. A sandbox in any state other than `running` has no workload to attach to, so the detail page calls `EnsureSandboxRunning` first and attaches once the sandbox reports `running`.
 

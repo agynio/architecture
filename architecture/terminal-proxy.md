@@ -59,16 +59,22 @@ The command is fixed at ticket issuance, never at attach time. It is derived fro
 
 | Kind | TTY | Command | Consumer |
 |---|---|---|---|
-| `SHELL` | yes | `/bin/sh -lc 'PATH=/agyn/bin:$PATH exec ${SHELL:-sh}'` — see [PATH](#path-in-a-session) | Console terminal on an agent container |
-| `SHELL_ATTACH` | yes | `/agyn/bin/tmux -L agyn -f /agyn/tmux.conf new -A -D -s <shell_id> [-c <cwd>]` — see [Persistent Shells](#persistent-shells) | `agyn sandbox start`/`connect`, [Sandboxes App](sandboxes-app.md) |
+| `SHELL` | yes | A shell on a PTY. Whether it persists is the workload's to decide — see [Persistent Shells](#persistent-shells) | `agyn sandbox start`/`connect`, [Sandboxes App](sandboxes-app.md), Console terminal |
 | `EXEC` | yes | A caller-supplied command, run with the same `PATH` prefix | Console non-shell inspection commands |
 | `SYNC` | no | `/agyn/bin/agyn sandbox sync serve --root <path>` | [Workspace sync](sandbox-sync.md), `agyn sandbox cp` |
 
 `SESSION_KIND_UNSPECIFIED` is rejected with `InvalidArgument`. It does not default to `SHELL` — silently defaulting the field that selects a command is how an unintended command ends up in a ticket.
 
-`SHELL` and `SHELL_ATTACH` are separate kinds rather than one kind with a flag, so that the command remains a function of the kind and its parameters, and a client cannot get one behavior while the ticket describes the other. Which one a consumer asks for follows what the container is for: inspecting an **agent** container is ephemeral, because the [Orchestrator](agents-orchestrator.md) may stop that workload mid-session and nothing in it is worth preserving; working in a **sandbox** is persistent.
+`SHELL` takes two optional parameters, both meaningful only where the workload persists shells:
 
-Authorization does not vary by kind: `EXEC` carries a caller-supplied command, and `SHELL_ATTACH` names a shell another identity may have created, but both are authorized by the same check as `SHELL` (see [Authorization](#authorization)). What binding the command at issuance buys is not an extra permission gate but immutability — the command cannot be swapped at attach time.
+| Parameter | Validation | Purpose |
+|---|---|---|
+| `shell_id` | `^[A-Za-z0-9_-]{1,64}$` | Which shell to attach to. Client-generated and opaque. `.` and `:` are excluded because the multiplexer behind a shell reads them as target separators |
+| `shell_cwd` | Absolute, lexically normalized, no `..` — as [`SYNC`'s root](#root-validation) | Where a newly created shell starts. Applied only on creation |
+
+A session naming no `shell_id` is a shell nobody will return to, which is correct in either mode and is what the Console's agent-container terminal asks for.
+
+Authorization does not vary by kind: `EXEC` carries a caller-supplied command, and `SHELL` may name a shell another identity created, but both are authorized by the same check (see [Authorization](#authorization)). What binding the command at issuance buys is not an extra permission gate but immutability — the command cannot be swapped at attach time.
 
 In particular, **a shell id is not a capability**. Anyone authorized to open a shell in a container can enumerate and attach to every shell in it from inside that container, as they can already read its files and signal its processes. Keeping one identity's shells out of another's view is a presentation decision made by whoever stores the [layout](resource-definitions.md#sandbox-layout), not a boundary this service enforces.
 
@@ -76,14 +82,13 @@ In particular, **a shell id is not a capability**. Anyone authorized to open a s
 
 A **shell** is a PTY and its processes living in the container, outliving every connection to it. It is not a session: a session attaches to a shell and ends, and the shell stays. Shells are implemented as tmux sessions on a platform-private socket, started by the server [`agynd` runs](agynd-cli.md#shell-supervision); nothing above the container depends on that, which is what keeps it replaceable.
 
-`SHELL_ATTACH` takes two parameters:
+**Whether a workload's shells persist is not the client's to choose.** It is `persistent_shells` on the [Environment](resource-definitions.md#environment), resolved by the [Orchestrator](agents-orchestrator.md#workload-spec-assembly) at start and recorded on the [workload](runners.md#workload-resource); the proxy reads it from the `Runners.GetWorkload` it already makes to find the hosting runner. A caller states *which* shell, never what kind of shell — so two clients against one sandbox cannot disagree, and the person who configured the environment decides for both.
 
-| Parameter | Required | Validation | Purpose |
-|---|---|---|---|
-| `shell_id` | yes | `^[A-Za-z0-9_-]{1,64}$` | Names the shell. Client-generated and opaque. `.` and `:` are excluded because tmux reads them as target separators |
-| `cwd` | no | Absolute, lexically normalized, no `..` — as [`SYNC`'s root](#root-validation) | Working directory, applied **only when the shell is created**. Ignored on attach, so a client may pass its stored value every time |
+Reading it from the workload rather than resolving the environment per ticket is what keeps a running sandbox stable: an environment edited mid-session does not reconfigure shells underneath the person using them.
 
-The command attaches when the shell exists and creates it when it does not. That single behavior is what makes reconnecting and restoring the same path: a shell whose container was replaced comes back at the requested directory without the client knowing which case it was in.
+**When the workload persists shells**, the bound command attaches to `shell_id` and creates it when it does not exist. That single behavior is what makes reconnecting and restoring the same path: a shell whose container was replaced comes back at the requested directory without the client knowing which case it was in.
+
+**When it does not**, the same request binds an ordinary shell that ends with the connection, and `shell_id` and `shell_cwd` are ignored rather than refused. A client that names a shell in an environment which does not keep them asked for something the environment does not provide, and that is the environment's answer to give — failing it would make every client read a setting it should not have to.
 
 **A second session displaces the first.** One shell carries one attachment. This is what makes a page reload robust — the reloading client does not wait for its predecessor's missed pongs to be noticed — and it removes the question of whose size a shared PTY takes, since there are never two. The displaced session receives `exit` with `reason: displaced` so the client can say what happened rather than going quiet.
 
@@ -111,7 +116,7 @@ The outer `sh -l` processes `/etc/profile` and the user's profile; `$PATH` is th
 
 The consequence to be aware of: the final shell is **not** a login shell, so shell-specific login files (`~/.bash_profile`) do not run, while `/etc/profile` and `~/.profile` already have. Making the final shell a login shell would re-run the profile and discard the prefix again.
 
-**`SHELL_ATTACH` establishes it in the same way but not in the same place.** Its bound command is a tmux *client*; the shell was spawned by the server, and setting `PATH` around the client would never reach it. The identical construction therefore lives in the platform's tmux configuration as the command the server spawns for a new shell — see [agynd — Shell Supervision](agynd-cli.md#shell-supervision). Placing it there also fixes it for shells the server creates while nobody is attached.
+**A persistent shell establishes it in the same way but not in the same place.** Its bound command is a tmux *client*; the shell was spawned by the server, and setting `PATH` around the client would never reach it. The identical construction therefore lives in the platform's tmux configuration as the command the server spawns for a new shell — see [agynd — Shell Supervision](agynd-cli.md#shell-supervision). Placing it there also fixes it for shells the server creates while nobody is attached.
 
 ### Root validation
 
@@ -137,7 +142,7 @@ The first client message is a JSON **handshake** describing the client's own ter
 | `cols`, `rows` | yes | | Initial size. Applied to the PTY before the command runs |
 | `term` | no | `xterm-256color` | The client's `TERM`. Set in the exec's environment |
 
-`term` exists because a session's command may itself be a terminal-aware program rather than a shell: a [`SHELL_ATTACH`](#persistent-shells) client decides what it may emit toward the browser or the terminal from this value, and reading it from the pod spec — where nothing sets it per client — gives a truecolor terminal the capabilities of whatever the image happened to declare. It carries no command and grants nothing; a client describing itself wrongly only misrenders its own output.
+`term` exists because a session's command may itself be a terminal-aware program rather than a shell: an attaching [multiplexer client](#persistent-shells) decides what it may emit toward the browser or the terminal from this value, and reading it from the pod spec — where nothing sets it per client — gives a truecolor terminal the capabilities of whatever the image happened to declare. It carries no command and grants nothing; a client describing itself wrongly only misrenders its own output.
 
 One WebSocket per session. Frames:
 
@@ -165,7 +170,7 @@ For TTY session kinds, the proxy provides SSH-parity terminal behavior. Explicit
 - **Concurrent sessions.** Multiple sessions may target the same container (subject to the same authorization); each gets its own PTY, like multiple SSH connections to one host. Two sessions naming the *same* [shell](#persistent-shells) are the exception — there is one PTY to have, and the newer session takes it.
 - **Exit propagation.** When the shell exits, the proxy sends the `exit` control message and closes. The `agyn` CLI exits with the same code.
 
-**A dropped connection does not end the work, but only where a shell owns it.** For [`SHELL_ATTACH`](#persistent-shells) the exec ends and the shell does not: the PTY belongs to a process in the container, and the next session attaches to the same one, at the client's size, with the screen repainted. For `SHELL`, `EXEC`, and every consumer inspecting an agent container, the old behavior stands — the PTY closes, the foreground process group receives SIGHUP, and the next connection is a fresh shell, exactly like a dropped SSH connection.
+**A dropped connection does not end the work, but only where a shell owns it.** Where the workload [persists shells](#persistent-shells) the exec ends and the shell does not: the PTY belongs to a process in the container, and the next session attaches to the same one, at the client's size, with the screen repainted. Where it does not, and for `EXEC`, the old behavior stands — the PTY closes, the foreground process group receives SIGHUP, and the next connection is a fresh shell, exactly like a dropped SSH connection.
 
 Neither kind survives the workload. A stopped sandbox takes its shells with it, and nothing checkpoints a running process; what survives is the [Sandbox Layout](resource-definitions.md#sandbox-layout), which is a record of what was open and where, not of what was running.
 
