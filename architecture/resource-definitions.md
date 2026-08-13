@@ -113,7 +113,7 @@ Visibility and lifecycle follow the same rules as flavors. Already-provisioned v
 
 ## Image
 
-An organization-scoped record naming an upstream container repository and the credential to read it. The only resource in the platform that holds a registry address. Managed by the [Images](images-service.md) service. See [Images](../product/images/images.md).
+An organization-scoped record naming an upstream container repository and, by reference, the credential to read it. The only resource in the platform that holds a registry address. Managed by the [Images](images-service.md) service. See [Images](../product/images/images.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -121,7 +121,7 @@ An organization-scoped record naming an upstream container repository and the cr
 | `type` | enum | | `workspace`, `agent_runtime`, or `mcp`. Which slot in a workload the image is built for. Immutable |
 | `repository` | string | | Upstream repository (e.g., `ghcr.io/agynio/devcontainer-go`). Immutable — changing it would silently redefine every environment referencing the record |
 | `username` | string | `null` | Registry username. `null` for anonymously readable repositories |
-| `secret_id` | string (UUID) | `null` | Reference to a [Secret](providers.md#secret) holding the registry password |
+| `secret_id` | string (UUID) | `null` | Reference to a [Secret](providers.md#secret) holding the registry password. Must belong to the same organization. `null` for an anonymously readable repository |
 | `visibility` | enum | | `public` or `internal`. `internal` is readable by the owning organization; `public` by any authenticated identity. Same values and meanings as [App visibility](apps.md#visibility) |
 | `tag_filter` | string | `null` | Optional pattern limiting which tags appear in pickers |
 | `stale_since` | timestamp \| null | `null` | Set when discovery cannot reach the repository. Stored versions continue to be served |
