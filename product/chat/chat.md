@@ -17,6 +17,7 @@ Chat is the platform's communication interface. Users create conversations by se
 - As a user, I want messages to be marked as read automatically when I open a conversation so I do not have to manage read state by hand.
 - As a user, I want to see whether the agent is currently working on a conversation, waiting to start, or finished so I know whether to expect more output.
 - As a user, I want to mark a conversation as resolved or reopen it.
+- As a user, I want to delete a conversation I no longer need so it stops taking up room in my list.
 - As a user, I want to delete messages I no longer need.
 - As a user, I want to see reminders created by agents so I can track follow-ups.
 - As a user, I want to cancel reminders if they are no longer needed.
@@ -80,6 +81,18 @@ Infinite scroll loads older conversations.
 
 User-controlled lifecycle state — **Open** or **Resolved**. Toggled via dropdown in the detail header. Optimistic — the UI updates immediately and rolls back on failure.
 
+## Deleting a Conversation
+
+**Delete conversation** in the [conversation actions menu](#header) removes a conversation for everyone in it. It is not a personal hide — a conversation is shared, the same way its status and summary are.
+
+Deleting asks for confirmation first. The dialog names the conversation, states that it disappears for every participant and cannot be reopened from Chat, and offers Delete and Cancel. Delete is styled as the destructive action; Cancel leaves everything untouched.
+
+After deletion the conversation leaves the list, the detail panel clears, and the app returns to the empty conversation state. Other participants lose it from their list on their next refresh. A link to a deleted conversation resolves to the empty state.
+
+Any participant can delete a conversation, as can an organization owner. A conversation can be deleted in any status, including while an agent is working in it — the agent's in-flight reply is dropped.
+
+Deletion is not undoable from the app.
+
 ## Activity Status
 
 System-derived indicator that reflects whether agent participants are currently processing the conversation. Distinct from [Conversation Status](#conversation-status) (which is user-controlled). Shown only on conversations that have at least one non-passive agent participant; for user-only conversations, no indicator is shown.
@@ -104,6 +117,7 @@ Degraded conversations (see [Chat — Degraded Threads](../../architecture/chat.
 - Summary (editable — click to edit inline, save on blur or Enter, cancel on Escape).
 - Status toggle (Open / Resolved).
 - Reminder count — with popover listing agent-created reminders, each cancellable.
+- Conversation actions menu — edit the summary, copy a link to the conversation, copy its ID, open the agent's settings when an agent participates, and [delete the conversation](#deleting-a-conversation).
 
 ### Conversation Area
 

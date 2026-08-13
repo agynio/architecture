@@ -530,6 +530,8 @@ Chat wraps Threads. Thread-level authorization checks apply, including the per-a
 |-----------|-------|
 | `CreateChat` | `can_create_thread` on `organization:<org_id>` AND for each agent participant: `can_initiate` on `agent:<participant_id>` |
 | `GetChats` | No OpenFGA check — returns chats where caller is a participant (DB filter) |
+| `UpdateChat` | Caller must be a thread participant |
+| `DeleteChat` | `participant` on `thread:<id>` or `owner` on `organization:<thread.org_id>` — delegated to Threads `ArchiveThread` |
 | `GetMessages` | `can_read` on `thread:<id>` |
 | `SendMessage` | `can_write` on `thread:<id>` |
 | `MarkAsRead` | Self only — caller must be a participant |
