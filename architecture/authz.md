@@ -198,12 +198,18 @@ type environment
     define maintainer: [identity, group#member]
     define user: [identity, group#member]
     define internal_access: [organization]
+    define agent: [agent]
+    define sandbox: [sandbox]
     define can_use: owner or maintainer or user or member from internal_access
-    define can_read_config: owner or maintainer or owner from org
+    define can_read_config: owner or maintainer or owner from org or instance from agent or holder from sandbox
     define can_edit_config: owner or maintainer or owner from org
     define can_manage_roles: owner or owner from org
     define can_delete: owner or owner from org
 ```
+
+**`can_read_config` also answers the workloads running here, not people alone.** A workload has to read the [init scripts](resource-definitions.md#initscript), MCPs and ENVs it is expected to carry, and it reads them as itself. `agent` and `sandbox` name the two things an environment supplies, and each resolves to the identity its running workload authenticates as: `instance from agent` for an [agent instance](#agent), `holder from sandbox` for a [sandbox](#sandbox). Both are scoped to the one environment that workload was started in — an instance reads its own environment's config and no other's.
+
+Neither grant reaches a person. `holder` is the sandbox's own identity, not its owner's: starting a sandbox in an environment does not let you read that environment's configuration, and `can_use` deliberately does not imply `can_read_config`.
 
 **`can_use` separates running in an environment from editing one.** An environment carries secret-backed [ENVs](resource-definitions.md#env), egress rules that inject credentials, and the contents of its [volumes](resource-definitions.md#volume) — and anyone who can start a [sandbox](../product/sandboxes/sandboxes.md) in it gets an interactive shell sitting on all three. Being able to *use* an environment is therefore a grant in its own right, and it is checked on `CreateSandbox` and on any `CreateAgent`/`UpdateAgent` that points an agent at the environment. `can_edit_config`, which governs the volumes, MCPs, init scripts, and ENVs the environment declares, is a strictly separate question: a team may hand out `user` widely while keeping authorship to itself.
 
@@ -230,6 +236,7 @@ type sandbox
     define org: [organization]
     define owner: [identity]
     define collaborator: [identity, group#member]
+    define holder: [identity]
     define can_read: owner or collaborator or owner from org
     define can_connect: owner or collaborator
     define can_stop: owner or collaborator or owner from org
@@ -243,9 +250,14 @@ The consequence is deliberate: a shell reaches the environment's secret-backed E
 
 `can_stop` includes `collaborator` because `EnsureSandboxRunning` is gated by `can_connect`: a collaborator can already restart an idled-out sandbox, and being able to start what you work in without being able to stop it is not a boundary worth drawing. `can_delete` and `can_share` stay with the owner — a collaborator can neither destroy the sandbox nor pass the grant on.
 
+**`holder` is the workload, not a person.** A sandbox runs [`agynd` as a holder](agent-init.md#startup-sequence), which fetches and runs the environment's init scripts before anyone gets a shell, and it authenticates as the sandbox's own id. `holder` is what carries that identity to [`can_read_config`](#environment) on the environment the sandbox was started in — the mirror of `instance` on an agent. It grants nothing else: a holder cannot connect to its own sandbox, and no person holds it.
+
 When a sandbox is created, the Agents service writes:
 - `organization:<org_id>, org, sandbox:<sandbox_id>`
 - `identity:<creator_id>, owner, sandbox:<sandbox_id>`
+- `identity:<sandbox_id>, member, organization:<org_id>` — the workload's own identity
+- `identity:<sandbox_id>, holder, sandbox:<sandbox_id>`
+- `sandbox:<sandbox_id>, sandbox, environment:<environment_id>`
 
 `ShareSandbox` writes `identity:<target_id>, collaborator, sandbox:<sandbox_id>` (or `group:<group_id>#member` for a group principal); `UnshareSandbox` deletes it. Revocation takes effect at the next ticket issuance — a session already attached runs until it ends, as the Terminal Proxy validates tickets at issuance and not continuously.
 
@@ -361,7 +373,7 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent created | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
 | Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
-| Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>` | Agents |
+| Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>`; `identity:<id>, member, organization:<org_id>`; `identity:<id>, holder, sandbox:<id>`; `sandbox:<id>, sandbox, environment:<environment_id>` | Agents |
 | Sandbox shared / unshared | `identity:<target_id>, collaborator, sandbox:<id>` (or `group:<group_id>#member`), written on share and deleted on unshare | Agents |
 | Sandbox hard-purged (retention policy; not on soft-`terminated`) | Delete all tuples on `sandbox:<id>` | Agents |
 | Agent availability flipped `private → internal` | `organization:<org_id>, internal_access, agent:<id>` | Agents |
