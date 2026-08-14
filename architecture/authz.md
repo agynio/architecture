@@ -656,6 +656,9 @@ An [environment principal](private-networks.md#why-an-environment-is-a-principal
 | `CreatePrivateResourceAccess` (`user`, `app`, or `group` principal) | `owner` on `organization:<resource.org_id>` + cross-org guard (`organization:<resource.org_id>` holds `org` on the principal) |
 | `DeletePrivateResourceAccess` | Same check as the corresponding `CreatePrivateResourceAccess` |
 | `ListPrivateResourceAccess` | `member` on `organization:<org_id>` |
+| `SetPrivateResourceMediation`, `ListPrivateResourcesReachableBy` (internal) | Internal only (EgressRules service via Istio). Mediation is derived from which rules exist; the caller-facing check ran on the rule |
+
+An agent or environment can also reach a private resource through an [egress rule attachment](#egressrules-service), which is authorized by the identical check to the grant in this table. Neither surface is a way around the other.
 
 ### Groups Service
 
@@ -673,7 +676,7 @@ An [environment principal](private-networks.md#why-an-environment-is-a-principal
 
 | Operation | Check |
 |-----------|-------|
-| `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>` |
+| `CreateEgressRule`, `UpdateEgressRule`, `DeleteEgressRule` | `owner` on `organization:<org_id>`. A rule with a private target additionally requires the referenced [PrivateResource](resource-definitions.md#private-resource) to belong to that organization — the same `owner`-level act as creating the resource |
 | `GetEgressRule`, `ListEgressRules` | `member` on `organization:<org_id>` |
 | `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (agent target) | `can_edit_config` on `agent:<agent_id>`. On create, the service additionally verifies the agent belongs to the rule's organization (a `Check` that `organization:<rule.org_id>` holds the `org` relation on `agent:<agent_id>`) to prevent cross-org attachments |
 | `CreateEgressRuleAttachment`, `DeleteEgressRuleAttachment` (environment target) | `can_edit_config` on `environment:<environment_id>`, with the same cross-org guard against the `org` relation on the environment |
@@ -681,8 +684,11 @@ An [environment principal](private-networks.md#why-an-environment-is-a-principal
 | `ListEgressRuleAttachments` (by `rule_id`) | `member` on `organization:<rule.org_id>` |
 | `ListEgressRulesByAgent` (internal) | Internal only (Egress Gateway via Istio) |
 | `CountRulesReferencingSecret` (internal) | Internal only (Secrets service via Istio) |
+| `CountRulesReferencingPrivateResource`, `ListMediatedPrivateResources`, `ListAttachedRuleDomains` (internal) | Internal only (Networks service via Istio) |
 
 No new OpenFGA types are introduced. Rules use existing organization-level checks; each attachment uses its target's `can_edit_config` / `can_read_config` — from the [agent](#agent) type or the [environment](#environment) type — plus that type's `org` relation for the cross-org guard.
+
+Attaching a rule with a **private target** grants the agent or environment network reachability to the private resource, so the check is worth reading against its twin: [`CreatePrivateResourceAccess`](#networks-service) for an agent principal requires `can_edit_config` on that same agent plus the same cross-org guard. The two paths are permission-equivalent by construction. The [EgressRules service](egress-rules-service.md#authorization) records the resulting OpenZiti Dial policy under its own ownership tag so neither service's reconciliation revokes the other's grant.
 
 ### Notifications Service
 

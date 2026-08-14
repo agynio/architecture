@@ -73,7 +73,7 @@ All secret resources are org-scoped. Resolution calls are split between an inter
 
 | Referencing resource | Check | Owner |
 |---|---|---|
-| [EgressRule.effect.inject](resource-definitions.md#egress-rule) | `CountRulesReferencingSecret(secret_id)` | [EgressRules service](egress-rules-service.md) |
+| [EgressRule.effect.inject](resource-definitions.md#egress-rule) and [EgressRule.upstream_tls.ca_bundle_secret_id](resource-definitions.md#upstream-tls) | `CountRulesReferencingSecret(secret_id)` | [EgressRules service](egress-rules-service.md) |
 | [Subscription.secret_id](providers.md#subscription) | `CountSubscriptionsReferencingSecret(secret_id)` | [LLM service](llm.md#referential-integrity-with-secrets) |
 | [Image.secret_id](resource-definitions.md#image) | `CountImagesReferencingSecret(secret_id)` | [Images service](images-service.md) |
 

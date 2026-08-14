@@ -154,7 +154,7 @@ Settings is last in the group. It is the least-visited section here — a name a
 
 Images come first because environments are assembled from them: the group reads as what runs, how it is composed, and where it lands. Storage has no section of its own here — a volume is part of an environment, edited on it.
 
-**Networking** — what work can reach, inbound and outbound. Private Resources and Egress Rules are adjacent deliberately: they are the two sides of one per-destination decision (see [EgressRule interaction](../private-networks/private-networks.md#egressrule-interaction)).
+**Networking** — what work can reach, inbound and outbound. Private Resources and Egress Rules are adjacent deliberately: a rule's destination can be a private resource, and the two lists are read together (see [EgressRule interaction](../private-networks/private-networks.md#egressrule-interaction)).
 
 | Section | Description |
 |---------|-------------|
@@ -328,7 +328,7 @@ An owner sees nothing further — their access ended when they confirmed, which 
 - **ENVs** — environment variables attached directly to the agent. Each ENV has a name and either a plain value or a secret reference (selector from organization's secrets).
 - **Init Scripts** — shell scripts attached directly to the agent, running after the environment's.
 - **Storage** — read-only. Names the environment's volumes and links to it; agents declare no volumes of their own.
-- **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their domain pattern and effect summary, each with a Detach button. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
+- **Egress Rules** — egress rules attached to the agent, controlling its outbound HTTP/HTTPS (deny destinations, inject credentials). A dropdown lists the organization's egress rules (excluding already-attached ones) with an inline Attach; attached rules are listed with their destination and effect summary, each with a Detach button. Rules with a private destination are marked, and attaching or detaching one states that the agent gains or loses access to that resource. Same attachment, viewable and editable from either side — see [Egress Rules](#egress-rules).
 
 ### Images
 
@@ -357,7 +357,7 @@ Runtime definitions owned by the [Agents service](../../architecture/agents-serv
 - **MCPs** — MCP servers that run in every workload of this environment. Each shows image and tag, command, compute resources, its shared volume names, and its own ENVs, init scripts, and volumes. Manage menu: Edit, Environment Variables, Init Scripts, Volumes, Delete. The shared-volume picker offers this environment's volume names.
 - **Init Scripts** — scripts run in the main container before the agent CLI (or the sandbox shell). Ordered; the environment's run before any agent's.
 - **ENVs** — environment variables injected into the main container of every workload. Plain value or secret reference.
-- **Egress Rules** — rules attached to the environment, applying to every workload running it. Same attach/detach affordance as on an agent.
+- **Egress Rules** — rules attached to the environment, applying to every workload running it. Same attach/detach affordance as on an agent, with the same statement for private destinations — and here it reaches every sandbox anyone can start in this environment.
 - **Roles** — identities with a role on this environment (`owner` / `maintainer` / `user`). Same add/change/remove affordances as [agent roles](#agents). The creator is `owner`. The section explains what `user` grants: starting a sandbox here, and pointing an agent here — both of which reach the secrets and volumes above.
 
 **Create environment** — name, runner, flavor, workspace image, optional agent runtime image, availability. Volumes, MCPs, init scripts, and ENVs are added after creation from the detail page.
@@ -458,37 +458,45 @@ Resources are **not** managed here. They are org-wide and have their own section
 
 Addressable endpoints behind a private network, listed at organization scope rather than nested under a network. Org scope is what the data model already enforces: `intercept_host` + port uniqueness is checked across the whole organization, not per network (see [Private Networks — PrivateResource](../../architecture/private-networks.md#privateresource)), so a per-network list would present a namespace that does not exist and could not explain a collision.
 
-**Resource list** — table of resources across all of the organization's networks. Columns: name, network (link to network detail), protocol (`tcp` / `http` / `https`), intercept address (`intercept_host:ports`), target address (`target_host:ports`), grant count, reachability (derived from the owning network's tunnels), provisioning state. Default sort: creation time, newest first.
+**Resource list** — table of resources across all of the organization's networks. Columns: name, network (link to network detail), protocol (`tcp` / `http` / `https`), intercept address (`intercept_host:ports`), target address (`target_host:ports`), grant count, egress rule count, reachability (derived from the owning network's tunnels), provisioning state. Default sort: creation time, newest first.
 
 **Filters** — filter bar with Network (multi-select), Protocol (multi-select), and Provisioning state (multi-select). Search matches on name and `intercept_host`.
 
-**Resource detail** — its own page, not a card in a list. Shows the network it belongs to, protocol, target host and ports, intercept host and ports, provisioning state, and a **Copy connection string** affordance (`prod-postgres.corp:5432`) for pasting into agent configuration or tooling.
+**Resource detail** — its own page, not a card in a list. Shows the network it belongs to, protocol, target host and ports, intercept host and ports, provisioning state, and a **Copy connection string** affordance (`prod-postgres.corp:5432`) for pasting into agent configuration or tooling. An `http`/`https` resource also shows its egress rules: each rule naming it with its effect summary and attached targets, plus a **Create egress rule** action that opens the rule form with this resource preselected.
 
-**Access grants** — the resource detail page owns the access list. Each grant binds a principal (`agent`, `user`, `app`, or `group`) to the resource; every grant materializes exactly one OpenZiti dial policy. Grants are create-and-delete only — there is no edit. The principal picker offers the organization's agents, users, apps, and groups, with an inline "Create group" affordance. Revocation takes effect immediately, with a propagation window of ≤15 seconds to live workloads; the confirmation dialog states this.
+**Collision warning** — when an agent or environment can reach both this resource and a public egress rule claiming the same hostname, the page carries a warning naming the rule, the affected targets, and how each side was acquired (grant, attachment, group membership, environment). Traffic to that hostname is routed unpredictably for those targets. The same warning appears on the rule. It is reported rather than blocked because the platform cannot tell which side the operator meant, and revoking either would cut off traffic that works today — see [Private Networks](../private-networks/private-networks.md#egressrule-interaction).
 
-Creating a resource requires selecting a network. The form rejects the reserved intercept zones and warns — without blocking — when the chosen `intercept_host` is a real public hostname, since all agent traffic for that hostname will then route through the tunnel.
+**Access grants** — the resource detail page owns the access list, and it is the single answer to who can reach the resource. Rows come from two sources, each labelled: **grants**, binding a principal (`agent`, `environment`, `user`, `app`, or `group`) directly, and **rule attachments**, where an agent or environment reaches the resource through the [egress rule](#egress-rules) naming it. Grants are create-and-delete only — there is no edit; the principal picker offers the organization's agents, environments, users, apps, and groups, with an inline "Create group" affordance. Rule-attachment rows are read-only here, linking to the rule, and are removed by detaching there — the row says so. Revocation by either path takes effect immediately, with a propagation window of ≤15 seconds to live workloads; the confirmation dialog states this.
+
+Creating a resource requires selecting a network. The form rejects the reserved intercept zones and an `intercept_host` already claimed by a public egress rule's domain pattern, and warns — without blocking — when the chosen `intercept_host` is a real public hostname, since all agent traffic for that hostname will then route through the tunnel.
+
+**Delete resource** — blocked while any egress rule names it; the dialog lists the rules and prompts the user to delete them first. Changing a resource's protocol to `tcp` is blocked the same way.
 
 See [Private Networks](../private-networks/private-networks.md) for the full model.
 
 ### Egress Rules
 
-Rules that control and shape agent outbound HTTP/HTTPS traffic — denying destinations or injecting credentials on the fly. See [Egress Gateway](../egress-gateway/egress-gateway.md) for the model. Org-scoped resources, attached to agents.
+Rules that control and shape agent outbound HTTP/HTTPS traffic — denying destinations or injecting credentials on the fly. See [Egress Gateway](../egress-gateway/egress-gateway.md) for the model. Org-scoped resources, attached to agents. A rule's destination is either a public hostname pattern or one of the organization's [private resources](#private-resources).
 
-**Egress rule list** — table of egress rules in the organization. Columns: name, domain pattern, effect (summary — `allow`, `deny`, and/or injected header names), attached agent count, created date. Default sort: creation time, newest first.
+**Egress rule list** — table of egress rules in the organization. Columns: name, destination (the domain pattern, or the private resource's name and the hostname agents dial, linking to the resource), destination type badge (`Public` / `Private`), effect (summary — `allow`, `deny`, and/or injected header names), attached agent count, created date. Filterable by destination type. Default sort: creation time, newest first.
 
-**Egress rule detail** — the matcher (domain pattern, ports, methods, path pattern), the effect (action plus the list of injected headers with credentials masked, reveal-on-click), and the list of agents the rule is attached to (each linking to the agent), with Attach/Detach controls.
+**Egress rule detail** — the matcher (destination, ports, methods, path pattern), the effect (action plus the list of injected headers with credentials masked, reveal-on-click), and the list of agents the rule is attached to (each linking to the agent), with Attach/Detach controls. A private-destination rule additionally shows its upstream TLS settings and a line stating that attaching it grants the target access to the resource.
 
 **Create / Edit egress rule:**
 
 - **Name** (required).
-- **Matcher** — domain pattern (required; single-segment wildcards like `*.github.com`; reserved zones `*.agyn`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range are rejected inline); ports (defaults to `80, 443`); methods (multi-select — `GET`, `POST`, …; empty means any); path pattern (glob, e.g. `/repos/**`; empty means any). Domain pattern is unique per organization — the form rejects a duplicate with a clear message.
+- **Destination type** — radio: `Public` or `Private`. Chosen first, because it decides the next field. Fixed after creation; the edit form shows it read-only with a note to delete and recreate to repoint the rule.
+- **Destination** — for `Public`, a domain pattern (required; single-segment wildcards like `*.github.com`; reserved zones `*.agyn`, `*.svc`, `*.cluster.local`, and the `100.64.0.0/10` synthetic range are rejected inline) plus ports (defaults to `80, 443`). For `Private`, a resource picker listing the organization's `http` and `https` resources with their network and the hostname agents dial; `tcp` resources are shown disabled with the reason. Ports are not editable for a private destination — the resource's own ports are shown read-only. Destinations are not unique: a resource that already has rules shows how many, since several rules on one destination is how different agents get different credentials to it.
+- **Request narrowing** — methods (multi-select — `GET`, `POST`, …; empty means any); path pattern (glob, e.g. `/repos/**`; empty means any).
 - **Action** — selector: `None` (injection only), `Allow`, or `Deny`.
 - **Injected headers** — editable list of header rows. Each row has: header name (e.g., `Authorization`, `X-Api-Key`), a scheme selector (`None`, `Bearer`, `Basic`), and one credential source — either a literal value (masked, reveal-on-click) or a reference to an organization Secret (secret selector). Exactly one credential source per row. When a scheme is set, the row shows a preview of the emitted header (e.g., `Authorization: Bearer ••••`); for `Basic`, helper text notes the credential must be the base64 of `user:pass`. This editor follows the same masked key/value pattern as the LLM provider [Custom headers](#llm-providers-and-models) editor.
+- **Upstream TLS** — shown only for a private `https` destination, collapsed by default with a note that the defaults verify the target the same way a public destination is verified. Expands to: server name (placeholder shows the hostname agents dial), CA bundle (secret selector), and a skip-verification toggle that disables the CA bundle field and warns while on.
 - Saving requires at least Action or one injected header — a rule with neither is rejected.
+- **Saving the first rule on a private resource warns before it commits**: that resource's traffic moves onto the egress gateway and live connections to it reset, for every caller, not only this rule's.
 
-**Delete egress rule** — requires confirmation. Rejected if the rule is attached to any agent; the dialog lists the attached agents and prompts the user to detach first.
+**Delete egress rule** — requires confirmation. Rejected if the rule is attached to any agent; the dialog lists the attached agents and prompts the user to detach first. Deleting the last rule on a private resource carries the same connection-reset warning as creating the first.
 
-**Attaching to agents** — the same attachment is editable from both sides: the rule detail page (select from the organization's agents) and the agent detail page's [Egress Rules](#agents) section (select from the organization's rules). Attaching one rule to many agents — the common case for a shared credential-injection rule — is done from the rule detail page.
+**Attaching to agents** — the same attachment is editable from both sides: the rule detail page (select from the organization's agents) and the agent detail page's [Egress Rules](#agents) section (select from the organization's rules). Attaching one rule to many agents — the common case for a shared credential-injection rule — is done from the rule detail page. For a private-destination rule, the attach confirmation states that the agent or environment also gains access to the resource, and the detach confirmation states that it loses it.
 
 ### Users (Cluster Admin)
 

@@ -143,11 +143,14 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Egress Gateway: Conditions List per Rule
 
-**Context:** v1 enforces one `EgressRule` per `(organization, matcher.domain_pattern)`. The rule has a single matcher and a single effect. Operators who need "allow GET on *.github.com, deny POST/DELETE on *.github.com" cannot express it as two rules (uniqueness conflict) and cannot express it within one rule (single effect).
+**Context:** A rule has a single matcher and a single effect. The `(organization, matcher.domain_pattern)` uniqueness constraint is gone, so "allow GET on *.github.com, deny POST/DELETE on *.github.com" is now expressible as two rules — but for **public** destinations each rule still provisions its own OpenZiti service, and two services with the same `intercept.v1` address are ambiguous for any identity authorized to dial both. The record layer allows what the interception layer does not.
+
+Private destinations do not have this problem: a private-target rule provisions no interception of its own, so any number of them share the resource's single service and combine per [Multiple rules in scope](product/egress-gateway/egress-gateway.md#multiple-rules-in-scope).
 
 **Questions:**
-- Extend the rule schema with a `conditions: [{ matcher_clause, effect_clause }]` list, where the top-level `matcher` provides the OpenZiti intercept boundary (domain + ports) and each condition narrows by method/path with its own effect?
-- Or relax the uniqueness constraint and deduplicate at the OpenZiti-service layer (one Ziti service per unique domain, multiple rules share the service)?
+- Deduplicate at the OpenZiti-service layer for public targets — one Ziti service per unique `(domain_pattern, ports)`, shared by every rule that names it, with attachment Dial policies pointing at the shared service? This makes public targets behave the way private ones already do.
+- Or extend the rule schema with a `conditions: [{ matcher_clause, effect_clause }]` list, where the top-level `matcher` provides the intercept boundary and each condition narrows by method/path with its own effect?
+- Until one of those lands, should `CreateEgressRuleAttachment` reject attaching two public rules with overlapping interceptions to one target, the way it already rejects a rule colliding with a [private resource](architecture/private-networks.md#hostname-collisions)?
 
 ---
 
@@ -193,28 +196,6 @@ Unresolved product and architectural decisions requiring discussion.
 
 ---
 
-## Private Networks: Injection on Private Resources
-
-**Context:** [Private Networks](architecture/private-networks.md) and [EgressRule](architecture/egress-rules-service.md) are independent primitives in v1. An operator picks one or the other per destination. The intended longer-term design extends `EgressRule.matcher` to accept a `private_resource_id` reference; the PrivateResource's OpenZiti bind flips from `#network-<id>` to `#egress-gateway-hosts` when the first rule is attached, and a second OpenZiti service is provisioned that the gateway dials to deliver traffic to the tunnel.
-
-**Questions:**
-- Is the topology flip (bind switch on first rule attached, reverse on last rule removed) acceptable, given the brief reconnect of in-flight connections — same propagation behavior as existing EgressRule attachments?
-- Alternative: route all HTTP/HTTPS private resource traffic through the Egress Gateway by default (constant overhead, no flip). Worth the consistency cost?
-- Alternative: push injection into the agent's Ziti sidecar (per-workload config, no central choke point). Significantly more sidecar surface area; likely worth pursuing for other reasons too (local rate limiting, finer observability).
-- How does this compose with per-agent injection variance below — does a per-resource shared OpenZiti service simplify the model?
-
----
-
-## Private Networks: EgressRule and PrivateResource Hostname Conflicts
-
-**Context:** If an operator creates an EgressRule with `domain_pattern: <hostname>` and a PrivateResource with `intercept_host: <hostname>` in the same organization, the OpenZiti Controller rejects the second `CreateService` call due to intercept overlap. The error surfaces as whatever the Controller returns — no friendly cross-primitive validation in v1.
-
-**Questions:**
-- Should the [Networks service](architecture/networks-service.md) and [EgressRules service](architecture/egress-rules-service.md) cross-check on create and surface a structured error?
-- Should the conflict be detected at the resource layer (validate that no `intercept_host` matches an existing `EgressRule.matcher.domain_pattern` and vice versa)?
-
----
-
 ## Private Networks: Agent-Side Resource Discovery
 
 **Context:** Agents dial private resources by hostname blindly — the Ziti SDK only sees services it has Dial policy for, so unauthorized dials simply fail. Some agent workflows would benefit from enumerating accessible resources (e.g., "list databases I can reach").
@@ -228,10 +209,10 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Private Networks: Tracing and Metering for Resource Traffic
 
-**Context:** [EgressRule](architecture/egress-gateway.md#observability) traffic emits tracing spans (`egress.*` attributes) and metering records. Private resource traffic in v1 does not — OpenZiti circuit metadata is captured at the edge router but not exported as platform observability.
+**Context:** [EgressRule](architecture/egress-gateway.md#observability) traffic emits tracing spans (`egress.*` attributes) and metering records — including traffic to a private resource named by a rule, which passes through the gateway. Private resource traffic with no rule on it, and all `tcp` resource traffic, still emits nothing: OpenZiti circuit metadata is captured at the edge router but not exported as platform observability.
 
 **Questions:**
-- Should the platform emit a `private_resource.*` span per dialed connection? At which point in the path — Tunnel side? Agent sidecar? Egress Gateway (when in path)?
+- Should the platform emit a `private_resource.*` span per dialed connection for the paths the gateway never sees? At which point — Tunnel side, or agent sidecar?
 - What metering granularity makes sense — connection count, bytes transferred, per-resource aggregation?
 - Does audit logging belong here (who-dialed-what-when-from-where) or as a separate concern?
 
