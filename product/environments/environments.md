@@ -101,6 +101,14 @@ Everything in the first column applies to every workload running the environment
 
 Registry credentials are not among them. They belong to the [image](../images/images.md), are held by the platform, and are never delivered to a workload or its cluster — see [Images — How Images Are Pulled](../images/images.md#how-images-are-pulled).
 
+### Persistent shells
+
+**On by default.** A shell opened in a workload here belongs to the workload rather than to the connection that reached it: close the laptop, reload the page, come back from another machine, and the shell is still there with its work running. See [Sandboxes — Shells survive disconnection](../sandboxes/sandboxes.md#shells-survive-disconnection).
+
+Turn it off and a dropped connection ends the shell, as a dropped SSH connection does. Two reasons to: the multiplexer holding those shells costs memory inside the workload, which matters where the flavor is tight; and an image that ships its own multiplexer would end up running inside the platform's.
+
+It is an environment setting rather than something a person picks per connection because it decides what a stop destroys, and everyone working in one environment should get the same answer no matter which client they arrived through. Changing it applies to workloads started afterwards — a sandbox someone is currently working in is not reconfigured underneath them.
+
 ### Volumes
 
 A volume declares a mount: a name, a path, whether it persists, and — when it does — a size, a storage class, and an optional TTL.

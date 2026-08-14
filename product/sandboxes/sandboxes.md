@@ -131,6 +131,8 @@ The experience is SSH-parity — a real PTY with no platform-imposed limitations
 
 ### Shells survive disconnection
 
+**Where the environment says so.** Persistence is [an environment setting](../environments/environments.md#persistent-shells), on by default, and it governs every sandbox started in that environment. It is not something you pick per connection: it decides what stopping the sandbox destroys, and everyone working there should get the same answer. An environment with it off behaves as described below in reverse — a dropped connection ends the shell, and `nohup` is the price of leaving again.
+
 **A dropped connection does not end your work.** The shell and everything running in it belong to the sandbox, not to the connection: a closed laptop, a dropped network, a reloaded browser page, or a switch to another machine leaves it running, and reconnecting returns to it — same processes, same scrollback, redrawn at whatever size the new terminal is. `nohup` is no longer the price of leaving.
 
 **One connection at a time.** Attaching from somewhere else takes the shell over, and the connection that had it says so rather than going quiet. This is deliberate: it is what makes reconnecting immediate instead of waiting for the last connection to be given up on, and it means a shell always fits the screen actually looking at it.
