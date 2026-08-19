@@ -331,9 +331,18 @@ Spans reach the Tracing service directly from whatever produced them. Each produ
 
 | Producer | Emits |
 |----------|-------|
-| [Trace hook](#the-trace-hook) | `llm.call` and `tool.execution`, read from the agent CLI's session transcript |
-| [`agynd`](agynd-cli.md) | `invocation.message`, when it feeds an inbox item to the agent CLI |
+| [`agynd`](agynd-cli.md) | `invocation.message`, when it feeds an inbox item to the agent CLI. It also opens the trace the others write into |
+| [Trace hook](#the-trace-hook) | `llm.call` and `tool.execution`, reconstructed from the agent CLI's session transcript — for the CLIs that keep one |
+| [The agent CLI itself](#a-cli-that-exports-its-own-spans) | the same, exported directly, when the CLI is one the platform builds and can therefore be told where to send them |
 | Platform services | spans for the work a request passes through |
+
+Two of these produce the same spans by different means, and which applies is a
+property of the CLI rather than a choice. A third-party CLI exports what its
+author decided to export, so the platform reads its transcript instead; a CLI
+the platform builds emits the shape this service wants directly, and reading it
+back out of a file would be a detour. Both write into the trace `agynd` opened,
+and both are attributed the same way — the pod's Ziti sidecar carries the
+connection and the workload's identity authenticates it.
 
 ### The trace is the wake cycle
 
@@ -353,11 +362,15 @@ No producer asserts a thread. An instance serves an inbox drawn from many thread
 
 What an agent did is read from the **session transcript** the agent CLI writes, not from the telemetry it exports. `agynd` registers a hook on each CLI's turn completion; the hook reads that transcript and exports the reconstructed turn to the Tracing service.
 
-### Why not the CLI's own telemetry
+### Why not a third-party CLI's own telemetry
 
-An agent CLI's OTel export describes that a model call happened — endpoint, model, status, duration, token counts — and never what was said. Prompts appear as a length, streamed output as a chunk count, tool calls not at all. The span tree it produces describes the framework's internals: one span per streamed chunk, nested as deep as the call stack, answering no question the run view asks.
+A third-party agent CLI's OTel export describes that a model call happened — endpoint, model, status, duration, token counts — and never what was said. Prompts appear as a length, streamed output as a chunk count, tool calls not at all. The span tree it produces describes the framework's internals: one span per streamed chunk, nested as deep as the call stack, answering no question the run view asks.
 
 The transcript is the opposite. It is the record the CLI keeps in order to resume a session, so it holds the prompt, the assistant's reply, every tool call with its input and output, and the usage counts — the material this service exists to store.
+
+None of this is an argument against a CLI exporting spans, only against
+exporting *those* spans. A CLI the platform builds emits the shape described
+here directly — see [A CLI that exports its own spans](#a-cli-that-exports-its-own-spans).
 
 ### Hook contract
 
@@ -373,7 +386,28 @@ The hook is a single platform binary, shipped with [`agynd`](agynd-cli.md) and d
 |-----------|------|------------|
 | **Codex** | `Stop`, registered in `config.toml`; the rollout path arrives on stdin | rollout JSONL |
 | **Claude Code** | `Stop` and `SessionEnd`, registered in `~/.claude/settings.json` | conversation transcript |
-| **agn** | turn completion | session transcript |
+
+[agn](agn-cli.md) is absent deliberately — see below.
+
+### A CLI that exports its own spans
+
+`agn` is the platform's own CLI, so the argument for reading a transcript does
+not apply to it: nothing has to be reconstructed from a file when the process
+that did the work can describe it as it happens. It exports OTLP directly to the
+Tracing service, which is an OTLP collector, and emits the same `llm.call` and
+`tool.execution` spans the hook reconstructs for the others.
+
+`agynd` tells it where to send them. The orchestrator stamps
+`OTEL_EXPORTER_OTLP_ENDPOINT` on the workload alongside `TRACING_ADDRESS`, both
+naming `tracing.agyn`, and `agn` picks it up as any OTel process would. An
+endpoint that names nothing listening is worse than none at all: the exporter
+blocks the turn it is describing until it times out, and the turn's own work is
+delayed by a dependency the platform calls optional. Absent, `agn` runs with no
+exporter and simply produces no spans.
+
+What `agn` cannot derive on its own is the trace to write into. That is the wake
+cycle's, derived from `WORKLOAD_ID`, and it reaches `agn` the same way it reaches
+the hook — handed over by `agynd` at start.
 
 ### Turn shape
 
