@@ -32,12 +32,14 @@ The connector adds the configured agent **class** as a participant. The [class-o
 
 Each installation provides the following configuration:
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `bot_token` | string | Slack bot token (`xoxb-…`) |
-| `app_token` | string | Slack app-level token (`xapp-…`) used to open the Socket Mode connection |
-| `agent_id` | string (UUID) | Agent class to add as participant when creating threads |
-| `allowed_channels` | list of string | Optional. Slack channel IDs the connector will respond in. Empty or absent means every channel the bot is mentioned in |
+| Key | Type | Schema | Description |
+|-----|------|--------|-------------|
+| `bot_token` | string | secret | Slack bot token (`xoxb-…`) |
+| `app_token` | string | secret | Slack app-level token (`xapp-…`) used to open the Socket Mode connection |
+| `agent_id` | string (UUID) | `agent` reference | Agent class to add as participant when creating threads |
+| `allowed_channels` | list of string | list of strings | Optional. Slack channel IDs the connector will respond in. Empty or absent means every channel the bot is mentioned in |
+
+The connector [reports](../apps.md#reporting) these as a [configuration schema](../apps.md#configuration-schema) at startup. `allowed_channels` is optional and has no default — the schema says nothing about it beyond its type, and the connector's own "empty means every channel" rule is what an absent key means.
 
 Multiple installations are supported — each with its own token pair and `agent_id`. One Slack app corresponds to one bot user, so serving two agents from one workspace requires two Slack apps and two installations (e.g., `slack-oncall` and `slack-support`).
 

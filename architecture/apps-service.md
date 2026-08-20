@@ -12,16 +12,17 @@ The Apps Service manages apps and installations — the configuration entities t
 | **GetApp** | Get an app by ID |
 | **GetAppBySlug** | Get an app by owning organization ID + slug |
 | **ListApps** | List apps. Supports filtering by organization (own apps) and visibility (public apps) |
-| **UpdateApp** | Update an app (name, description, icon, visibility) |
+| **UpdateApp** | Update an app (name, description, icon, visibility). Does not accept a configuration schema — [the app reports that itself](apps.md#reporting) |
 | **DeleteApp** | Delete an app. Revokes the app's OpenZiti identity. Fails if active installations exist |
 | **GetAppProfile** | Get an app's display profile (name, icon, description). Used by [Chat](chat.md) to render app-originated messages |
-| **InstallApp** | Install an app into an organization. Creates the installation record, sets a default nickname (from the app's slug), and writes authorization tuples — one per [declared permission](apps.md#permissions) plus the [membership tuple](apps.md#organization-membership) every installation writes. Requires org ownership and that the app's visibility allows it |
-| **GetInstallation** | Get an installation by ID |
+| **InstallApp** | Install an app into an organization. [Validates the configuration](apps.md#validation) against the app's schema, creates the installation record, sets a default nickname (from the app's slug), and writes authorization tuples — one per [declared permission](apps.md#permissions) plus the [membership tuple](apps.md#organization-membership) every installation writes. Requires org ownership and that the app's visibility allows it |
+| **GetInstallation** | Get an installation by ID. `x-agyn-secret` properties are omitted from `configuration` and named in `secret_keys_set`, as on [every read path but one](apps.md#secret-values) |
 | **GetInstallationByIdentityId** | Get an installation by the app's `identity_id` within an organization. Used by the [Gateway](gateway.md) for [app proxy](gateway.md#app-proxy) routing after nickname resolution |
 | **ListInstallations** | List installations. Supports filtering by organization and by app |
-| **UpdateInstallation** | Update an installation (nickname, configuration) |
+| **UpdateInstallation** | Update an installation (nickname, configuration). The configuration is validated against the app's current schema. A `x-agyn-secret` property omitted from the submitted object keeps its stored value — the admin read path never returned it, so a round-trip cannot resubmit it |
 | **UninstallApp** | Delete an installation. Removes authorization tuples, membership included. Agent roles the app was granted are not removed — they are grants an agent owner made, and outlive an install/uninstall cycle |
-| **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation |
+| **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation. The only read path that returns `x-agyn-secret` values |
+| **ReportConfigurationSchema** | Replace the app's [configuration schema](apps.md#configuration-schema) with the reported document. Called by the app at startup and whenever its schema changes. Declarative — the stored schema is replaced wholesale. A document outside the [honored subset](apps.md#honored-subset), or one that is not [backward compatible](apps.md#compatibility) with the stored schema, is rejected whole and the stored schema is left as it was |
 | **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status. An empty or whitespace-only string clears the status (stores NULL) |
 | **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only. Accepts an optional `idempotency_key` (deduped server-side for 24h) to make client retries safe |
 | **ListInstallationAuditLogEntries** | List audit log entries for an installation. Paginated, newest first |
@@ -38,6 +39,8 @@ The Apps Service manages apps and installations — the configuration entities t
 | `icon` | string | Icon URL or identifier for UI display |
 | `visibility` | enum | `public`, `internal` |
 | `permissions` | list of string | Permissions the app requires (e.g., `["thread:create", "participant:add"]`). See [Apps — Permissions](apps.md#permissions) |
+| `configuration_schema` | JSON object | JSON Schema describing the app's [installation configuration](apps.md#configuration-schema). Reported by the app, not set through `CreateApp` or `UpdateApp`. Absent until the app first reports — installations made before that carry an unvalidated, opaque object |
+| `schema_reported_at` | timestamp | When the stored schema was last reported. NULL until the first report |
 | `identity_id` | string (UUID) | App's identity in the [Identity](identity.md) service |
 | `service_token_hash` | string | SHA-256 hash of the service token. Used for enrollment |
 | `created_at` | timestamp | Creation time |
@@ -50,10 +53,38 @@ The Apps Service manages apps and installations — the configuration entities t
 | `id` | string (UUID) | Unique installation identifier |
 | `app_id` | string (UUID) | Reference to the app |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
-| `configuration` | JSON object | App-specific configuration. Opaque to the platform |
+| `configuration` | JSON object | App-specific configuration. Validated against the app's `configuration_schema` on write; never interpreted by the service. `x-agyn-secret` properties are [omitted](apps.md#secret-values) on every read path except `GetInstallationConfiguration` |
+| `secret_keys_set` | list of string | Names of the `x-agyn-secret` properties that hold a value. Present on the read paths where those values are omitted; it is what a client shows as **Set** without being able to show the value |
 | `status` | string (markdown) | Current status reported by the app. Free text, rendered as markdown in the Console. Optional — absent until the app first calls `ReportInstallationStatus` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
+
+## Schema Compatibility
+
+A reported [configuration schema](apps.md#configuration-schema) is checked against the stored one before it replaces it, and is rejected if it would stop accepting a configuration the stored schema accepted. The rules are in [Apps — Compatibility](apps.md#compatibility); what the service does with them is one comparison and one query:
+
+| Check | Source |
+|-------|--------|
+| Property removal, type change, added `required`, narrowed constraint, changed `x-agyn-ref`, cleared `x-agyn-secret` | The stored schema alone |
+| Removal of a `deprecated` property | `CountInstallationsWithConfigurationKey(app_id, key)` across every installation of the app, in every organization |
+
+The second is the only compatibility check that reads installation data, and it is the reason the service can allow removals at all. The count is taken across organizations the reporting app cannot see, so the rejection names the count and not the organizations.
+
+A rejected report is not partially applied. An app whose new version reports one incompatible property keeps its entire previous schema, including the compatible changes in the same document — the report is the unit, as it is for a [runner catalog](runners.md#catalog-reporting).
+
+## Reference Validation
+
+An `x-agyn-ref` property in a [configuration schema](apps.md#agyn-keywords) names a platform entity, so validating one means asking the service that owns it. The Apps Service resolves each reference on `InstallApp` and `UpdateInstallation`:
+
+| Kind | Checked against |
+|------|-----------------|
+| `agent` | [Agents](agents-service.md) |
+| `environment` | [Agents](agents-service.md) |
+| `model` | [LLM](llm.md) |
+
+Each check confirms the entity exists **and** belongs to the installing organization — a UUID naming an agent in another organization fails the same way a nonexistent one does, and is reported the same way, because the difference between them is not something the installing admin is entitled to learn.
+
+A service that cannot be reached fails the write rather than storing an unvalidated reference. An installation is written once and read by the app for its whole life; a reference stored without a check is one the app discovers is wrong at runtime, in a place with no form to correct it.
 
 ## Installation Audit Log Entry Resource
 
@@ -104,6 +135,7 @@ sequenceDiagram
     Admin->>AS: InstallApp(app_id, organization_id, slug, configuration)
     AS->>AS: Validate: app visibility allows installation
     AS->>AS: Validate: slug unique within org
+    AS->>AS: Validate: configuration against app schema
     AS->>AS: Store installation record
     AS->>Auth: Write tuples for each app-declared permission
     AS-->>Admin: Installation record
@@ -112,9 +144,10 @@ sequenceDiagram
 1. Org admin calls `InstallApp` with the app ID, target organization, slug, and configuration.
 2. Apps Service validates that the app's visibility allows installation by this organization (`public` — any org; `internal` — owning org only).
 3. Apps Service validates slug uniqueness within the target organization.
-4. Apps Service stores the installation record.
-5. Apps Service writes authorization tuples for each permission the app declared — granting the app's identity those capabilities within the organization.
-6. Returns the installation record.
+4. Apps Service validates the configuration against the app's [configuration schema](apps.md#configuration-schema), resolving each `x-agyn-ref` property against the owning service to confirm the entity exists in the installing organization. Failures are returned per property.
+5. Apps Service stores the installation record.
+6. Apps Service writes authorization tuples for each permission the app declared — granting the app's identity those capabilities within the organization.
+7. Returns the installation record.
 
 ## Uninstall Flow
 

@@ -393,12 +393,35 @@ Apps installed into this organization. Each installation grants the app permissi
 
 **Installation list** — table of installations. Columns: app name, installation slug, app address (`{org-slug}/{app-slug}`), created date. Default sort: creation time, newest first.
 
-**Installation detail** — installation slug, app name and address, app description, permissions granted, configuration (JSON editor). Actions: update configuration, update slug, uninstall.
+**Installation detail** — installation slug, app name and address, app description, permissions granted, configuration. Actions: update configuration, update slug, uninstall.
 
+- **Configuration** — a form generated from the app's [configuration schema](#configuration-forms), populated with the installation's stored values. Apps that have reported no schema fall back to a JSON editor.
+- **Configuration mismatch** — when the stored configuration does not satisfy the app's current schema, the form is replaced by a notice naming the properties at fault and a JSON editor to repair it with. A schema is [not allowed to stop accepting](../../architecture/apps.md#compatibility) what it already accepted, so this is not a deploy catching up with an installation: it is configuration written before the app ever reported a schema, or a reference whose agent has since been deleted.
 - **Status** — if the app has reported a status, it is displayed as a markdown-rendered block at the top of the detail view. If no status has been reported, this section is hidden.
 - **Audit Log** — a table of events reported by the app. Columns: time, level (badge: info / warning / error), message. Newest first, paginated with "load more". If no entries exist, the section is hidden.
 
-**Install app** — search for available apps by name or address. The search returns public apps from any organization and internal apps from the current organization. Selecting an app shows its description and required permissions. The user sets the installation slug (defaults to the app's slug) and provides configuration (JSON). Submitting creates the installation and writes authorization tuples for the app's declared permissions.
+**Install app** — search for available apps by name or address. The search returns public apps from any organization and internal apps from the current organization. Selecting an app shows its description and required permissions. The user sets the installation slug (defaults to the app's slug) and fills in the app's [configuration form](#configuration-forms). Submitting creates the installation and writes authorization tuples for the app's declared permissions.
+
+##### Configuration Forms
+
+A running app [reports](../../architecture/apps.md#reporting) what configuration it needs as a schema, and the Console builds the install and update forms from it. Installing an app is answering labelled questions, not composing a JSON document against documentation held somewhere else.
+
+| Declared as | Shown as |
+|-------------|----------|
+| A string property | Text input, with the property's title as its label and its description as help text |
+| A string property with `enum` | Select |
+| A number or integer property | Numeric input, bounded by the declared minimum and maximum |
+| A boolean property | Toggle |
+| A list-of-strings property | Repeatable list of text inputs |
+| A property marked as a secret | Password input. A property the installation holds a value for reads as **Set**, with a Replace action; the value is never sent to the browser. Leaving it untouched keeps the stored value |
+| A property referencing a platform entity | Picker over that entity kind in the current organization — an agent reference is an agent picker, not a UUID field |
+| A property marked deprecated | Hidden when the installation has no value for it. Shown when it does, marked deprecated with its description as the reason, and clearable |
+
+A property the app no longer wants is deprecated, never removed — the app [cannot remove one](../../architecture/apps.md#deprecation) while any installation still carries it. So a deprecated property with a value is a job for the admin looking at it, and clearing it is what eventually lets the app drop it.
+
+Required properties are marked and block submission while empty. Declared defaults prefill. Constraints the schema states — pattern, length, range, format — are checked in the form before submission, and the server's per-property errors are attached to the inputs they name when it rejects anyway.
+
+An app reporting an empty schema says so: the form reads that the app needs no configuration. An app that has reported no schema at all gets a JSON editor, which is the only honest option when nothing describes what belongs in it.
 
 #### Published Apps
 
@@ -406,9 +429,11 @@ Apps created and owned by this organization. These apps can be installed by othe
 
 **App list** — table of apps owned by this organization. Columns: name, slug, visibility (`public` or `internal`), installation count (across all organizations), created date.
 
-**App detail** — name, slug, description, icon, visibility, declared permissions. List of installations of this app (across all organizations, showing org name and installation slug). Service token (shown once at creation, then masked). Actions: update name/description/icon/visibility, delete (only if no active installations exist).
+**App detail** — name, slug, description, icon, visibility, declared permissions, and the [configuration schema](../../architecture/apps.md#reporting) the app last reported, shown read-only with the time it was reported alongside a preview of the install form it produces. An app that has never reported one says so — it has never started. List of installations of this app (across all organizations, showing org name and installation slug). Service token (shown once at creation, then masked). Actions: update name/description/icon/visibility, delete (only if no active installations exist).
 
 **Create app** — name (required), slug (required, unique within the organization), description (optional), icon (optional), visibility (`public` or `internal`), permissions (multi-select from the permission vocabulary: `thread:create`, `thread:write`, `participant:add`). Returns the service token once.
+
+There is no configuration schema field. The app reports its own schema once it is running, so until then the app has no form and its installs use the JSON editor.
 
 ### LLM Providers and Models
 

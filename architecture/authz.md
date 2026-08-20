@@ -613,6 +613,7 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `GetInstallationByIdentityId` | Internal (Gateway app proxy hot path, authenticated) |
 | `UpdateInstallation`, `UninstallApp` | `owner` on `organization:<install_org_id>` |
 | `GetInstallationConfiguration` | App's own identity (`caller.identity_id == installation.app.identity_id`) |
+| `ReportConfigurationSchema` | App's own identity (`caller.identity_id == app.identity_id`). Scoped to the app, not to an installation — the schema is the app's |
 
 ### Tracing Service
 
