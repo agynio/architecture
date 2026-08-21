@@ -70,13 +70,13 @@ Threads stores identities, not classes. When a caller adds an agent class as a p
 
 ### MessageRecipient
 
-Tracks acknowledgment state for **user and app** participants. Created by `SendMessage` — one row per non-sender participant of type `user` or `app`. Agent-instance participants receive [inbox items](agent-instances.md#inbox) instead; see [Message Delivery](#message-delivery).
+Tracks **read state** for a participant on a thread — which messages that identity has consumed. Created by `SendMessage`, one row per non-sender participant, whatever its identity type. This is not delivery: delivery to an `agent_instance` participant is an [inbox item](agent-instances.md#inbox), and the two are independent. See [Message Delivery](#message-delivery).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `message_id` | string (UUID) | FK to Message |
 | `thread_id` | string (UUID) | Denormalized for query efficiency |
-| `participant_id` | string (UUID) | Recipient identity id (`user` or `app`) |
+| `participant_id` | string (UUID) | Recipient identity id (`user`, `app`, or `agent_instance`) |
 | `acked_at` | timestamp (nullable) | NULL = unacknowledged |
 
 Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
@@ -90,7 +90,15 @@ Index: `(participant_id, acked_at)` — supports the cross-thread unacked query.
 | `user`, `app` | Insert `MessageRecipient` row; publish `message.created` to `thread_participant:{participant_id}` |
 | `agent_instance` | Insert an [inbox item](agent-instances.md#inbox) on the instance's inbox with `source_kind=thread`; publish `message.created` to `instance_inbox:{instance_id}` |
 
-The two paths are mutually exclusive per participant. `GetUnackedMessages` / `AckMessages` remain the surface for `user` and `app` consumers; agent-instance consumers use `GetUnackedInboxItems` / `AckInboxItems` on the [Agents Service](agents-service.md) inbox API. Threads does not expose the inbox surface itself — it only writes into it during fan-out.
+Delivery and read state are separate concerns, and only delivery varies by identity type.
+
+**Delivery** is how a participant learns there is something to do. For a user or app that is the `MessageRecipient` row plus a notification; for an agent instance it is an inbox item plus a notification, because an instance's consumer is a runtime that must be woken, may not be running, and needs at-least-once redelivery. The two delivery paths are mutually exclusive: an instance gets no notification on `thread_participant:`, a user gets no inbox item.
+
+**Read state** is which messages an identity has consumed on this thread. It is a `MessageRecipient` row for every participant, instances included, and it is what `GetUnackedMessages`, `GetUnackedMessageCounts` and `AckMessages` read and write. One rule, no identity-type branch, and no caller needs to know how it was delivered.
+
+The row written for an instance is read state only. It gates nothing: redelivery, the Orchestrator's reconciliation set and the instance's lifecycle all key off the [inbox item's](agent-instances.md#inbox) `acked_at`, which Threads neither reads nor writes. An instance that never calls `AckMessages` simply accumulates rows nobody consults. Conversely `agynd` acking the inbox does not mark anything read — it processed the item; whether a reader has seen it is a different question.
+
+This is why [`agyn threads read --unread`](agyn-cli.md#unread-and-acknowledgment) is a thread command with no inbox in it. `--unread` asks what this identity has not read on this thread; the answer is in Threads for every caller.
 
 ## Class-on-Add Rewrite
 
@@ -137,9 +145,18 @@ Response items include every [Thread](#thread) field plus `message_count` (numbe
 
 ## Message Acknowledgment
 
-`GetMessages` is a read-only operation — it does not change acknowledgment state. `AckMessages` is a separate call where a participant explicitly marks messages as processed.
+`GetMessages` is a read-only operation — it does not change acknowledgment state. `AckMessages` is a separate call marking messages as consumed by the participant.
 
-This separation handles crash recovery: a consumer can read messages, process them, and only acknowledge after successful processing. If the consumer crashes before acknowledging, the messages remain unacknowledged and are returned by the next `GetUnackedMessages` call.
+**Who marks, and when.** The rule is the same for every participant type: *whatever hands a message to a reader marks it read, once it has done so successfully.* Acking is idempotent, so more than one hander is safe and the union is correct.
+
+| Participant | Marked by | At |
+|-------------|-----------|-----|
+| `user`, `app` | The client that fetched the messages — [`agyn threads read --unread`](agyn-cli.md#unread-and-acknowledgment), [Chat](chat.md), a pull-consumer app | After the fetch returns, or after the consumer has processed them |
+| `agent_instance` | [`agynd`](agynd-cli.md), for the thread messages it fed into a turn; and `agyn threads read --unread` for anything a shell in the turn fetched itself | Turn end for `agynd`, alongside its inbox ack; on return for the CLI |
+
+Nothing marks a message read merely by it arriving. That is why the messages that woke an agent are still unread while its turn runs — the agent can ask what is new, and `agynd` closes them out afterwards.
+
+This separation handles crash recovery: a consumer can read messages, process them, and only acknowledge after successful processing. If the consumer crashes before acknowledging, the messages remain unacknowledged and are returned by the next `GetUnackedMessages` call. For an instance the two recoveries line up — an interrupted turn leaves both its inbox items unacked and its messages unread.
 
 `GetUnackedMessages(participantId)` returns all unacknowledged messages for a participant across all threads. This enables consumers that participate in many threads (e.g., apps) to pull from a single endpoint.
 
@@ -215,7 +232,7 @@ When `SendMessage` is called with a `sender_id` whose `identity_type` is `app`:
 
 1. The sender is **not** required to be a thread participant.
 2. The message is created with the app's `sender_id`.
-3. Delivery rows are created for **all** thread participants (since the sender is not a participant, no participant is excluded) per the [Message Delivery](#message-delivery) rules — `MessageRecipient` for users/apps, inbox items for agent instances.
+3. Delivery and read-state rows are created for **all** thread participants (since the sender is not a participant, no participant is excluded) per the [Message Delivery](#message-delivery) rules — a `MessageRecipient` row for every participant, and an inbox item for each agent instance.
 4. Notifications are published to all participants' rooms.
 
 Authorization is checked via [OpenFGA](authz.md) — the app must have `thread:write` permission. For cluster-scoped apps, this permission covers all threads in the platform. See [Apps — Permissions](apps.md#permissions).

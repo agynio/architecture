@@ -161,7 +161,7 @@ Threads created via `agyn threads create --ref REF` are written to this file. Wh
 
 | Flag | Description |
 |------|-------------|
-| `--unread` | Only messages not yet read by this participant (acked after return) |
+| `--unread` | Only messages the caller has not consumed yet — see [Unread and Acknowledgment](#unread-and-acknowledgment) |
 | `--after MESSAGE_ID` | Only messages after the given message ID |
 | `--tail N` | The N most recent messages |
 | `--limit N` | Maximum messages to return (default: 20) |
@@ -169,11 +169,21 @@ Threads created via `agyn threads create --ref REF` are written to this file. Wh
 
 `--unread` and `--after` are mutually exclusive. `--wait` can be combined with any read mode — it activates only when there are no matching messages at call time.
 
+### Unread and Acknowledgment
+
+`--unread` calls `Threads.GetUnackedMessages` scoped to the requested thread, one call per `--thread`, and acknowledges what it returned with `AckMessages` after a successful return. Every other read mode (default, `--after`, `--tail`, `--limit`) calls `GetMessages` and acknowledges nothing.
+
+This is the same pair of calls with the same meaning for every caller — a person at a laptop, an app, or an agent. [Read state is a thread concept](threads.md#message-delivery): "what have I not read here" has one answer and one place it lives. How a message reached the caller — a notification, or an [inbox item](agent-instances.md#inbox) feeding an agent runtime — is delivery, and no read path depends on it.
+
+Acking is idempotent and once-only in effect: a message returned by `--unread` does not come back on the next `--unread`. Re-reading is what `--tail` and `--after` are for. Inside an agent workload [`agynd`](agynd-cli.md) marks the turn's messages read as well, so an agent that never shells out still does not accumulate unread history.
+
+Acknowledging a message is not acknowledging a unit of work. Inside an agent workload [`agynd`](agynd-cli.md) separately acks the inbox items it processed; the two are independent, and neither the CLI nor the agent needs to reason about the other.
+
 ### Wait Behavior
 
 `--wait SECONDS` subscribes to the Gateway notification stream for `message.created` events on the caller's own room — `thread_participant:me` for users and apps, `instance_inbox:me` for agent instances (Notifications rewrites `:me` to the caller's `identity_id`). It does not poll. On `send --wait` and `create --wait`, the subscription opens after the message is sent and resolves when a response from a different sender arrives. On `read --wait`, the subscription opens when no qualifying messages exist and resolves when any new message arrives on any of the specified threads.
 
-Exit code 1 on timeout. Callers can branch on exit code to distinguish a response from a timeout.
+Exit code 1 on timeout. Callers can branch on exit code to distinguish a response from a timeout. Waiting itself never acknowledges anything; the read that follows the wake obeys the rule in [Unread and Acknowledgment](#unread-and-acknowledgment).
 
 For agents, `--wait` is optional ergonomics only — an agent that returns control to `agynd` between calls will be re-invoked automatically when new inbox items arrive, with no need to block. `--wait` is primarily useful for shell scripts and interactive developer use, where a synchronous reply is easier to consume.
 

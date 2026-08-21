@@ -57,7 +57,7 @@ Inbox items:
 
 **Ordering.** Global FIFO by `accepted_at` across all sources. The instance processes items in acceptance order regardless of which thread they came from. Presentation to the LLM (interleaved vs. grouped) is an agent-implementation concern, not a platform contract.
 
-**Ack semantics.** Items are unacked until the owning workload calls `AckInboxItems`. Unacked items keep the instance in the Orchestrator's reconciliation set (a workload is running or will be started). See [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
+**Ack semantics.** Items are unacked until the owning workload calls `AckInboxItems`. This ack is about *processing*, and it is the workload's alone. It is unrelated to [thread read state](threads.md#message-delivery): `AckMessages` never touches an inbox item, and acking an inbox item marks nothing read. Unacked items keep the instance in the Orchestrator's reconciliation set (a workload is running or will be started). See [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for the subscribe/fetch/dedup sequence.
 
 **Ack timing.** The default ack point is **after the turn completes** — the agent has processed the item and posted any responses. A crash before ack means the items are redelivered to the next workload, which may duplicate side effects already performed; this at-least-once behavior is the platform contract. Wrappers that cannot observe turn boundaries in their agent CLI may instead ack once the item is durably accepted into the agent's local state (written to the state volume) — trading redelivery safety for compatibility. Never ack before the item is either processed or durably persisted.
 
@@ -95,10 +95,10 @@ On `SendMessage(thread_id, sender_id, body, files)`:
 
 1. Look up thread participants (excluding `sender_id`).
 2. For each participant, resolve identity type via [Identity](identity.md):
-   - `user`, `app` — create a [`MessageRecipient`](threads.md#messagerecipient) row as today. Notification to `thread_participant:{participant_id}`.
+   - `user`, `app` — notification to `thread_participant:{participant_id}`.
    - `agent_instance` — create an inbox item on the participant instance's inbox with `source_kind = thread`, `thread_id`, `message_id`, `sender_id`, `body`, `files`, `accepted_at = server time`. Notification to `instance_inbox:{instance_id}`.
 
-The two paths are mutually exclusive per participant. There is no double-write: an `agent_instance` participant does not get a `MessageRecipient` row; a `user`/`app` participant does not get an inbox item. Reads for the participant (unacked messages) go through the corresponding read API.
+Every non-sender participant also gets a [`MessageRecipient`](threads.md#messagerecipient) row, whatever its type. That row is [read state](threads.md#message-delivery), not delivery — it records what an identity has consumed on the thread and gates nothing. The delivery paths above are the part that is mutually exclusive: an instance is woken through its inbox and never through `thread_participant:`, and no user or app ever gets an inbox item.
 
 Cross-thread ordering is not guaranteed globally, only within a single inbox. A `SendMessage` on thread X at wall-clock time T and a `SendMessage` on thread Y at time T' > T are ordered `T` before `T'` inside any inbox that receives items from both.
 

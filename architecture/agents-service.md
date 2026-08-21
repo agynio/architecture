@@ -71,7 +71,7 @@ The object is the extension point for anything later creation paths need to repo
 | **AckInboxItems** | Acknowledge processed items. Self-only |
 | **GetUnackedInboxCount** | Count-only complement of `GetUnackedInboxItems`. Accepts an optional `thread_id` filter — used by [Chat](chat.md) to derive per-thread pending state, and by the Orchestrator's desired-state query without the filter |
 
-Fan-out from `Threads.SendMessage` uses an **internal-only** RPC (`FanoutInboxItem`) that bypasses the app permission check on `WriteInboxItem` — Threads is trusted to enforce thread participation before calling it. See [Authorization — Agents Service](authz.md#agents-service) (to be updated).
+Fan-out from `Threads.SendMessage` uses an **internal-only** RPC (`FanoutInboxItem`) that bypasses the app permission check on `WriteInboxItem` — Threads is trusted to enforce thread participation before calling it. Fan-out is the only direction: Threads writes items and never reads them back. What a thread participant has read is [Threads' own state](threads.md#message-delivery), not the inbox's. See [Authorization — Agents Service](authz.md#agents-service) (to be updated).
 
 ### Idle GC
 
