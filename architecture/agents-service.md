@@ -26,7 +26,7 @@ Defined in `agynio/api` at `proto/agynio/api/agents/v1/agents.proto`. Exposed ex
 | **Inbox Items** | Sub-resource of an instance. Written by Threads (fan-out from `SendMessage`) or by apps (direct writes). Read and acked by `agynd`. See [Agent Instances — Inbox](agent-instances.md#inbox) | Write (apps), List (self), Ack (self) |
 | **Volumes** | Mount declarations: name, mount path, persistence, size, storage class, TTL. Belong to an environment or an MCP. A definition, not a disk — see [Resource Definitions — Volume](resource-definitions.md#volume) | ✓ |
 | **MCPs** | MCP server definitions: [image](resource-definitions.md#image) reference + tag, command, compute resources, shared volume names. Belong to an environment or an agent | ✓ |
-| **Skills** | Reusable prompt fragments: name, body. Belong to an agent | ✓ |
+| **Skills** | Units of instruction an agent loads when it needs them: name, description, body. Belong to an agent. See [Resource Definitions — Skill](resource-definitions.md#skill) | ✓ |
 | **ENVs** | Environment variables: name, plain value or secret reference. Belong to an agent, MCP, or environment | ✓ |
 | **InitScripts** | Shell scripts for container initialization. Belong to an environment, agent, or MCP | ✓ |
 
@@ -313,7 +313,7 @@ The following resources are fetched before the agent CLI is spawned:
 | Resource | Method | Purpose |
 |----------|--------|---------|
 | Agent | `GetAgent` | Base configuration: model, environment, behavioral config |
-| Skills | `ListSkills(agent_id)` | Prompt fragments placed on the filesystem for the agent CLI |
+| Skills | `ListSkills(agent_id)` | Placed where the agent CLI discovers them — see [agynd — Skills](agynd-cli.md#skills) |
 | InitScripts | `ListInitScripts(environment_id)` then `ListInitScripts(agent_id)` | Shell scripts executed before the agent CLI is spawned, in that order |
 
 A [sandbox](../product/sandboxes/sandboxes.md) workload has no agent, so its `agynd` fetches the environment-scoped list only.

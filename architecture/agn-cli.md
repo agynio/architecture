@@ -278,7 +278,7 @@ tools:
 
 ### Platform vs local
 
-When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt (assembled from [skills](resource-definitions.md#skill)) are provided by the platform. It also writes MCP server entries under `mcp.servers`.
+When running inside the platform, [`agynd`](agynd-cli.md) writes this configuration before spawning `agn`. The LLM endpoint, credentials, and system prompt are provided by the platform; the prompt is the agent's own with the bodies of its [skills](resource-definitions.md#skill) appended, because `agn` has no skills feature to discover them with — see [agynd — Skills](agynd-cli.md#skills). It also writes MCP server entries under `mcp.servers`.
 
 When running locally, the developer writes `~/.agyn/agn/config.yaml` manually and lists MCP servers directly under `mcp.servers`. `agn exec` reads it on startup.
 

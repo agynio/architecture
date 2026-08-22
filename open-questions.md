@@ -33,7 +33,6 @@ Unresolved product and architectural decisions requiring discussion.
 **Context:** [`agn`](architecture/agn-cli.md) configuration lives in `~/.agyn/agn/config.yaml`. The minimal configuration (LLM endpoint, system prompt) is defined — see [agn Configuration](architecture/agn-cli.md#configuration). Remaining questions are about features not yet implemented.
 
 **Questions:**
-- What is the directory convention for skills on the filesystem?
 - What is the schema for state persistence backend selection? (Flag, config field, environment variable?)
 
 ---

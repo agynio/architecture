@@ -51,7 +51,7 @@ Before spawning the agent CLI, `agynd` fetches class configuration from the plat
 
 | Preparation | Description |
 |-------------|-------------|
-| **Skills** | Fetches skills via `ListSkills(agent_id)` and writes content to the filesystem in the directory structure expected by the agent CLI |
+| **Skills** | Fetches skills via `ListSkills(agent_id)` and puts each one where the agent CLI discovers it. See [Skills](#skills) |
 | **LLM endpoint** | Writes [LLM Proxy](llm-proxy.md) endpoint configuration into the agent CLI's config file so the agent CLI knows where to make model calls. See [LLM Endpoint Configuration](#llm-endpoint-configuration) |
 | **CLI first-run state** | Writes the agent CLI's own first-run state file — `~/.claude.json` for Claude Code — so the CLI starts into work rather than an interactive setup wizard. See [Agent CLI First-Run State](#agent-cli-first-run-state) |
 | **MCP tools** | Configures the agent CLI with [MCP](mcp.md) server endpoints (`localhost:<port>` per server) from the `AGENT_MCP_SERVERS` env var so the agent CLI connects to each MCP sidecar directly over streamable HTTP |
@@ -64,6 +64,26 @@ All user-defined environment variables — both plain-text values and resolved s
 This approach mirrors how tools like Claude Code and Codex CLI receive their configuration — through filesystem conventions and environment rather than a custom protocol.
 
 The configuration strategy per agent CLI (where skills are placed, how MCP servers are connected, what environment variables are set) is determined by the [Agent Init Container](agent-init.md) — the agent runtime image's `config.json` specifies which SDK module `agynd` uses. `agynd` itself ships with the platform and is injected by the `agynd-cli-init` container, so every workload runs the build matching the platform it is talking to.
+
+#### Skills
+
+A [skill](resource-definitions.md#skill) reaches an agent CLI as a directory named for the skill, holding a `SKILL.md`. Its YAML front matter carries the skill's `name` and `description`; everything below is the `body`. `agynd` writes the front matter — the stored body carries none, so a skill authored in the console is Markdown and nothing else.
+
+| SDK | Location |
+|-----|----------|
+| Claude Code | `~/.claude/skills/<name>/SKILL.md` |
+| Codex | `~/.agents/skills/<name>/SKILL.md` |
+| `agn` | No skills directory — see below |
+
+Codex still reads `$CODEX_HOME/skills` and marks it deprecated; the platform writes the location in the table, not the one being retired. Both paths resolve under the `HOME` `agynd` gives the agent process, so the CLI and the writer agree on where the directory is without either being told.
+
+Both CLIs take a skill's name from its directory and treat `description` as required — Codex refuses a `SKILL.md` without one, and neither CLI can trigger a skill it cannot describe. Their naming rules are looser than the platform's: the [Agents Service](resource-definitions.md#skill) constrains `name` to a slug so that one stored name is a legal directory for every CLI the platform supports, and so that what the platform stores is what the agent reads, with no normalization in between that could fold two skills into one directory.
+
+[`agn`](agn-cli.md) has no skills feature. Its skills go into the system prompt `agynd` writes into its config — bodies in creation order, after the agent's own system prompt — and nothing is written to a skills directory. Every skill is in context on every turn, which is what a CLI that cannot discover them costs.
+
+A skill that cannot be placed — a `name` that is not a slug, a name a previous skill already used, an empty `body` — is skipped and the reason printed to the container's stderr. Preparation continues: one malformed skill does not hold up the agent.
+
+Skills are read once, before the agent CLI is spawned. A skill created or edited afterwards reaches the agent on its next start.
 
 #### LLM Endpoint Configuration
 

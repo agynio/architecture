@@ -307,13 +307,16 @@ Environment variables, initialization scripts, and the sidecar's own volumes are
 
 ## Skill
 
-A named, reusable prompt fragment. When belonging to an agent, the agent runtime appends the skill body to the conversation context (e.g., as an additional system message). Skills allow composing agent behavior from modular pieces without editing the agent's core system prompt.
+A unit of instruction an agent loads when it needs it. The three fields are one contract: `name` identifies the skill, `description` states when it applies, and `body` is what the agent reads once it decides that it does. [`agynd`](agynd-cli.md#skills) places skills where the agent CLI discovers them.
+
+Description and body are read at different moments, which is what makes a skill cheaper than a longer system prompt. An agent CLI with a skills feature holds every skill's name and description and opens a body only when the description matches the work in front of it, so an unused skill costs one line. Where the CLI has no such feature, the bodies go into the system prompt and are in context on every turn.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `agent_id` | string (UUID) | | Reference to the [Agent](#agent) this skill belongs to |
-| `name` | string | | Skill name (unique within agent, max 64 chars) |
-| `body` | string | | Skill content — prompt text, instructions, or behavioral directives |
+| `name` | string | | Skill name. Unique within the agent. Max 64 characters, pattern: `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`. Used verbatim as the skill's directory name on the agent filesystem |
+| `description` | string | | When the skill applies. The only part of a skill a discovering CLI reads before opening the body, so it names the trigger rather than summarizing the content |
+| `body` | string | | The skill's instructions, as Markdown. Carries no front matter: the platform writes it |
 
 ---
 
