@@ -81,7 +81,7 @@ Both CLIs take a skill's name from its directory and treat `description` as requ
 
 [`agn`](agn-cli.md) has no skills feature. Its skills go into the system prompt `agynd` writes into its config — bodies in creation order, after the agent's own system prompt — and nothing is written to a skills directory. Every skill is in context on every turn, which is what a CLI that cannot discover them costs.
 
-A skill that cannot be placed — a `name` that is not a slug, a name a previous skill already used, an empty `body` — is skipped and the reason printed to the container's stderr. Preparation continues: one malformed skill does not hold up the agent.
+A skill that cannot be placed — a `name` that is not a slug, a name a previous skill already used, an empty `description` or `body` — is skipped and the reason printed to the container's stderr. Preparation continues: one malformed skill does not hold up the agent.
 
 Skills are read once, before the agent CLI is spawned. A skill created or edited afterwards reaches the agent on its next start.
 
