@@ -361,7 +361,7 @@ See [Apps — Permissions](apps.md#permissions) for the permission vocabulary.
 
 ## Tuple Lifecycle
 
-Services own the tuples for the resources they manage. Tuples are written and deleted synchronously with the state changes that drive them.
+Services own the tuples for the resources they manage. Tuple intent is recorded in the same transaction as the state change that drives it and delivered within the same request — see [Relationship Writes](#relationship-writes). A crash cannot separate a record from its tuples: whatever the transaction committed, delivery completes.
 
 | Event | Tuple written | Written by |
 |-------|---------------|-----------|
@@ -373,6 +373,9 @@ Services own the tuples for the resources they manage. Tuples are written and de
 | Agent created | `organization:<org_id>, org, agent:<id>`; `identity:<creator>, owner, agent:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, agent:<id>` | Agents |
 | Agent instance created | `agent:<class_id>, class, agent_instance:<id>`; `organization:<org_id>, org, agent_instance:<id>` | Agents |
 | Agent instance deleted (terminated) | Delete all tuples on `agent_instance:<id>` | Agents |
+| Environment created | `organization:<org_id>, org, environment:<id>`; `identity:<creator_id>, owner, environment:<id>`; if `availability=internal`: `organization:<org_id>, internal_access, environment:<id>` | Agents |
+| Environment availability flipped `private → internal` | `organization:<org_id>, internal_access, environment:<id>` | Agents |
+| Environment availability flipped `internal → private` | Delete `organization:<org_id>, internal_access, environment:<id>` | Agents |
 | Sandbox created | `organization:<org_id>, org, sandbox:<id>`; `identity:<creator_id>, owner, sandbox:<id>`; `identity:<id>, member, organization:<org_id>`; `identity:<id>, holder, sandbox:<id>`; `sandbox:<id>, sandbox, environment:<environment_id>` | Agents |
 | Sandbox shared / unshared | `identity:<target_id>, collaborator, sandbox:<id>` (or `group:<group_id>#member`), written on share and deleted on unshare | Agents |
 | Sandbox hard-purged (retention policy; not on soft-`terminated`) | Delete all tuples on `sandbox:<id>` | Agents |
@@ -730,7 +733,49 @@ If denied, the service returns a permission error. The identity is available in 
 
 ### Relationship Writes
 
-When state changes, the owning service writes relationship tuples through the Authorization service's `Write` method. `Write` supports atomic multi-tuple writes (adds and deletes in a single call).
+A record and its tuples live in different stores, and no transaction spans them. A service that wrote one and died before the other would leave either a record no check can reach or tuples pointing at nothing — so no service calls `Write` directly from a request path. Tuple intent is recorded in the service's own database, atomically with the state change that implies it, and delivered from there: the **authorization outbox**.
+
+Each tuple-writing service owns an outbox table:
+
+```sql
+CREATE TABLE authorization_outbox (
+    id           BIGSERIAL PRIMARY KEY,
+    object       TEXT        NOT NULL,  -- e.g. environment:<id>; the ordering key
+    writes       JSONB,                 -- tuple keys to write
+    deletes      JSONB,                 -- tuple keys to delete
+    purge        BOOLEAN     NOT NULL DEFAULT FALSE,  -- delete every tuple on object
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    delivered_at TIMESTAMPTZ
+);
+```
+
+#### Delivery
+
+1. **Enqueue.** The transaction that mutates the record inserts the outbox entry. Both commit or neither does.
+2. **Deliver in-request.** After commit, the request delivers its object's undelivered entries in `id` order through the Authorization service's `Write` method — atomic multi-tuple, adds and deletes in a single call — and marks them delivered. A caller that creates a resource and immediately checks it finds the tuples in place.
+3. **Sweep.** A background loop delivers entries a dead process stranded. It runs every few seconds; the interval bounds how long a stranded revocation stays undelivered.
+
+#### Ordering
+
+Entries are ordered per object, never globally: tuple operations on different objects commute, and a global order would let one failing delivery halt every delivery in the service. Within an object, entries deliver strictly in `id` order; an entry that cannot deliver blocks its own object's queue and nothing else, retrying with backoff.
+
+Deliverers — requests and the sweeper alike — contend through row locks (`FOR UPDATE SKIP LOCKED`, grouped by object): whichever holds an object's rows delivers them, and the other skips.
+
+#### Redelivery
+
+Delivery and its mark are separate writes, so a crash between them replays the entry. The processor treats OpenFGA's refusal of a write that already exists, or of a delete whose tuple does not exist, as delivered. An entry OpenFGA rejects as invalid against the model is a defect in the enqueuing code: it stays queued, blocks its object, and surfaces through the processor's metrics — never silently dropped.
+
+#### Purge
+
+Deleting a resource enqueues `purge`. Role grants exist only as tuples, so the service cannot enumerate at enqueue time everything its object carries; the processor reads the object's tuples and deletes what it finds.
+
+#### Backfill
+
+A repair that writes tuples for existing records is an `INSERT INTO authorization_outbox … SELECT …` — one transactional statement, delivered with the same ordering, batching, and retry as any other write. [Data migrations](operations/database-migrations.md#data-migrations) that touch tuples reduce to such inserts.
+
+#### Failure surface
+
+If the Authorization service is unreachable, state changes still commit and their tuples deliver when it returns: creation is durable, reachability is eventual. A newly created resource refuses every check until its entry delivers. A narrowing operation (unshare, availability to `private`) whose request died before delivering is revoked by the sweeper — the sweep interval is the bound on that delay.
 
 ## Model Deployment
 
