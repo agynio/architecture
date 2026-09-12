@@ -209,6 +209,8 @@ The `GetInstallationBySlug` lookup is cached in-memory with a short TTL. Install
 
 | Gateway Proto Service | Internal Service | Methods |
 |-----------------------|-----------------|---------|
-| `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, GetAppBySlug, ListApps, UpdateApp, DeleteApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp, ReportConfigurationSchema |
+| `AppsGateway` | [Apps Service](apps-service.md) | CreateApp, GetApp, GetAppBySlug, GetAppProfile, ListApps, UpdateApp, DeleteApp, EnrollApp, InstallApp, GetInstallation, GetInstallationBySlug, ListInstallations, UpdateInstallation, UninstallApp, GetInstallationConfiguration, ReportConfigurationSchema, ReportInstallationStatus, AppendInstallationAuditLogEntry, ListInstallationAuditLogEntries |
 | `ExposeGateway` | [Expose Service](expose-service.md) | AddExposure, RemoveExposure, ListExposures |
 | *(app proxy)* | *per-app via OpenZiti* | *pass-through* |
+
+The row mixes two audiences. `CreateApp` through `UninstallApp` are called by the Console on behalf of an org owner or cluster admin — see [Console — Gateway API Surface](console.md#gateway-api-surface). `EnrollApp`, `GetInstallationConfiguration`, `ReportConfigurationSchema`, `ReportInstallationStatus`, and the two audit log methods are called by the **app itself** over its own OpenZiti identity, and are authorized to that identity rather than to an organization role — see [Authorization — Apps Service](authz.md#apps-service). `GetInstallationByIdentityId` is absent deliberately: the Gateway calls it internally to resolve [app proxy](#app-proxy) routing and does not expose it.

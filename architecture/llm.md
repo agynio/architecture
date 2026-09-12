@@ -164,6 +164,7 @@ CRUD operations for subscriptions and their attachments. See [Providers, Models,
 | `DeleteSubscription` | Refused while any attachment exists; the error names them |
 | `CreateSubscriptionAttachment` | Attach to an agent or an environment (exactly one). Rejects a target in another organization, and rejects a second subscription for the same vendor on that target |
 | `DeleteSubscriptionAttachment` | Detach |
+| `ResolveModelExists(model_id, organization_id)` | Verify a model exists in that organization. Internal only — via Istio, no OpenFGA check. Used by [Apps](apps-service.md#reference-validation) to validate an `x-agyn-ref: model` property before it is persisted, the same shape as [`Secrets.ResolveSecretExists`](secrets.md#responsibilities) |
 | `ListSubscriptionAttachments` | Filterable by `subscription_id`, `agent_id`, or `environment_id`. Each entry carries the subscription's `vendor` and its [placeholder](providers.md#placeholder-delivery) — `placeholder_kind` (`env` or `file`) with the variable name or the file's contents template. That is everything the [Agents Orchestrator](agents-orchestrator.md#workload-spec-assembly) needs at assembly and everything [`agynd`](agynd-cli.md#native-mode-configuration) needs at startup, without either holding a vendor table of its own |
 | `CountSubscriptionsReferencingSecret` | **Internal only.** Called by the [Secrets](secrets.md) service before deleting a secret |
 

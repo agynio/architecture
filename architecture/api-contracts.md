@@ -20,14 +20,32 @@ Services **do not** commit generated schema code in their own repositories. They
 
 | Service | Proto Path |
 |---------|-----------|
-| Agents | `agynio/api/agents/v1/agents.proto` |
-| Runner | `agynio/api/runner/v1/runner.proto` |
-| Notifications | `agynio/api/notifications/v1/notifications.proto` |
-| Files | `agynio/api/files/v1/files.proto` |
-| Threads | `agynio/api/threads/v1/threads.proto` |
-| Chat | `agynio/api/chat/v1/chat.proto` |
-| Tracing | `agynio/api/tracing/v1/tracing.proto` |
-| Egress | `agynio/api/egress/v1/egress.proto` |
+| [Agents](agents-service.md) | `agynio/api/agents/v1/agents.proto` |
+| [Agent State](agent/state.md) | `agynio/api/agent_state/v1/agent_state.proto` |
+| [Apps](apps-service.md) | `agynio/api/apps/v1/apps.proto` |
+| [Authorization](authz.md) | `agynio/api/authorization/v1/authorization.proto` |
+| [Chat](chat.md) | `agynio/api/chat/v1/chat.proto` |
+| [Egress Rules](egress-rules-service.md) | `agynio/api/egress/v1/egress.proto` |
+| [Expose](expose-service.md) | `agynio/api/expose/v1/expose.proto` |
+| [Files](media.md) | `agynio/api/files/v1/files.proto` |
+| [Groups](groups-service.md) | `agynio/api/groups/v1/groups.proto` |
+| [Identity](identity.md) | `agynio/api/identity/v1/identity.proto` |
+| [Image Proxy](image-proxy.md) | `agynio/api/image_proxy/v1/image_proxy.proto` |
+| [Images](images-service.md) | `agynio/api/images/v1/images.proto` |
+| [LLM](llm.md) | `agynio/api/llm/v1/llm.proto` |
+| [Metering](metering.md) | `agynio/api/metering/v1/metering.proto` |
+| [Networks](networks-service.md) | `agynio/api/networks/v1/networks.proto` |
+| [Notifications](notifications.md) | `agynio/api/notifications/v1/notifications.proto` |
+| [Organizations](organizations.md) | `agynio/api/organizations/v1/organizations.proto` |
+| [Runner](runner.md) | `agynio/api/runner/v1/runner.proto` |
+| [Runners](runners.md) | `agynio/api/runners/v1/runners.proto` |
+| [Secrets](secrets.md) | `agynio/api/secrets/v1/secrets.proto` |
+| [Terminal Proxy](terminal-proxy.md) | `agynio/api/terminal_proxy/v1/terminal_proxy.proto` |
+| [Threads](threads.md) | `agynio/api/threads/v1/threads.proto` |
+| [Token Counting](token-counting.md) | `agynio/api/token_counting/v1/token_counting.proto` |
+| [Tracing](tracing.md) | `agynio/api/tracing/v1/tracing.proto` |
+| [Users](users.md) | `agynio/api/users/v1/users.proto` |
+| [Ziti Management](openziti.md) | `agynio/api/ziti_management/v1/ziti_management.proto` |
 
 ### Conventions
 
@@ -52,13 +70,26 @@ The external API is defined by **gateway proto services** in `agynio/api`. These
 | Gateway Service | Proto Path | Internal Service |
 |----------------|-----------|-----------------|
 | AgentsGateway | `agynio/api/gateway/v1/agents.proto` | [Agents](agents-service.md) |
-| ThreadsGateway | `agynio/api/gateway/v1/threads.proto` | [Threads](threads.md) |
+| AgentStateGateway | `agynio/api/gateway/v1/agent_state.proto` | [Agent State](agent/state.md) |
+| AppsGateway | `agynio/api/gateway/v1/apps.proto` | [Apps](apps-service.md) |
 | ChatGateway | `agynio/api/gateway/v1/chat.proto` | [Chat](chat.md) |
-| NotificationsGateway | `agynio/api/gateway/v1/notifications.proto` | [Notifications](notifications.md) |
-| FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
-| TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
-| SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |
 | EgressRulesGateway | `agynio/api/gateway/v1/egress.proto` | [EgressRules](egress-rules-service.md) |
+| ExposeGateway | `agynio/api/gateway/v1/expose.proto` | [Expose](expose-service.md) |
+| FilesGateway | `agynio/api/gateway/v1/files.proto` | [Files](media.md) |
+| GroupsGateway | `agynio/api/gateway/v1/groups.proto` | [Groups](groups-service.md) |
+| ImagesGateway | `agynio/api/gateway/v1/images.proto` | [Images](images-service.md) |
+| LLMGateway | `agynio/api/gateway/v1/llm.proto` | [LLM](llm.md) |
+| MeteringGateway | `agynio/api/gateway/v1/metering.proto` | [Metering](metering.md) |
+| NetworksGateway | `agynio/api/gateway/v1/networks.proto` | [Networks](networks-service.md) |
+| NotificationsGateway | `agynio/api/gateway/v1/notifications.proto` | [Notifications](notifications.md) |
+| OrganizationsGateway | `agynio/api/gateway/v1/organizations.proto` | [Organizations](organizations.md) |
+| RunnersGateway | `agynio/api/gateway/v1/runners.proto` | [Runners](runners.md) |
+| SecretsGateway | `agynio/api/gateway/v1/secrets.proto` | [Secrets](secrets.md) |
+| TerminalGateway | `agynio/api/gateway/v1/terminal.proto` | [Terminal Proxy](terminal-proxy.md) |
+| ThreadsGateway | `agynio/api/gateway/v1/threads.proto` | [Threads](threads.md) |
+| TokenCountingGateway | `agynio/api/gateway/v1/token_counting.proto` | [Token Counting](token-counting.md) |
+| TracingGateway | `agynio/api/gateway/v1/tracing.proto` | [Tracing](tracing.md) |
+| UsersGateway | `agynio/api/gateway/v1/users.proto` | [Users](users.md) |
 
 ### How It Works
 

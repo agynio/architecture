@@ -16,12 +16,12 @@ The Apps Service manages apps and installations — the configuration entities t
 | **DeleteApp** | Delete an app. Revokes the app's OpenZiti identity. Fails if active installations exist |
 | **GetAppProfile** | Get an app's display profile (name, icon, description). Used by [Chat](chat.md) to render app-originated messages |
 | **InstallApp** | Install an app into an organization. [Validates the configuration](apps.md#validation) against the app's schema, creates the installation record, sets a default nickname (from the app's slug), and writes authorization tuples — one per [declared permission](apps.md#permissions) plus the [membership tuple](apps.md#organization-membership) every installation writes. Requires org ownership and that the app's visibility allows it |
-| **GetInstallation** | Get an installation by ID. `x-agyn-secret` properties are omitted from `configuration` and named in `secret_keys_set`, as on [every read path but one](apps.md#secret-values) |
+| **GetInstallation** | Get an installation by ID |
 | **GetInstallationByIdentityId** | Get an installation by the app's `identity_id` within an organization. Used by the [Gateway](gateway.md) for [app proxy](gateway.md#app-proxy) routing after nickname resolution |
 | **ListInstallations** | List installations. Supports filtering by organization and by app |
-| **UpdateInstallation** | Update an installation (nickname, configuration). The configuration is validated against the app's current schema. A `x-agyn-secret` property omitted from the submitted object keeps its stored value — the admin read path never returned it, so a round-trip cannot resubmit it |
+| **UpdateInstallation** | Update an installation (nickname, configuration). The configuration is validated against the app's current schema and replaces the stored object |
 | **UninstallApp** | Delete an installation. Removes authorization tuples, membership included. Agent roles the app was granted are not removed — they are grants an agent owner made, and outlive an install/uninstall cycle |
-| **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation. The only read path that returns `x-agyn-secret` values |
+| **GetInstallationConfiguration** | Get the configuration for an installation. Called by the app to retrieve its configuration for a specific installation |
 | **ReportConfigurationSchema** | Replace the app's [configuration schema](apps.md#configuration-schema) with the reported document. Called by the app at startup and whenever its schema changes. Declarative — the stored schema is replaced wholesale. A document outside the [honored subset](apps.md#honored-subset), or one that is not [backward compatible](apps.md#compatibility) with the stored schema, is rejected whole and the stored schema is left as it was |
 | **ReportInstallationStatus** | Set the status text for an installation. Called by the app to report its current health or configuration state. Replaces any previously set status. An empty or whitespace-only string clears the status (stores NULL) |
 | **AppendInstallationAuditLogEntry** | Append an audit log entry for an installation. Called by the app to record a notable event. Entries are append-only. Accepts an optional `idempotency_key` (deduped server-side for 24h) to make client retries safe |
@@ -53,8 +53,7 @@ The Apps Service manages apps and installations — the configuration entities t
 | `id` | string (UUID) | Unique installation identifier |
 | `app_id` | string (UUID) | Reference to the app |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
-| `configuration` | JSON object | App-specific configuration. Validated against the app's `configuration_schema` on write; never interpreted by the service. `x-agyn-secret` properties are [omitted](apps.md#secret-values) on every read path except `GetInstallationConfiguration` |
-| `secret_keys_set` | list of string | Names of the `x-agyn-secret` properties that hold a value. Present on the read paths where those values are omitted; it is what a client shows as **Set** without being able to show the value |
+| `configuration` | JSON object | App-specific configuration. Validated against the app's `configuration_schema` on write; never interpreted by the service. Returned whole on every read path — [`x-agyn-secret` marks a property for masking, not redaction](apps.md#secret-values) |
 | `status` | string (markdown) | Current status reported by the app. Free text, rendered as markdown in the Console. Optional — absent until the app first calls `ReportInstallationStatus` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
@@ -76,11 +75,15 @@ A rejected report is not partially applied. An app whose new version reports one
 
 An `x-agyn-ref` property in a [configuration schema](apps.md#agyn-keywords) names a platform entity, so validating one means asking the service that owns it. The Apps Service resolves each reference on `InstallApp` and `UpdateInstallation`:
 
-| Kind | Checked against |
-|------|-----------------|
-| `agent` | [Agents](agents-service.md) |
-| `environment` | [Agents](agents-service.md) |
-| `model` | [LLM](llm.md) |
+| Kind | Method |
+|------|--------|
+| `agent` | `Agents.ResolveAgentExists(agent_id, organization_id)` |
+| `environment` | `Agents.ResolveEnvironmentExists(environment_id, organization_id)` |
+| `model` | `LLM.ResolveModelExists(model_id, organization_id)` |
+
+Each is a dedicated existence check rather than a `Get`, following [`Secrets.ResolveSecretExists`](secrets.md#responsibilities): the Apps Service calls as itself, on behalf of an admin whose own read permissions on the target are beside the point, and it needs one boolean rather than a record it would then have to be trusted not to leak. Each takes the organization so the check and the scoping are one call and cannot disagree.
+
+Neither direction is a dependency cycle. Apps calls out only on installation write; neither Agents nor LLM calls into Apps at all.
 
 Each check confirms the entity exists **and** belongs to the installing organization — a UUID naming an agent in another organization fails the same way a nonexistent one does, and is reported the same way, because the difference between them is not something the installing admin is entitled to learn.
 

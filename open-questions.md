@@ -67,12 +67,13 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Installation Configuration Secrets
 
-**Context:** [App installations](architecture/apps.md#configuration) store configuration as a JSON object. The app's [configuration schema](architecture/apps.md#agyn-keywords) marks which keys are sensitive, and a marked value is [returned only to the app](architecture/apps.md#secret-values) — but it is submitted in plain text and stored in plain text.
+**Context:** [App installations](architecture/apps.md#configuration) store configuration as a JSON object. The app's [configuration schema](architecture/apps.md#agyn-keywords) marks which keys are sensitive, but the marking is only a [display hint](architecture/apps.md#secret-values): the value is submitted, stored, and returned in plain text. A credential held properly would not live in the installation at all.
 
 **Questions:**
-- Should configuration values reference the [Secrets](architecture/secrets.md) service (similar to how agent ENVs can reference secrets)?
-- Should secret-marked values be encrypted at rest, or is the marking only a display and access-control concern?
-- If an installation may name a secret instead of carrying a value, does the org admin pick from the organization's secrets at install time — and what happens when the referenced secret is deleted while an app is running on it?
+- Should a sensitive value be a reference to a [Secret](architecture/secrets.md) rather than a value in the configuration object, the way an agent ENV already names one?
+- What does the Console offer at install time — a picker over the organization's existing secrets, an inline create, or both?
+- What happens when a referenced secret is deleted while an app is running on it? `DeleteSecret` already refuses when other resources reference it; does an installation join that list?
+- Does a schema declare that a property *must* be a reference, or may an app accept either a literal and a reference?
 
 ---
 

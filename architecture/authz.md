@@ -415,7 +415,7 @@ Reconciliation, metering, and workload assembly are internal-only paths gated by
 
 #### When a platform service does present an identity
 
-A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity-service.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Three paths need it:
+A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Three paths need it:
 
 | Callee | Why an identity is required |
 |--------|------------------------------|
@@ -617,6 +617,9 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `UpdateInstallation`, `UninstallApp` | `owner` on `organization:<install_org_id>` |
 | `GetInstallationConfiguration` | App's own identity (`caller.identity_id == installation.app.identity_id`) |
 | `ReportConfigurationSchema` | App's own identity (`caller.identity_id == app.identity_id`). Scoped to the app, not to an installation — the schema is the app's |
+| `ReportInstallationStatus`, `AppendInstallationAuditLogEntry` | App's own identity (`caller.identity_id == installation.app.identity_id`) |
+| `ListInstallationAuditLogEntries` | `member` on `organization:<install_org_id>` |
+| `EnrollApp` | App's service token — no OpenFGA check, as with [runner enrollment](runners.md#enrollment) |
 
 ### Tracing Service
 

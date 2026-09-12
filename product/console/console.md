@@ -413,7 +413,7 @@ A running app [reports](../../architecture/apps.md#reporting) what configuration
 | A number or integer property | Numeric input, bounded by the declared minimum and maximum |
 | A boolean property | Toggle |
 | A list-of-strings property | Repeatable list of text inputs |
-| A property marked as a secret | Password input. A property the installation holds a value for reads as **Set**, with a Replace action; the value is never sent to the browser. Leaving it untouched keeps the stored value |
+| A property marked as a secret | Password input with a reveal, so a token stays off a screen share. The value is sent to the browser like any other — the platform does not withhold it, and the form does not pretend otherwise |
 | A property referencing a platform entity | Picker over that entity kind in the current organization — an agent reference is an agent picker, not a UUID field |
 | A property marked deprecated | Hidden when the installation has no value for it. Shown when it does, marked deprecated with its description as the reason, and clearable |
 

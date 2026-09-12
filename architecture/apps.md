@@ -112,7 +112,7 @@ Two extension keywords carry what plain JSON Schema cannot express. Both apply t
 
 | Keyword | Meaning |
 |---------|---------|
-| `x-agyn-secret: true` | The value is a credential. The Console renders a write-only field, and read APIs [redact it](#secret-values) |
+| `x-agyn-secret: true` | The value is a credential. The Console [masks the field](#secret-values) behind a reveal. The platform stores and returns it like any other value — the marker is a display hint, not protection |
 | `x-agyn-ref: <kind>` | The value is the UUID of a platform entity in the **installing** organization. The Console renders a picker; the Apps Service validates that the entity exists and belongs to that organization |
 
 `x-agyn-ref` kinds are `agent`, `environment`, and `model`. The vocabulary is closed — each kind costs the Console a picker and the Apps Service a cross-service existence check, so it grows by platform change rather than by an app naming a kind nobody implements.
@@ -184,15 +184,12 @@ The first report has nothing to compare against and is accepted as written.
 | Removing a property from `required` | Allowed |
 | Widening a constraint — lower `minimum` / `minLength` / `minItems`, higher `maximum` / `maxLength` / `maxItems`, dropping a `pattern` or `format`, adding `enum` values | Allowed |
 | Changing `title`, `description`, or `default` | Allowed |
-| Marking a property `x-agyn-secret` that was not | Allowed |
 | **Removing a property** | Rejected — [deprecate it](#deprecation) |
 | **Changing a property's `type`**, or an array's `items.type` | Rejected |
 | **Adding a property to `required`** | Rejected |
 | **Narrowing a constraint** — the inverse of every widening above, including removing `enum` values | Rejected |
 | **Changing or adding `x-agyn-ref`** | Rejected — an agent UUID is not a model UUID, and a plain string is not required to name anything |
-| **Clearing `x-agyn-secret` from a property that had it** | Rejected |
-
-Clearing `x-agyn-secret` breaks nothing a validator would notice, which is why it is worth naming: it takes values every installation submitted as credentials and exposes them on the [admin read path](#secret-values). A deploy is not an acceptable way to disclose a token that was collected under a promise it would not be readable.
+| Setting or clearing `x-agyn-secret` | Allowed — it changes how a client draws the field, nothing about what validates |
 
 There is no override and no force flag. An app that needs a genuinely incompatible shape publishes a second app.
 
@@ -281,11 +278,11 @@ A property's `default` prefills the form. The platform does not inject defaults 
 
 #### Secret Values
 
-A property marked `x-agyn-secret` is returned only to the app. `GetInstallationConfiguration`, which the app calls for its own installations, is the sole read path that returns the value. **Every other method that returns an installation** — `GetInstallation`, `GetInstallationBySlug`, `ListInstallations`, `GetInstallationByIdentityId` — omits the property from `configuration` entirely and reports its name in `secret_keys_set` instead. The rule is on the installation message rather than on a list of methods, so a read path added later redacts without being told to. An admin can replace a bot token and cannot read one back out of the browser.
+A property marked `x-agyn-secret` is **masked in the Console, not withheld by the platform**. The value is submitted in plain text, stored in plain text, and returned on every read path like any other property. The marker asks a client to keep it off the screen by default — a password input with a reveal — which keeps a token out of a screen share and buys nothing else.
 
-**The key is omitted, not masked.** A placeholder in the value's position is a value: a client that reads an installation, edits one field, and writes the object back would submit the placeholder as the credential. Omission makes that round-trip correct instead of destructive, because an omitted secret property is exactly what [`UpdateInstallation` treats as "keep what is stored"](apps-service.md#api). It also keeps `configuration` honest about its own types — `bot_token` is a string or it is not there, never a string in one direction and an object in the other. `secret_keys_set` is what a form or a plan reads to say **Set** next to a field it cannot show.
+The platform deliberately does not redact it. Omitting the value from admin reads while the same value sits in plain text in the database, on the wire on every write, and in the app's own fetch is a claim the platform cannot keep, and the appearance costs more than it is worth: a redaction rule on every read path, a merge-on-write rule so a round-trip does not erase the value, and an app lookup on every installation read to know which keys to hide. A marker that is honestly a display hint needs none of it.
 
-Writing is unchanged: the value is submitted in plain text on install or update. See [Open Questions — Installation Configuration Secrets](../open-questions.md#installation-configuration-secrets) for how these values are held at rest.
+Holding a credential properly means not storing it in the installation at all — naming a [Secret](secrets.md) the installation refers to, so the value lives in the service built for it. See [Open Questions — Installation Configuration Secrets](../open-questions.md#installation-configuration-secrets).
 
 #### Schema Changes
 
