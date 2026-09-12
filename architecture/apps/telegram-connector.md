@@ -22,10 +22,10 @@ Each installation provides the following configuration:
 
 | Key | Type | Schema | Description |
 |-----|------|--------|-------------|
-| `bot_token` | string | secret | Telegram Bot API token (from @BotFather) |
+| `bot_token` | string | `password` format | Telegram Bot API token (from @BotFather) |
 | `agent_id` | string (UUID) | `agent` reference | Agent to add as participant when creating threads |
 
-Both keys are required. The connector [reports](../apps.md#reporting) them as a [configuration schema](../apps.md#configuration-schema) at startup, so an org admin installing it picks an agent from a list and types the token into a field that never reads it back — see [Apps — Configuration Schema](../apps.md#example) for the document.
+Both keys are required. The connector [reports](../apps.md#reporting) them as a [configuration schema](../apps.md#configuration-schema) at startup, so an org admin installing it picks an agent from a list and types the token into a field drawn obscured — see [Apps — Configuration Schema](../apps.md#example) for the document.
 
 Multiple installations are supported — each with its own `bot_token` and `agent_id`. This allows one organization to run multiple bots (e.g., `telegram-support` and `telegram-sales`) from a single connector deployment.
 

@@ -67,7 +67,7 @@ Unresolved product and architectural decisions requiring discussion.
 
 ## Installation Configuration Secrets
 
-**Context:** [App installations](architecture/apps.md#configuration) store configuration as a JSON object. The app's [configuration schema](architecture/apps.md#agyn-keywords) marks which keys are sensitive, but the marking is only a [display hint](architecture/apps.md#secret-values): the value is submitted, stored, and returned in plain text. A credential held properly would not live in the installation at all.
+**Context:** [App installations](architecture/apps.md#configuration) store configuration as a JSON object, and the platform has [no way to hold a credential in one](architecture/apps.md#secret-values): the value is submitted, stored, and returned in plain text. `format: password` only draws the field obscured. The keyword `x-agyn-secret` is reserved for the property that will name a Secret, and rejected until this is designed.
 
 **Questions:**
 - Should a sensitive value be a reference to a [Secret](architecture/secrets.md) rather than a value in the configuration object, the way an agent ENV already names one?

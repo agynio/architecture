@@ -95,12 +95,14 @@ The platform honors a fixed subset of JSON Schema. The root is `type: object` wi
 
 | Property `type` | Rendered as |
 |-----------------|-------------|
-| `string` | Text input — password input when [`x-agyn-secret`](#agyn-keywords), picker when [`x-agyn-ref`](#agyn-keywords), select when `enum` is present |
+| `string` | Text input — obscured when `format` is `password`, picker when [`x-agyn-ref`](#agyn-keywords), select when `enum` is present |
 | `integer`, `number` | Numeric input, bounded by `minimum` / `maximum` |
 | `boolean` | Toggle |
 | `array` with `items: {type: string}` | Repeatable string list |
 
-Honored keywords: `title`, `description`, `default`, `deprecated`, `enum`, `pattern`, `format` (`uri`, `email`, `uuid`), `minLength`, `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems` on properties; `properties` and `required` at the root.
+Honored keywords: `title`, `description`, `default`, `deprecated`, `enum`, `pattern`, `format` (`uri`, `email`, `uuid`, `password`), `minLength`, `maxLength`, `minimum`, `maximum`, `minItems`, `maxItems` on properties; `properties` and `required` at the root.
+
+`format: password` is the one format that constrains nothing. It says how a client should draw the field — obscured, with a reveal — so a token stays off a screen share. Every other format rejects values that do not match it.
 
 Everything else is **rejected when the schema is reported** — nested objects, `oneOf` / `anyOf` / `allOf` / `not`, `$ref`, `patternProperties`, tuple-form `items`, and any type not in the table. A keyword the form cannot render describes configuration no form can produce, so the schema would validate values the Console has no way to collect. Rejecting at report time puts the error in front of the app author, who can fix it, rather than the installing admin, who cannot.
 
@@ -108,16 +110,17 @@ Undeclared keys are not accepted. The root behaves as `additionalProperties: fal
 
 #### Agyn Keywords
 
-Two extension keywords carry what plain JSON Schema cannot express. Both apply to `string` properties only.
+One extension keyword carries what plain JSON Schema cannot express. It applies to `string` properties only.
 
 | Keyword | Meaning |
 |---------|---------|
-| `x-agyn-secret: true` | The value is a credential. The Console [masks the field](#secret-values) behind a reveal. The platform stores and returns it like any other value — the marker is a display hint, not protection |
 | `x-agyn-ref: <kind>` | The value is the UUID of a platform entity in the **installing** organization. The Console renders a picker; the Apps Service validates that the entity exists and belongs to that organization |
 
 `x-agyn-ref` kinds are `agent`, `environment`, and `model`. The vocabulary is closed — each kind costs the Console a picker and the Apps Service a cross-service existence check, so it grows by platform change rather than by an app naming a kind nobody implements.
 
 A schema declaring `x-agyn-ref: agent` is why installing the [Telegram Connector](apps/telegram-connector.md) means choosing an agent from a list instead of pasting a UUID copied from another browser tab.
+
+**`x-agyn-secret` is reserved and rejected.** It is the name for a property that will [name a Secret rather than carry a value](#secret-values), and that design does not exist yet. A schema using it is refused at report time, naming `format: password` as the way to mask a field — so no app adopts the keyword meaning something weaker and has to be migrated when it comes to mean something real.
 
 #### Example
 
@@ -131,7 +134,7 @@ The [Telegram Connector](apps/telegram-connector.md#configuration) reports:
       "type": "string",
       "title": "Bot token",
       "description": "Telegram Bot API token from @BotFather",
-      "x-agyn-secret": true
+      "format": "password"
     },
     "agent_id": {
       "type": "string",
@@ -187,9 +190,9 @@ The first report has nothing to compare against and is accepted as written.
 | **Removing a property** | Rejected — [deprecate it](#deprecation) |
 | **Changing a property's `type`**, or an array's `items.type` | Rejected |
 | **Adding a property to `required`** | Rejected |
-| **Narrowing a constraint** — the inverse of every widening above, including removing `enum` values | Rejected |
+| **Narrowing a constraint** — the inverse of every widening above, including removing `enum` values, and gaining a validating `format` | Rejected |
 | **Changing or adding `x-agyn-ref`** | Rejected — an agent UUID is not a model UUID, and a plain string is not required to name anything |
-| Setting or clearing `x-agyn-secret` | Allowed — it changes how a client draws the field, nothing about what validates |
+| Setting or clearing `format: password` | Allowed — it changes how a client draws the field, nothing about what validates |
 
 There is no override and no force flag. An app that needs a genuinely incompatible shape publishes a second app.
 
@@ -278,11 +281,11 @@ A property's `default` prefills the form. The platform does not inject defaults 
 
 #### Secret Values
 
-A property marked `x-agyn-secret` is **masked in the Console, not withheld by the platform**. The value is submitted in plain text, stored in plain text, and returned on every read path like any other property. The marker asks a client to keep it off the screen by default — a password input with a reveal — which keeps a token out of a screen share and buys nothing else.
+**The platform has no way to hold a credential for an installation.** A value in `configuration` is submitted in plain text, stored in plain text, and returned on every read path. `format: password` draws the field obscured, which keeps a token off a screen share and claims nothing else.
 
-The platform deliberately does not redact it. Omitting the value from admin reads while the same value sits in plain text in the database, on the wire on every write, and in the app's own fetch is a claim the platform cannot keep, and the appearance costs more than it is worth: a redaction rule on every read path, a merge-on-write rule so a round-trip does not erase the value, and an app lookup on every installation read to know which keys to hide. A marker that is honestly a display hint needs none of it.
+The platform deliberately does not redact such a value. Omitting it from admin reads while the same value sits unprotected in the database, on the wire on every write, and in the app's own fetch is a claim it cannot keep — and an appearance of protection in a credential path is worse than none, because everyone downstream assumes a guarantee that is not there.
 
-Holding a credential properly means not storing it in the installation at all — naming a [Secret](secrets.md) the installation refers to, so the value lives in the service built for it. See [Open Questions — Installation Configuration Secrets](../open-questions.md#installation-configuration-secrets).
+Holding one properly means not storing it on the installation at all: the property names a [Secret](secrets.md), the way an agent ENV already does, and the value lives in the service built for it. [`x-agyn-secret`](#agyn-keywords) is reserved for that property and rejected until it exists. See [Open Questions — Installation Configuration Secrets](../open-questions.md#installation-configuration-secrets).
 
 #### Schema Changes
 

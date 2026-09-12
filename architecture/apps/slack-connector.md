@@ -34,8 +34,8 @@ Each installation provides the following configuration:
 
 | Key | Type | Schema | Description |
 |-----|------|--------|-------------|
-| `bot_token` | string | secret | Slack bot token (`xoxb-…`) |
-| `app_token` | string | secret | Slack app-level token (`xapp-…`) used to open the Socket Mode connection |
+| `bot_token` | string | `password` format | Slack bot token (`xoxb-…`) |
+| `app_token` | string | `password` format | Slack app-level token (`xapp-…`) used to open the Socket Mode connection |
 | `agent_id` | string (UUID) | `agent` reference | Agent class to add as participant when creating threads |
 | `allowed_channels` | list of string | list of strings | Optional. Slack channel IDs the connector will respond in. Empty or absent means every channel the bot is mentioned in |
 

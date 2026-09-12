@@ -53,7 +53,7 @@ The Apps Service manages apps and installations — the configuration entities t
 | `id` | string (UUID) | Unique installation identifier |
 | `app_id` | string (UUID) | Reference to the app |
 | `organization_id` | string (UUID) | The organization this installation belongs to |
-| `configuration` | JSON object | App-specific configuration. Validated against the app's `configuration_schema` on write; never interpreted by the service. Returned whole on every read path — [`x-agyn-secret` marks a property for masking, not redaction](apps.md#secret-values) |
+| `configuration` | JSON object | App-specific configuration. Validated against the app's `configuration_schema` on write; never interpreted by the service. Returned whole on every read path — the platform [cannot hold a credential for an installation](apps.md#secret-values) and does not pretend to |
 | `status` | string (markdown) | Current status reported by the app. Free text, rendered as markdown in the Console. Optional — absent until the app first calls `ReportInstallationStatus` |
 | `created_at` | timestamp | Creation time |
 | `updated_at` | timestamp | Last modification time |
@@ -64,7 +64,7 @@ A reported [configuration schema](apps.md#configuration-schema) is checked again
 
 | Check | Source |
 |-------|--------|
-| Property removal, type change, added `required`, narrowed constraint, changed `x-agyn-ref`, cleared `x-agyn-secret` | The stored schema alone |
+| Property removal, type change, added `required`, narrowed constraint, changed `x-agyn-ref` | The stored schema alone |
 | Removal of a `deprecated` property | `CountInstallationsWithConfigurationKey(app_id, key)` across every installation of the app, in every organization |
 
 The second is the only compatibility check that reads installation data, and it is the reason the service can allow removals at all. The count is taken across organizations the reporting app cannot see, so the rejection names the count and not the organizations.
