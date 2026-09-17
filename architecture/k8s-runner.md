@@ -25,17 +25,22 @@ catalog:
     - name: small
       default: true
       resources:
-        requests_cpu: "500m"
-        requests_memory: "1Gi"
-        limits_cpu: "1"
-        limits_memory: "2Gi"
+        requestsCpu: "500m"
+        requestsMemory: "1Gi"
+        limitsCpu: "1"
+        limitsMemory: "2Gi"
+      sidecarResources:
+        requestsCpu: "100m"
+        requestsMemory: "128Mi"
+        limitsCpu: "500m"
+        limitsMemory: "256Mi"
     - name: large
       resources:
-        requests_cpu: "2"
-        requests_memory: "8Gi"
-        limits_cpu: "4"
-        limits_memory: "16Gi"
-  storage_classes:
+        requestsCpu: "2"
+        requestsMemory: "8Gi"
+        limitsCpu: "4"
+        limitsMemory: "16Gi"
+  storageClasses:
     - name: standard
       default: true
       # storageClassName omitted — cluster default StorageClass
@@ -43,6 +48,14 @@ catalog:
       storageClassName: premium-rwo
   capabilities: [docker]
 ```
+
+A flavor sizes the whole workload: `resources` is what the main container runs
+with, `sidecarResources` what each of its MCP sidecars does. Both live on the
+one entry because a workload asks for a size, not a per-container budget — the
+platform names a flavor and never sees a request or a limit. `sidecarResources`
+is optional; a flavor without it leaves sidecars unsized. Declaring only part
+of either block is rejected at startup, since half a budget is a typo rather
+than a choice.
 
 Each `storage_classes` entry maps a platform-visible class name to a Kubernetes `storageClassName`; omitting the mapping uses the cluster's default StorageClass. The mapping is k8s-runner-internal — the platform only ever sees the entry names. Advertised `capabilities` must be implementable by the runner's [capability configuration](#capability-implementations).
 
@@ -85,8 +98,14 @@ When `StartWorkload` is called, the k8s-runner:
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
 2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
 3. Creates a Kubernetes Secret containing all [`inline_files`](runner.md#inline-files) (one Secret per workload), with one data key per file.
-4. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, resource requests/limits, `imagePullSecrets`, and labels.
-5. Creates the Pod via the Kubernetes API.
+4. Resolves the workload's [`flavor`](runner.md#startworkload) against its own [catalog](#runner-catalog). A name the catalog does not hold fails the start with `unknown_flavor` rather than silently producing an unsized Pod; a workload naming no flavor is left unsized, which is what a caller predating flavors sends.
+5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, `imagePullSecrets`, and labels. The resolved flavor sizes the main container from `resources` and each sidecar from `sidecarResources`; init containers are left unsized, so the Pod's request is the flavor rather than the flavor plus its bootstrap.
+6. Creates the Pod via the Kubernetes API.
+
+Kubernetes has no pod-level resource field the runner can rely on — it is alpha
+in 1.33 and gated off — so one flavor is spread across containers here. That
+spread is the runner's own business: the wire carries a name, and a runner
+backed by something other than Kubernetes is free to mean something else by it.
 
 The pod includes a label (`agyn.dev/managed-by: agents-orchestrator`) that the workload-namespace [Workload Egress NetworkPolicy](#workload-egress-networkpolicy) selects on. The runtime does not create or manage that NetworkPolicy — it is installed as part of the runner deployment.
 

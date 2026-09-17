@@ -85,6 +85,7 @@ A workload consists of:
 - **Volumes** — ephemeral or named (persistent), mounted into containers. A named volume carries a `storage_class` — the name of an entry from the runner's [reported catalog](runners.md#runner-catalog), resolved by the Orchestrator before `StartWorkload`; the runner maps it to its backing storage implementation.
 - **Image pull credentials** — a single credential for the [image proxy](image-proxy.md), minted per workload by the Orchestrator and valid only while that workload exists. Every image in a spec that came from the [catalog](../product/images/images.md) resolves to the same proxy host, so one credential covers the whole workload. The Runner never receives an upstream registry address or an organization's registry credential.
 - **Inline files** — small files materialized into specific paths inside listed containers. See [Inline Files](#inline-files).
+- **Flavor** — the name of a compute entry from the runner's [reported catalog](runners.md#runner-catalog), naming the size the whole workload runs at. The spec carries the name and nothing else: what a flavor allocates, and how that allocation is spread across the workload's containers, is the runner's own business. A name the runner's catalog does not hold fails the start; a spec naming no flavor leaves the workload unsized.
 
 ## Inline Files
 
