@@ -91,6 +91,8 @@ A [Flavor](resource-definitions.md#flavor) is a named compute size (CPU/memory r
 
 A flavor entry may be marked `deprecated` — a soft signal surfaced in Console and CLI pickers; deprecated flavors still resolve and schedule. Removing an entry from the runner's configuration removes it from the catalog on the next report; environments referencing the removed name become unschedulable and are flagged in the Console. Renaming an entry is a removal plus an addition.
 
+The resolved name travels to the runner on [`StartWorkload`](runner.md#workload-spec) and the runner allocates against it — the platform passes a name, never requests and limits. That is what lets a flavor mean CPU and memory on the [k8s-runner](k8s-runner.md#pod-construction) and mean something else on a runner backed by something other than Kubernetes, without the platform learning the difference. It is also why the catalog is declared next to the implementation rather than through an API: only the runner can honour the entry it advertises.
+
 ### Storage Classes
 
 A [Storage Class](resource-definitions.md#storage-class) is a named storage tier offered by a specific runner. What backs a class is runner-internal — the k8s-runner maps each entry to a Kubernetes StorageClass in its configuration; other runners may map classes to whatever their storage layer provides.
