@@ -99,7 +99,7 @@ When `StartWorkload` is called, the k8s-runner:
 2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
 3. Creates a Kubernetes Secret containing all [`inline_files`](runner.md#inline-files) (one Secret per workload), with one data key per file.
 4. Resolves the workload's [`flavor`](runner.md#startworkload) against its own [catalog](#runner-catalog). A name the catalog does not hold fails the start with `unknown_flavor` rather than silently producing an unsized Pod; a workload naming no flavor is left unsized, which is what a caller predating flavors sends.
-5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, `imagePullSecrets`, and labels. The resolved flavor sizes the main container from `resources` and each sidecar from `sidecarResources`; init containers are left unsized, so the Pod's request is the flavor rather than the flavor plus its bootstrap.
+5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, `imagePullSecrets`, labels, and the [workload PriorityClass](#workload-priority). The resolved flavor sizes the main container from `resources` and each sidecar from `sidecarResources`; init containers are left unsized, so the Pod's request is the flavor rather than the flavor plus its bootstrap.
 6. Creates the Pod via the Kubernetes API.
 
 Kubernetes has no pod-level resource field the runner can rely on — it is alpha
@@ -112,6 +112,15 @@ The pod includes a label (`agyn.dev/managed-by: agents-orchestrator`) that the w
 Init containers run before the main and sidecar containers and can populate shared volumes (for example, `/agyn`).
 
 The Pod's `restartPolicy` is `Never` — the Agents Orchestrator owns lifecycle decisions. If a container crashes, the Runner reports the failure; it does not restart the Pod.
+
+### Workload Priority
+
+Workload Pods run in a PriorityClass installed with the runner deployment (`agyn-workload`, value `-1`), which the runner names on every Pod it creates. Everything else in the cluster — the platform, its overlay network, ingress — keeps the default priority `0`, so workloads are the one tier that gives way when nodes are full:
+
+- a platform Pod restarting onto a full node preempts workloads instead of waiting behind them;
+- under node pressure the kubelet evicts workloads before platform Pods.
+
+Without it, workloads and the platform tie at `0`: a node filled with workloads can hold a restarting runner Pending, and with the runner down nothing stops the idle workloads that would free the room. A preempted workload is reported lost like any other and the Agents Orchestrator starts it again on its usual [backoff](agents-orchestrator.md#start-decision).
 
 ### PersistentVolumeClaims
 
