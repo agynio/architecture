@@ -192,7 +192,7 @@ The Terminal Proxy is the component that knows whether a session is attached, so
 - On every TTY session detach, the proxy sets `last_session_at` on the [Sandbox](resource-definitions.md#sandbox) via an internal Agents service RPC (display/bookkeeping only — idle enforcement uses workload activity, so there is no need to detect the "final" detach). `SYNC` sessions do not update it, for the same reason they do not touch the workload.
 - A crashed proxy replica needs no cleanup protocol: its sessions' touches simply stop, and the idle clock starts running from the last touch.
 
-Agent workloads get no activity touches from terminal sessions — inspecting an agent container does not keep it alive, and the orchestrator may stop it mid-session (the session ends with `reason: cancelled`).
+TTY sessions attached to an **agent** workload touch it the same way. A touch flips the workload's `agent_state` back to `processing`, which is what holds [hibernation](agents-orchestrator.md#hibernation) off: an agent that finished its turn would otherwise be frozen under the person inspecting it. Once the last session detaches, the [activity sweep](runners.md#agent-activity-sweep) returns the workload to `idle` after the keepalive grace and it sleeps then. The same touches postpone the agent's idle timeout — an attached terminal keeps an agent workload awake exactly as it keeps a sandbox awake — and `SYNC` sessions touch neither kind.
 
 ## Authorization
 

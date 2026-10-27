@@ -160,6 +160,7 @@ On a runner that advertises the `hibernate` [capability](runners.md#runner-catal
 **When to hibernate.** The main loop considers a `running` agent-instance workload when it wakes on `workload.updated` carrying `agent_state=idle` — which [`agynd` reports](agynd-cli.md#7-turn-boundary) the moment a turn ends — and on every tick. It hibernates when all of these hold:
 
 - the hosting runner advertises `hibernate`;
+- the workload's `agent_state` is `idle` — the agent reported its turn over, or the sweep found it quiet, and nothing has touched it since. A [terminal session](terminal-proxy.md#sandbox-activity-reporting) attached to the workload touches it, so a person inspecting an agent is never frozen mid-session;
 - the class's [`hibernate`](resource-definitions.md#agent) is on, and `now - last_activity_at >= hibernate_after`;
 - the instance has no unacked inbox items (`Agents.GetInstance` → `unacked_count == 0`), checked immediately before the runner call;
 - the workload has no active [port exposure](expose-service.md). An exposed port is a standing request to be reachable, and a frozen guest is not; the workload stays awake until the exposure is removed, and `idle_timeout` governs it meanwhile as it does on a runner that cannot hibernate.

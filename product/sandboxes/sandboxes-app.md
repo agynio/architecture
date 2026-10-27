@@ -54,7 +54,7 @@ Each card shows:
 |---------|-------------|
 | Name | The sandbox name, with a status indicator — `starting`, `running`, `hibernated`, `stopped`, `failed` |
 | Environment | The environment it runs, linked. The only configuration a sandbox has, and the one identifying fact besides its name |
-| Stops in | Time remaining on the [idle timeout](sandboxes.md#lifecycle), counting down while nothing is attached. Absent while a session is attached — an attached sandbox is never idle — and absent when stopped |
+| Stops in | Time remaining on the [idle timeout](sandboxes.md#lifecycle), counting down while nothing is attached. Reads *Sleeps in* on a runner that can [hibernate](../../architecture/vm-runner.md#hibernate), since what happens at zero is a sleep there. Absent while a session is attached — an attached sandbox is never idle — and absent when stopped or asleep |
 | Expires in | Time remaining on the TTL. Always shown: it applies in every state, including stopped |
 | Storage warning | Present when the environment declares no persistent volume: nothing in this sandbox survives a stop. See [Storage](sandboxes.md#storage) |
 | Owner | On shared cards only — who owns the sandbox |
