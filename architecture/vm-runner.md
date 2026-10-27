@@ -197,7 +197,7 @@ sequenceDiagram
     participant S as Slot supervisor
     participant ST as Snapshot store
 
-    O->>R: HibernateWorkload(instance_id)
+    O->>R: HibernateWorkload(workloadId)
     R->>S: Hibernate
     S->>S: Pause VM; snapshot memory and VM state; flush disk deltas
     S->>ST: Upload memory, state and deltas under the workload's key
@@ -223,7 +223,7 @@ sequenceDiagram
     participant ST as Snapshot store
     participant G as Guest
 
-    O->>R: WakeWorkload(instance_id, image_pull_credentials)
+    O->>R: WakeWorkload(workloadId, image_pull_credentials)
     R->>R: Prefer the slot still caching this snapshot; else any idle slot of the flavor
     R->>S: Wake
     S->>ST: Fetch VM state; map memory and deltas for on-demand fetch

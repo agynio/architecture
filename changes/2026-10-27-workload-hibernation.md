@@ -25,7 +25,7 @@ Desired state:
 | **Runners service** | The three statuses on the workload record, with `hibernated_at`, `woken_at` and `snapshot_size_bytes`; the `waking → running` transition carrying its resets; `ReportWorkloadIdle`, the turn-boundary report that flips `agent_state` without waiting for the sweep; `wake_failed` and `snapshot_lost` failure reasons; `pending_sample` covering hibernation tails and snapshot storage; `hibernate` as an advertised capability the Orchestrator reads |
 | **Agents Orchestrator** | The hibernation decision — turn ended, inbox empty, runner capable, `hibernate_after` elapsed — and the wake path in the Start Decision; hibernation TTL enforcement; identity kept across sleep and pull credential revoked and re-minted; reconciliation rows for the three statuses; compute metering that ends at `hibernated_at` and resumes at the wake, with snapshot storage billed in between; the sandbox layout snapshot taken before hibernation too |
 | **agynd** | `ReportWorkloadIdle` after each turn's ack; `SIGCONT` as the wake cue to resubscribe and refetch the inbox |
-| **Agent class** | `hibernate_after` (default `0s`) and `hibernation_ttl` (default seven days) beside `idle_timeout`, which becomes the stop of last resort on a capable runner |
+| **Agent class** | `hibernate` (default on), `hibernate_after` (default `0s`) and `hibernation_ttl` (default seven days) beside `idle_timeout`, which becomes the stop of last resort on a capable runner |
 | **Sandboxes** | `hibernated` as a sandbox status; idle timeout hibernates where the runner can; `EnsureSandboxRunning` wakes |
 | **Chat** | `activity_status` understands the three statuses |
 

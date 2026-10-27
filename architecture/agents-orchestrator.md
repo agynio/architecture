@@ -160,8 +160,9 @@ On a runner that advertises the `hibernate` [capability](runners.md#runner-catal
 **When to hibernate.** The main loop considers a `running` agent-instance workload when it wakes on `workload.updated` carrying `agent_state=idle` — which [`agynd` reports](agynd-cli.md#7-turn-boundary) the moment a turn ends — and on every tick. It hibernates when all of these hold:
 
 - the hosting runner advertises `hibernate`;
-- the class's [`hibernate_after`](resource-definitions.md#agent) is not `null`, and `now - last_activity_at >= hibernate_after`;
-- the instance has no unacked inbox items (`Agents.GetInstance` → `unacked_count == 0`), checked immediately before the runner call.
+- the class's [`hibernate`](resource-definitions.md#agent) is on, and `now - last_activity_at >= hibernate_after`;
+- the instance has no unacked inbox items (`Agents.GetInstance` → `unacked_count == 0`), checked immediately before the runner call;
+- the workload has no active [port exposure](expose-service.md). An exposed port is a standing request to be reachable, and a frozen guest is not; the workload stays awake until the exposure is removed, and `idle_timeout` governs it meanwhile as it does on a runner that cannot hibernate.
 
 A sandbox workload is considered when its `idle_timeout` has elapsed since `last_activity_at` — the point at which the k8s-runner path would stop it — and is hibernated instead; nothing is attached to it by definition.
 
@@ -169,7 +170,7 @@ The inbox check is a check, not a lock: an item can land between it and the runn
 
 **When to wake.** The [Start Decision](#start-decision) wakes rather than starts: an instance with unacked items whose live workload is `hibernated` gets `WakeWorkload`, and the wake is complete when the runner reports `running`. A `hibernating` workload is left to finish — a hibernation is not interrupted, and the wake that follows is still far cheaper than a cold start — and a `waking` one is already on its way. `EnsureSandboxRunning` wakes a `hibernated` sandbox the same way.
 
-**Hibernation TTL.** A hibernated workload is stopped — persisted state discarded, volumes kept — once `now - hibernated_at` exceeds the class's [`hibernation_ttl`](resource-definitions.md#agent), checked each tick like the idle timeout. A sandbox's sleep is bounded by the sandbox's own `ttl`, which terminates it regardless of state. Stopping a hibernated workload goes through the [stop flow](#agent-stop-flow): `StopWorkload` discards the persisted state, the identity is deleted, and no layout snapshot is attempted — a frozen container cannot be read, which is why the snapshot is taken [before hibernation](#layout-snapshot-before-stop) instead.
+**Hibernation TTL.** A hibernated workload is stopped — persisted state discarded, volumes kept — once `now - hibernated_at` exceeds the class's [`hibernation_ttl`](resource-definitions.md#agent), checked each tick like the idle timeout, and whenever its instance is paused or terminated, since nothing will ever wake it. A sandbox's sleep is bounded by the sandbox's own `ttl`, which terminates it regardless of state. Stopping a hibernated workload goes through the [stop flow](#agent-stop-flow): `StopWorkload` discards the persisted state, the identity is deleted, and no layout snapshot is attempted — a frozen container cannot be read, which is why the snapshot is taken [before hibernation](#layout-snapshot-before-stop) instead.
 
 **What hibernation keeps, and what it revokes.** The workload record stays live — `status=hibernated`, `removed_at` NULL — so it still precludes a second workload for the instance and keeps the owner's [volume TTL](#volume-reconciliation) clock stopped. The OpenZiti identity is kept: the guest holds its enrolled certificate, the sidecar reconnects on wake, and [identity reconciliation](#openziti-identity-reconciliation) counts hibernated workloads as live. Port exposures and their policies stay, since they hang off the identity. The image pull credential is **revoked** on hibernation and a fresh one minted on wake — nothing pulls while frozen, and a credential valid for the days a workload may sleep would be the one grant to outlive its activity.
 
@@ -314,7 +315,7 @@ sequenceDiagram
     participant IP as Image Proxy
 
     O->>RS: UpdateWorkload(status=hibernating)
-    O->>R: HibernateWorkload(instance_id)
+    O->>R: HibernateWorkload(workloadId)
     R->>RS: ReportWorkloadState(hibernated, snapshot size)
     R-->>O: OK
     O->>IP: RevokePullCredential(workloadId)
@@ -332,7 +333,7 @@ sequenceDiagram
     O->>IP: MintPullCredential(workload, images)
     IP-->>O: Username + password
     O->>RS: UpdateWorkload(status=waking)
-    O->>R: WakeWorkload(instance_id, image_pull_credentials)
+    O->>R: WakeWorkload(workloadId, image_pull_credentials)
     R->>RS: ReportWorkloadState(running)
     R-->>O: OK
 ```
