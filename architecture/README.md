@@ -56,6 +56,7 @@ Desired architecture state of the platform.
 - [Runners](runners.md)
 - [Runner](runner.md)
 - [k8s-runner](k8s-runner.md)
+- [vm-runner](vm-runner.md)
 - [Agent Init Container](agent-init.md)
 - [Terminal Proxy](terminal-proxy.md)
 - [Sandbox Workspace Sync](sandbox-sync.md)

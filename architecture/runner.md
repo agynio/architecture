@@ -4,7 +4,7 @@
 
 The Runner executes workloads (agent containers, workspace containers, sidecars). It is a **data plane** service — it does not decide what to run, it executes what it is told.
 
-The current implementation is the [`k8s-runner`](k8s-runner.md), which translates workload operations into Kubernetes API calls.
+Two implementations exist: the [`k8s-runner`](k8s-runner.md), which translates workload operations into Kubernetes API calls, one Pod per workload; and the [`vm-runner`](vm-runner.md), which runs each workload as a microVM in a pool of slot Pods and can hibernate it between turns.
 
 ## gRPC API
 
@@ -15,10 +15,14 @@ Defined in `agynio/api` at `proto/agynio/api/runner/v1/runner.proto`.
 | RPC | Description |
 |-----|-------------|
 | `StartWorkload` | Start a workload. The spec includes labels with the Orchestrator-generated `workload_key` and per-volume `volume_key`s. Returns a runner-assigned `instance_id` |
-| `StopWorkload` | Stop a running workload |
+| `StopWorkload` | Stop a running or hibernated workload. For a hibernated one this discards its persisted state; persistent volumes are untouched either way |
+| `HibernateWorkload` | Pause a running workload and persist its complete state — memory, ephemeral and persistent disks — so that `WakeWorkload` can resume it later, then release the compute it occupied. Returns once the state is durable. Only runners advertising the `hibernate` [capability](runners.md#runner-catalog) implement it; others return `Unimplemented` |
+| `WakeWorkload` | Resume a hibernated workload where it left off, on whatever compute the runner chooses. Carries a fresh image pull credential, since the one the workload started with was revoked when it went to sleep. Returns once the workload is running again |
 | `RemoveWorkload` | Remove a workload and optionally its volumes |
 | `InspectWorkload` | Inspect workload state (id, image, labels, mounts, status) |
 | `TouchWorkload` | Update last-used timestamp (TTL keepalive) |
+
+A workload's `status`, as the runner reports it on `InspectWorkload`, `ListWorkloads` and [`ReportWorkloadState`](runners.md#runner-reported-workload-state), is one of `starting`, `running`, `hibernating`, `hibernated`, `waking`, `stopping`, `stopped`, `failed`. A runner that cannot hibernate never reports the three sleeping values.
 
 ### Query
 

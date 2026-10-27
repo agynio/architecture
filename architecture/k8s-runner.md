@@ -98,7 +98,7 @@ When `StartWorkload` is called, the k8s-runner:
 1. Creates any PersistentVolumeClaims required by persistent volumes (if they don't already exist).
 2. Creates Kubernetes Secrets for image pull credentials (if any). See [Image Pull Credentials](#image-pull-credentials).
 3. Creates a Kubernetes Secret containing all [`inline_files`](runner.md#inline-files) (one Secret per workload), with one data key per file.
-4. Resolves the workload's [`flavor`](runner.md#startworkload) against its own [catalog](#runner-catalog). A name the catalog does not hold fails the start with `unknown_flavor` rather than silently producing an unsized Pod; a workload naming no flavor is left unsized, which is what a caller predating flavors sends.
+4. Resolves the workload's [`flavor`](runner.md#workload-model) against its own [catalog](#runner-catalog). A name the catalog does not hold fails the start with `unknown_flavor` rather than silently producing an unsized Pod; a workload naming no flavor is left unsized, which is what a caller predating flavors sends.
 5. Builds a Pod spec with init containers (if any), main + sidecars, volume mounts (including a projected volume backed by the inline-files Secret, with per-container mount paths), environment variables, `imagePullSecrets`, labels, and the [workload PriorityClass](#workload-priority). The resolved flavor sizes the main container from `resources` and each sidecar from `sidecarResources`; init containers are left unsized, so the Pod's request is the flavor rather than the flavor plus its bootstrap.
 6. Creates the Pod via the Kubernetes API.
 
@@ -234,6 +234,8 @@ Runs the entire pod inside a lightweight microVM (Firecracker or QEMU). The DinD
 | **k3d on Mac** | Does not work (`/dev/kvm` not available via Docker Desktop) |
 
 Strongest isolation guarantee. Also improves isolation for all other containers in the pod, not just the DinD sidecar — each pod gets its own kernel, so kernel CVEs in one pod cannot affect another. Higher per-pod overhead (~100–200ms startup, ~50–100MB RAM per VM).
+
+Isolation only. The VM belongs to Kata's shim, not to the runner, so a Pod on `kata-fc` cannot be paused, snapshotted or moved — it idles at full cost and is stopped like any other Pod. Where that matters, the [vm-runner](vm-runner.md) runs the same kind of microVM under the platform's own control and [hibernates](vm-runner.md#hibernate) it between turns.
 
 ---
 

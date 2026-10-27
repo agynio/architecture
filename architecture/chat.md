@@ -90,6 +90,8 @@ For each [agent-instance](agent-instances.md) participant on the chat's thread, 
 | `status=running` and `agent_state=processing` | `running` (agent is currently producing output — see [Runners — Agent Activity Sweep](runners.md#agent-activity-sweep)) |
 | `status=running` and `agent_state=idle` | `finished` (container is up but the agent has been quiet beyond the keepalive grace; the orchestrator will stop it after `idle_timeout`) |
 | `status=starting` | `pending` |
+| `status=waking` | `pending` (a [hibernated](agents-orchestrator.md#hibernation) workload is being resumed because something arrived for it) |
+| `status=hibernating` or `status=hibernated` | `finished` (the agent is asleep between turns; the next message wakes it, which the chat sees as `waking`) |
 | `status=stopping` | `pending` (the orchestrator is in the middle of stopping; treated as still active) |
 | `status=failed` and the instance is `active` | `pending` (orchestrator will retry per [Start Decision](agents-orchestrator.md#start-decision)) |
 | `status=failed` and the instance is `paused` | `finished` (retries exhausted — the instance was paused; see [Agent Instances — Lifecycle](agent-instances.md#lifecycle)) |
@@ -111,7 +113,7 @@ Implementation: Chat issues `Runners.ListWorkloadsByAgentInstance` calls in para
 
 ### Active Workload IDs
 
-Each `GetChats` entry also carries `active_workload_ids: list<string>` — the IDs of every workload of the chat's agent-instance participants whose status is currently `starting`, `running`, or `stopping`. The chat-app uses these IDs to subscribe to the corresponding `workload:{id}` rooms in [Notifications](notifications.md) so it receives `workload.updated` events for the workloads that drive the indicator.
+Each `GetChats` entry also carries `active_workload_ids: list<string>` — the IDs of every workload of the chat's agent-instance participants whose status is currently `starting`, `running`, `hibernating`, `hibernated`, `waking`, or `stopping`. A hibernated workload is included because it is the one that will move next: its `waking → running` transition is what the indicator follows after the user's next message. The chat-app uses these IDs to subscribe to the corresponding `workload:{id}` rooms in [Notifications](notifications.md) so it receives `workload.updated` events for the workloads that drive the indicator.
 
 Workload IDs are a side product of the same `Runners.ListWorkloadsByAgentInstance` calls that derive `activity_status` — Chat collects them in the same pass with no additional round trips. The list is empty for chats with no agent-instance participants and for chats whose instances' most recent workloads are `stopped`/`failed`/absent. New workloads spun up later (e.g., after the user sends a message) appear in `active_workload_ids` only on the next `GetChats` refresh; until then, the chat-app picks them up indirectly via the `message.created` refresh trigger described in [Real-time updates](#real-time-updates).
 
@@ -119,7 +121,7 @@ The `workload:{id}` room subscription is gated by `member` on the workload's org
 
 ### Sending a message and the immediate transition
 
-When a user sends a message to a thread whose most recent workload is `stopped` or absent, the chat's `activity_status` is `finished` until the [Agents Orchestrator](agents-orchestrator.md) creates a new workload (`status=starting`) — typically within seconds, since the orchestrator wakes on the `message.created` notification. To avoid a flicker, the chat-app may render `pending` optimistically on the user's outgoing send until the next `GetChats` refresh confirms the server-derived status.
+When a user sends a message to a thread whose most recent workload is `stopped` or absent, the chat's `activity_status` is `finished` until the [Agents Orchestrator](agents-orchestrator.md) creates a new workload (`status=starting`) — typically within seconds, since the orchestrator wakes on the `message.created` notification. A `hibernated` workload instead goes `waking` on the same trigger, and `running` shortly after. To avoid a flicker, the chat-app may render `pending` optimistically on the user's outgoing send until the next `GetChats` refresh confirms the server-derived status.
 
 ### Real-time updates
 

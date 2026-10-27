@@ -188,6 +188,8 @@ The [Agents Orchestrator](../agents-orchestrator.md) owns idle timeout enforceme
 
 See [Agents Orchestrator — Idle Timeout](../agents-orchestrator.md#idle-timeout) for the full mechanism.
 
+On a runner that can [hibernate](../vm-runner.md#hibernate), the workload is not left to idle out: `agynd` [reports the end of each turn](../agynd-cli.md#7-turn-boundary), the Orchestrator freezes the workload the moment its inbox is empty, and the next inbox item wakes it with every process where it was. The agent sees nothing of this except that the wall clock has moved — see [Agents Orchestrator — Hibernation](../agents-orchestrator.md#hibernation).
+
 ### Scaling
 
 One container per agent instance while there is work to do. A single instance can already receive items from many threads via its inbox — no separate batching mechanism is needed for that. Batching workloads across *different* instances (multi-tenant containers) remains an [open question](../../open-questions.md#agent-batching-protocol).

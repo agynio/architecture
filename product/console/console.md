@@ -610,7 +610,7 @@ Real-time view of running agent workloads in the organization.
 | Agent | Agent name (link to agent detail). Name comes from the list response — the Console never displays the raw `agent_id` |
 | Runner | Runner name (link to runner detail). Name comes from the list response — the Console never displays the raw `runner_id` |
 | Thread | Thread ID |
-| Status | Workload status (`starting`, `running`, `stopping`, `stopped`, `failed`) |
+| Status | Workload status (`starting`, `running`, `hibernating`, `hibernated`, `waking`, `stopping`, `stopped`, `failed`) |
 | Containers | Counts grouped by container state (e.g., `3 running`, `1 waiting (ImagePullBackOff)`). Non-`running` counts include the runtime reason so problems are visible at a glance |
 | Started | Workload start time |
 | Duration | Time since start (live counter for running workloads) |

@@ -94,7 +94,7 @@ Reading it from the workload rather than resolving the environment per ticket is
 
 **A shell ends when its process does.** `exit` at the prompt destroys the tmux session; the attached session sees `reason: completed`. Nothing lingers to be reattached to, and the consumer holding a tab removes it.
 
-Shells are as durable as the container. A stopped workload — idle timeout, explicit stop, eviction — takes every shell in it, and nothing checkpoints a running process. What survives a stop is the [Sandbox Layout](resource-definitions.md#sandbox-layout), which is why what follows a restart is described as recreation.
+Shells are as durable as the container. A stopped workload — idle timeout, explicit stop, eviction — takes every shell in it, and nothing checkpoints a running process. A [hibernated](vm-runner.md#hibernate) workload is not a stopped one: its shells and their processes are frozen with the rest of it and are running again when it wakes. What survives a stop is the [Sandbox Layout](resource-definitions.md#sandbox-layout), which is why what follows a restart is described as recreation.
 
 The scrollback a shell retains is held in the container's own memory and counts against the sandbox's flavor. The platform configuration bounds it per shell; ten shells at the configured limit are tens of megabytes, which is the reason it is bounded rather than a reason to worry about it.
 
@@ -172,7 +172,7 @@ For TTY session kinds, the proxy provides SSH-parity terminal behavior. Explicit
 
 **A dropped connection does not end the work, but only where a shell owns it.** Where the workload [persists shells](#persistent-shells) the exec ends and the shell does not: the PTY belongs to a process in the container, and the next session attaches to the same one, at the client's size, with the screen repainted. Where it does not, and for `EXEC`, the old behavior stands — the PTY closes, the foreground process group receives SIGHUP, and the next connection is a fresh shell, exactly like a dropped SSH connection.
 
-Neither kind survives the workload. A stopped sandbox takes its shells with it, and nothing checkpoints a running process; what survives is the [Sandbox Layout](resource-definitions.md#sandbox-layout), which is a record of what was open and where, not of what was running.
+Neither kind survives the workload. A stopped sandbox takes its shells with it, and nothing checkpoints a running process short of the whole workload being [hibernated](vm-runner.md#hibernate); what survives a stop is the [Sandbox Layout](resource-definitions.md#sandbox-layout), which is a record of what was open and where, not of what was running.
 
 ## CLI Behavior (`agyn sandbox start` / `connect`)
 

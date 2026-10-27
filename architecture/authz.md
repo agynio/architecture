@@ -513,6 +513,7 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
+| `ReportWorkloadIdle` | Agent instance's own identity (`workload.owner_id == caller.identity_id`), as `TouchWorkload` |
 | `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`). For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio after terminal ticket validation |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |

@@ -52,13 +52,13 @@ Each card shows:
 
 | Element | Description |
 |---------|-------------|
-| Name | The sandbox name, with a status indicator — `starting`, `running`, `stopped`, `failed` |
+| Name | The sandbox name, with a status indicator — `starting`, `running`, `hibernated`, `stopped`, `failed` |
 | Environment | The environment it runs, linked. The only configuration a sandbox has, and the one identifying fact besides its name |
 | Stops in | Time remaining on the [idle timeout](sandboxes.md#lifecycle), counting down while nothing is attached. Absent while a session is attached — an attached sandbox is never idle — and absent when stopped |
 | Expires in | Time remaining on the TTL. Always shown: it applies in every state, including stopped |
 | Storage warning | Present when the environment declares no persistent volume: nothing in this sandbox survives a stop. See [Storage](sandboxes.md#storage) |
 | Owner | On shared cards only — who owns the sandbox |
-| Primary action | **Connect** when running, **Start** when stopped or failed. Fills the card |
+| Primary action | **Connect** when running or hibernated — a hibernated sandbox wakes on the way in — **Start** when stopped or failed. Fills the card |
 | Manage menu | Stop, Share, Delete. Behind a menu so the destructive actions are not under the cursor |
 
 A collaborator's card offers Connect, Start, and Stop, and no Share or Delete.
@@ -105,7 +105,7 @@ Tabs are reordered by dragging, and with `Alt`+`←`/`→` for anyone not using 
 
 While a session is attached the sandbox cannot idle out; the clock runs on time with nothing attached, whether or not shells are still open.
 
-**Stopped, starting, or failed** — the terminal area is replaced by the state and a **Start** action. Starting is a no-op when already running, a restart when stopped, and a fresh attempt when failed; the terminal appears once the workload runs. A `failed` sandbox stays failed until someone acts — nothing retries it in the background, because nothing needs a sandbox to run while nobody is connecting.
+**Stopped, hibernated, starting, or failed** — the terminal area is replaced by the state and a **Start** action. Starting is a no-op when already running, a wake when hibernated, a restart when stopped, and a fresh attempt when failed; the terminal appears once the workload runs. A `failed` sandbox stays failed until someone acts — nothing retries it in the background, because nothing needs a sandbox to run while nobody is connecting.
 
 **A sandbox that stopped comes back with its tabs and without its work.** Shells live in the container, so an idle timeout takes everything running in them. Starting the sandbox again restores the same tabs, named the same, in the directories they were left in — holding new shells, and saying so rather than letting someone assume otherwise. The **Stops in** countdown sits beside the tab strip for the same reason: once tabs persist, that clock is the thing deciding whether tomorrow's tabs still have anything running in them, and it should not have to be looked for.
 
@@ -125,7 +125,7 @@ Each exposed port is one row:
 
 An **Expose a port** control takes a port number and nothing else. Exposing a port that is already exposed returns the existing row rather than a second one, so the action is safe to repeat.
 
-**The strip is only present while the sandbox is running.** Exposures belong to the workload, so a stopped sandbox has none — the strip says so, and exposing is unavailable until it is started.
+**The strip is only present while the sandbox is running.** Exposures belong to the workload, so a stopped sandbox has none — the strip says so, and exposing is unavailable until it is started. A hibernated sandbox still has its workload, asleep: its exposures come back with it on `connect`, ports still bound, because a sleep is not a stop.
 
 **Ports do not survive a stop, but their addresses do.** An idle-out clears the list; starting the sandbox and exposing 3000 again returns the identical address, because it is derived from the sandbox rather than from the exposure. A bookmark keeps working — it just needs the port exposed again on the other end.
 
