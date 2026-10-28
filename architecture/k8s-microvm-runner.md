@@ -143,7 +143,7 @@ The guest runs the stock Kata guest kernel and guest image, unmodified. The imag
 
 ### Containers
 
-A workload's containers run inside the guest as OCI containers with the guest's single network namespace in common. Images are not pulled inside the guest: each container's root filesystem is a directory in the share — the image's layers below, the container's writable layer on top, merged by the host — and the agent binds it into place. Init containers run first and populate the shared `agyn` volume, itself a directory in the share; the main container and sidecars start once they complete, as in a Pod.
+A workload's containers run inside the guest as OCI containers with the guest's single network namespace in common. Images are not pulled inside the guest: each container's root filesystem is a directory in the share — the image's layers below, the container's writable layer on top, merged by the host — and the agent binds it into place. Init containers run first and populate the shared `agyn` volume, itself a directory in the share; the main container and sidecars start once they complete, as in a Pod. Each container also gets the sandbox's `/etc/hosts`, `/etc/resolv.conf` and `/etc/hostname` as a kubelet provides them: one writable file per sandbox in the share, bound into every container, so what one container writes — the Ziti enrollment rewrites `resolv.conf` — every other container sees.
 
 ### Clock and randomness
 
