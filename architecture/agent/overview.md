@@ -188,7 +188,7 @@ The [Agents Orchestrator](../agents-orchestrator.md) owns idle timeout enforceme
 
 See [Agents Orchestrator — Idle Timeout](../agents-orchestrator.md#idle-timeout) for the full mechanism.
 
-On a runner that can [hibernate](../vm-runner.md#hibernate), the workload is not left to idle out: `agynd` [reports the end of each turn](../agynd-cli.md#7-turn-boundary), the Orchestrator freezes the workload the moment its inbox is empty, and the next inbox item wakes it with every process where it was. The agent sees nothing of this except that the wall clock has moved — see [Agents Orchestrator — Hibernation](../agents-orchestrator.md#hibernation).
+On a runner that can [hibernate](../k8s-microvm-runner.md#hibernate), the workload is not left to idle out: `agynd` [reports the end of each turn](../agynd-cli.md#7-turn-boundary), the Orchestrator freezes the workload the moment its inbox is empty, and the next inbox item wakes it with every process where it was. The agent sees nothing of this except that the wall clock has moved — see [Agents Orchestrator — Hibernation](../agents-orchestrator.md#hibernation).
 
 ### Scaling
 

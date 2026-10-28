@@ -4,7 +4,7 @@
 
 The Runner executes workloads (agent containers, workspace containers, sidecars). It is a **data plane** service — it does not decide what to run, it executes what it is told.
 
-Two implementations exist: the [`k8s-runner`](k8s-runner.md), which translates workload operations into Kubernetes API calls, one Pod per workload; and the [`vm-runner`](vm-runner.md), which runs each workload as a microVM in a pool of slot Pods and can hibernate it between turns.
+Two implementations exist: the [`k8s-runner`](k8s-runner.md), which translates workload operations into Kubernetes API calls, one Pod per workload; and the [`k8s-microvm-runner`](k8s-microvm-runner.md), which runs each workload as a microVM in a pool of slot Pods and can hibernate it between turns.
 
 ## gRPC API
 

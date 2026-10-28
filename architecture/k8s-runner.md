@@ -235,7 +235,7 @@ Runs the entire pod inside a lightweight microVM (Firecracker or QEMU). The DinD
 
 Strongest isolation guarantee. Also improves isolation for all other containers in the pod, not just the DinD sidecar — each pod gets its own kernel, so kernel CVEs in one pod cannot affect another. Higher per-pod overhead (~100–200ms startup, ~50–100MB RAM per VM).
 
-Isolation only. The VM belongs to Kata's shim, not to the runner, so a Pod on `kata-fc` cannot be paused, snapshotted or moved — it idles at full cost and is stopped like any other Pod. Where that matters, the [vm-runner](vm-runner.md) runs the same kind of microVM under the platform's own control and [hibernates](vm-runner.md#hibernate) it between turns.
+Isolation only. The VM belongs to Kata's shim, not to the runner, so a Pod on `kata-fc` cannot be paused, snapshotted or moved — it idles at full cost and is stopped like any other Pod. Where that matters, the [k8s-microvm-runner](k8s-microvm-runner.md) runs the same kind of microVM under the platform's own control and [hibernates](k8s-microvm-runner.md#hibernate) it between turns.
 
 ---
 

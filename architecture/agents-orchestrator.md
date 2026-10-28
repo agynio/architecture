@@ -155,7 +155,7 @@ On a runner that can hibernate, the idle timeout is the stop of last resort: the
 
 ### Hibernation
 
-On a runner that advertises the `hibernate` [capability](runners.md#runner-catalog), an idle workload is neither left running until its idle timeout nor stopped. It is **hibernated**: paused and persisted by the runner — memory, scratch disks, volumes, open shells, the lot — so that it occupies no compute, and resumed by the next inbox item in milliseconds with every process where it was. The Orchestrator owns the decision in both directions; the runner owns the mechanism (see [vm-runner — Workload Lifecycle](vm-runner.md#workload-lifecycle)).
+On a runner that advertises the `hibernate` [capability](runners.md#runner-catalog), an idle workload is neither left running until its idle timeout nor stopped. It is **hibernated**: paused and persisted by the runner — memory, scratch disks, volumes, open shells, the lot — so that it occupies no compute, and resumed by the next inbox item in milliseconds with every process where it was. The Orchestrator owns the decision in both directions; the runner owns the mechanism (see [k8s-microvm-runner — Workload Lifecycle](k8s-microvm-runner.md#workload-lifecycle)).
 
 **When to hibernate.** The main loop considers a `running` agent-instance workload when it wakes on `workload.updated` carrying `agent_state=idle` — which [`agynd` reports](agynd-cli.md#7-turn-boundary) the moment a turn ends — and on every tick. It hibernates when all of these hold:
 

@@ -33,7 +33,7 @@ Shared storage remains the right answer *inside* the cluster — a read-write-ma
 
 The **controller runs on the engineer's machine**. It holds session state, computes reconciliation, and decides every action. The container-side endpoint executes filesystem operations it is told to perform and computes nothing.
 
-This split follows from the sandbox lifecycle rather than from preference. The endpoint process is terminated without warning whenever the WebSocket drops (the proxy cancels the exec), the sandbox idles out — stopped or [hibernated](vm-runner.md#hibernate), the exec stream ends either way — or the TTL fires. Anything authoritative held there is state that is routinely lost. The endpoint therefore persists exactly two things, both disposable: a root marker file and a staging directory.
+This split follows from the sandbox lifecycle rather than from preference. The endpoint process is terminated without warning whenever the WebSocket drops (the proxy cancels the exec), the sandbox idles out — stopped or [hibernated](k8s-microvm-runner.md#hibernate), the exec stream ends either way — or the TTL fires. Anything authoritative held there is state that is routinely lost. The endpoint therefore persists exactly two things, both disposable: a root marker file and a staging directory.
 
 The **ancestor snapshot** — the merge base that distinguishes "created locally" from "deleted remotely," which are otherwise the same observation — lives only on the engineer's machine.
 

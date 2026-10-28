@@ -148,7 +148,7 @@ sequenceDiagram
     ZM->>ZM: Remove mapping from PostgreSQL
 ```
 
-A workload that is [hibernated](vm-runner.md#hibernate) rather than stopped **keeps its identity**. The enrolled certificate is in the guest's memory, which is exactly what the snapshot preserves, and the identity on the Controller must still exist when the guest wakes and its sidecar reconnects. `DeleteIdentity` is called only when the workload is stopped — after its hibernation TTL, by an explicit stop, or on failure — never on hibernation. See [Agents Orchestrator — Hibernation](agents-orchestrator.md#hibernation).
+A workload that is [hibernated](k8s-microvm-runner.md#hibernate) rather than stopped **keeps its identity**. The enrolled certificate is in the guest's memory, which is exactly what the snapshot preserves, and the identity on the Controller must still exist when the guest wakes and its sidecar reconnects. `DeleteIdentity` is called only when the workload is stopped — after its hibernation TTL, by an explicit stop, or on failure — never on hibernation. See [Agents Orchestrator — Hibernation](agents-orchestrator.md#hibernation).
 
 ### Identity Creation Request
 
@@ -511,7 +511,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 |----------|-----------|--------------|--------------------|
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
 | Runner | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | — (binds `runner-{runnerId}` service) |
-| Agent pod (Ziti sidecar) | Ephemeral (per workload; survives [hibernation](vm-runner.md#hibernate), deleted at stop) | Orchestrator via Ziti Management → `ZITI_ENROLLMENT_JWT` → Ziti sidecar enrolls at startup | Gateway (dial), LLM Proxy (dial), Tracing (dial) |
+| Agent pod (Ziti sidecar) | Ephemeral (per workload; survives [hibernation](k8s-microvm-runner.md#hibernate), deleted at stop) | Orchestrator via Ziti Management → `ZITI_ENROLLMENT_JWT` → Ziti sidecar enrolls at startup | Gateway (dial), LLM Proxy (dial), Tracing (dial) |
 | App | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | Gateway (dial) + own service (bind) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |

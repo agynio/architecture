@@ -1,19 +1,19 @@
-# vm-runner
+# k8s-microvm-runner
 
 ## Overview
 
-The vm-runner is a second implementation of the [Runner](runner.md) gRPC API. It runs every workload as its own Cloud Hypervisor microVM, hosted in a **pool of prewarmed slot Pods** on Kubernetes, and it can **hibernate** a workload — persist its memory and everything it wrote to its filesystems — and wake it later, in another slot, with its processes exactly where they were.
+The k8s-microvm-runner is a second implementation of the [Runner](runner.md) gRPC API. It runs every workload as its own Cloud Hypervisor microVM, hosted in a **pool of prewarmed slot Pods** on Kubernetes, and it can **hibernate** a workload — persist its memory and everything it wrote to its filesystems — and wake it later, in another slot, with its processes exactly where they were.
 
 | Aspect | Detail |
 |--------|--------|
 | **Plane** | Data |
 | **Language** | Go |
-| **Repository** | `agynio/vm-runner` |
+| **Repository** | `agynio/k8s-microvm-runner` |
 | **API** | gRPC (`RunnerService`), including [`HibernateWorkload` / `WakeWorkload`](runner.md#workload-lifecycle) |
 | **Backend** | Kubernetes API (slot Pods), Cloud Hypervisor (one microVM per workload) with virtiofsd (one filesystem share per microVM), the Kata Containers guest agent inside each microVM, an S3-compatible snapshot store |
 | **Authentication** | OpenZiti network identity (SDK-embedded, service token enrollment) — as every runner |
 
-It exists because the [k8s-runner](k8s-runner.md) ties a workload's lifetime to a Pod's. A Pod is either running and paying for its flavor, or gone — there is no state in between, so an agent that answers a message every few hours either idles between turns at full cost or is stopped and cold-started, with its processes lost, for every one of them. The vm-runner separates the **compute host** (a slot) from the **workload** (a microVM's state). A workload that has nothing to do is a snapshot in object storage, costing storage and nothing else, and a slot is free the moment it leaves.
+It exists because the [k8s-runner](k8s-runner.md) ties a workload's lifetime to a Pod's. A Pod is either running and paying for its flavor, or gone — there is no state in between, so an agent that answers a message every few hours either idles between turns at full cost or is stopped and cold-started, with its processes lost, for every one of them. The k8s-microvm-runner separates the **compute host** (a slot) from the **workload** (a microVM's state). A workload that has nothing to do is a snapshot in object storage, costing storage and nothing else, and a slot is free the moment it leaves.
 
 Isolation is the same as the k8s-runner's `kata-fc` option: a kernel per workload, hardware-enforced. What is new is that the VM is the platform's to pause, persist, move and resume.
 
@@ -31,7 +31,7 @@ Isolation is the same as the k8s-runner's `kata-fc` option: a kernel per workloa
 
 ## Runner Catalog
 
-Like the k8s-runner, the vm-runner declares its [catalog](runners.md#runner-catalog) in its deployment configuration and reports it with `ReportRunnerCatalog`. A flavor here is a VM size, and `hibernate` is advertised as a capability so the [Agents Orchestrator](agents-orchestrator.md#hibernation) knows it may ask:
+Like the k8s-runner, the k8s-microvm-runner declares its [catalog](runners.md#runner-catalog) in its deployment configuration and reports it with `ReportRunnerCatalog`. A flavor here is a VM size, and `hibernate` is advertised as a capability so the [Agents Orchestrator](agents-orchestrator.md#hibernation) knows it may ask:
 
 ```yaml
 catalog:
@@ -60,7 +60,7 @@ A flavor sizes the guest — the whole workload shares it, as it shares a Pod on
 
 ## Workload-to-VM Mapping
 
-| Workload Concept | vm-runner realization |
+| Workload Concept | k8s-microvm-runner realization |
 |------------------|------------------------|
 | Workload | One guest (microVM) in one slot |
 | Main container | OCI container inside the guest, created and started through the guest agent |
@@ -164,7 +164,7 @@ The supervisor's own traffic — image pulls and snapshot transfers — is Pod t
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant R as vm-runner
+    participant R as k8s-microvm-runner
     participant S as Slot supervisor
     participant G as Guest
 
@@ -195,7 +195,7 @@ A workload whose environment has no template yet on this runner, or whose templa
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant R as vm-runner
+    participant R as k8s-microvm-runner
     participant S as Slot supervisor
     participant ST as Snapshot store
 
@@ -220,7 +220,7 @@ The snapshot holds the workload's secrets and memory. The store is configured wi
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant R as vm-runner
+    participant R as k8s-microvm-runner
     participant S as Slot supervisor
     participant ST as Snapshot store
     participant G as Guest

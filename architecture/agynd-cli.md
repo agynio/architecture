@@ -225,7 +225,7 @@ The agent CLI can be:
 
 `agynd` reports agent activity to the [Runners](runners.md) service for [idle timeout](runners.md#idle-timeout) enforcement. While the agent CLI is actively processing (executing LLM calls, running tools, producing output), `agynd` calls `TouchWorkload` on the [Runners](runners.md) service (via [Gateway](gateway.md)) every 10 seconds. This updates the `last_activity_at` timestamp on the workload record.
 
-When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long. On a runner that can [hibernate](vm-runner.md#hibernate), the turn boundary `agynd` reports (below) is what the Orchestrator acts on first; the idle timeout remains the stop of last resort.
+When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long. On a runner that can [hibernate](k8s-microvm-runner.md#hibernate), the turn boundary `agynd` reports (below) is what the Orchestrator acts on first; the idle timeout remains the stop of last resort.
 
 `agynd` determines activity state from the agent CLI SDK — it knows when the agent is processing a request vs. waiting for input. The keepalive is SDK-agnostic: regardless of which agent CLI is running (Codex, Claude Code, `agn`), `agynd` uses the same `TouchWorkload` mechanism.
 
@@ -247,7 +247,7 @@ In holder mode there is no turn, so there is no report; a sandbox's idleness is 
 
 ### 8. Wake
 
-A hibernated workload resumes with every process intact and every connection it held — to the Gateway, to Notifications, to the LLM Proxy — dead on the far side, which cannot tell a frozen peer from a vanished one. The runner [signals the wake](vm-runner.md#wake) by sending `SIGCONT` to the main container's init process, which is `agynd`, once the guest's clock has been set.
+A hibernated workload resumes with every process intact and every connection it held — to the Gateway, to Notifications, to the LLM Proxy — dead on the far side, which cannot tell a frozen peer from a vanished one. The runner [signals the wake](k8s-microvm-runner.md#wake) by sending `SIGCONT` to the main container's init process, which is `agynd`, once the guest's clock has been set.
 
 On `SIGCONT`, `agynd` drops its Notifications subscription and reopens it, fetches the inbox with `GetUnackedInboxItems`, and resumes keepalives if the agent CLI is mid-turn. Nothing is replayed to the agent CLI: items that arrived while the workload slept are in the inbox and are processed as a normal turn. An agent CLI's own connections — an LLM call in flight when the workload was frozen — fail on their own timeouts and are retried by the CLI as any dropped connection is.
 
