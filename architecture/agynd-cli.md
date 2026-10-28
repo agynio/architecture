@@ -251,6 +251,8 @@ A hibernated workload resumes with every process intact and every connection it 
 
 On `SIGCONT`, `agynd` drops its Notifications subscription and reopens it, fetches the inbox with `GetUnackedInboxItems`, and resumes keepalives if the agent CLI is mid-turn. Nothing is replayed to the agent CLI: items that arrived while the workload slept are in the inbox and are processed as a normal turn. An agent CLI's own connections — an LLM call in flight when the workload was frozen — fail on their own timeouts and are retried by the CLI as any dropped connection is.
 
+`agynd` does not depend on the signal arriving. Its keepalive timer compares the wall clock with monotonic time between ticks; a wall clock that has jumped ahead by more than a tick is what a restore looks like from inside — the runner sets the guest's clock after every wake — and triggers the same reconnect. The signal makes the wake prompt; the clock makes it certain.
+
 `SIGCONT` is the signal because a process that has not asked for it never sees it: an MCP sidecar, a DinD daemon or a shell is unaffected, and `agynd` is the only process in the workload that has something to do.
 
 ## Shell Supervision
