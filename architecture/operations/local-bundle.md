@@ -91,6 +91,8 @@ One VM is the ordinary case and is never named: it is the instance `agyn`, reach
 
 Endpoints are therefore `https://console.agyn.dev:<port>`, `https://agyn.dev:<port>`, etc. The host port is the only externally visible knob; everything inside the VM is fixed.
 
+The [image proxy](../image-proxy.md)'s hostname, `registry.agyn.dev`, is reached two ways. The node's container runtime — what pulls for the [k8s-runner](../k8s-runner.md) — goes over the node's own loopback: the node's hosts file pins the name to `127.0.0.1`, containerd mirrors it to the ingress NodePort, and the node's trust store holds the bundle CA. None of that is visible from a Pod, whose loopback is its own, so for in-cluster clients cluster DNS rewrites the name to the ingress gateway Service, as it does for the console and Ziti names, and a client that pulls from inside a Pod — the [vm-runner](../vm-runner.md)'s slot Pods — is given the bundle CA through the runner's CA setting. The workload NetworkPolicy's egress rule for the proxy therefore names the ingress gateway, and the one for the snapshot store names MinIO. Like the other rewrites, this one ships in the image.
+
 ### TLS and Certificate Authority
 
 The image carries a cert-manager-issued CA that signs the `*.agyn.dev` wildcard certificate, stored in the `istio-gateway/agyn-dev-ca` secret. Consumers extract this CA and install it into the system trust store via [`agyn local ca`](../agyn-cli.md#local-platform-commands-agyn-local) so that browsers and CLIs trust the local endpoints without warnings.
