@@ -428,7 +428,7 @@ Each verifies the claim against `admin` on `cluster:global` rather than trusting
 
 **This replaced impersonation.** The Orchestrator previously sent an agent instance's or agent's own `identity_id` as the caller on these paths — and, for anything organization-scoped, elected the first agent it found in each organization and borrowed that one. It was a platform service claiming to be one of the things it manages, in order to satisfy checks written for that thing. It also could not work for `sandbox_org:`, which wants `can_list_sandboxes`: an instance is a `member` of its organization and holds no such relation, so that subscription was refused on every attempt.
 
-The grants are read-only. Writes stay with the principal who owns them — Groups' create/update/delete remain owner-gated, and `AckInboxItems` remains the instance's alone.
+The grants are read-only. Writes stay with the principal who owns them — Groups' create/update/delete remain owner-gated, and `AckInboxItems` remains the instance's alone. Where a write already admits any cluster admin — Expose's `AddExposure` and `RemoveExposure` with an explicit `workload_id` — the platform identity is admitted as the cluster admin it is, by the identity and not by the type header; the Orchestrator makes no such call.
 
 The [Ziti Management Service](#ziti-management-service) is the canonical example of this pattern. The same model applies to internal methods on Runners, Agents, Threads, Secrets, LLM, and Notifications listed in the per-service tables below.
 
