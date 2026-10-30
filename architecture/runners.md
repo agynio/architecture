@@ -38,7 +38,7 @@ The [Agents Orchestrator](agents-orchestrator.md) reads and writes workload stat
 | Method | Description |
 |--------|-------------|
 | **CreateWorkload** | Record a new workload before it is started on the runner. The Orchestrator generates the workload ID, sets `status=starting`, and supplies the generalized owner (`owner_kind=agent_instance` or `sandbox`, `owner_id=<id>`). Called before `Runner.StartWorkload` to avoid a reconciliation race |
-| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `hibernated_at`, `woken_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic so subscribers (e.g., the Console) can refresh without polling |
+| **UpdateWorkload** | Update mutable workload fields: status, containers, `removed_at`, `hibernated_at`, `woken_at`, `last_metering_sampled_at`. When `status`, any element of `containers`, or `agent_state` changed, emits a `workload.updated` event on the organization's [Notifications](notifications.md) topic, so subscribers (e.g., the Console) can refresh without polling, and on the cluster-wide [`workloads`](notifications.md#cluster-wide-rooms) room, so the [Orchestrator](agents-orchestrator.md#hibernation) hears an `agent_state` flip the moment it happens. Every `workload.updated` the service emits — here, from `TouchWorkload`, from `ReportWorkloadIdle` or from the [sweep](#agent-activity-sweep) — goes to both |
 | **ReportWorkloadState** | A runner reports the runtime state it observes for a workload on itself — status, containers, `observed_at`, and with `hibernated` the size of the persisted state. Writes through the same path as `UpdateWorkload`, so the same events fire, and rejects a report older than the recorded state. Runner-facing, on the [Runners Gateway](gateway.md). See [Runner-Reported Workload State](#runner-reported-workload-state) |
 | **BatchUpdateWorkloadSampledAt** | Set `last_metering_sampled_at` for a list of workload IDs in a single DB write. Used by the metering sampling loop after a successful batch publish |
 | **GetWorkload** | Get a workload by ID. Returns workload metadata and containers for views such as Console Workload Detail |
@@ -381,7 +381,7 @@ The Runners service runs a background sweep at a fixed interval (default `5s`) t
 On each tick:
 
 1. Select workloads where `status='running' AND agent_state='processing' AND last_activity_at < now() - KEEPALIVE_GRACE AND removed_at IS NULL`.
-2. For each match, atomically update `agent_state='idle'` and emit a `workload.updated` event on the organization's [Notifications](notifications.md) topic.
+2. For each match, atomically update `agent_state='idle'` and emit a `workload.updated` event on the organization's [Notifications](notifications.md) topic and the cluster-wide `workloads` room, as every `workload.updated` is.
 
 | Threshold | Default | Purpose |
 |-----------|---------|---------|

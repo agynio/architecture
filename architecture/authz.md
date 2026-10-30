@@ -415,13 +415,14 @@ Reconciliation, metering, and workload assembly are internal-only paths gated by
 
 #### When a platform service does present an identity
 
-A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Three paths need it:
+A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Four paths need it:
 
 | Callee | Why an identity is required |
 |--------|------------------------------|
 | [Notifications](notifications.md#platform-callers) `Subscribe` | Rooms are authorized per caller; there is no absent-identity path. |
 | [Agents](agents-service.md) `GetUnackedInboxItems`, `GetUnackedInboxCount` | Instance-scoped reads. The Orchestrator must know which thread an instance was handed work for before it can place a workload. |
 | [Groups](groups-service.md) `ListMemberGroups` | Reads an agent's groups to resolve the role attributes its workload carries. |
+| [Expose](expose-service.md#authorization) `ListExposures` | Authorized against the exposure's organization. The Orchestrator asks whether a workload has an active exposure before it [hibernates](agents-orchestrator.md#hibernation) it. |
 
 Each verifies the claim against `admin` on `cluster:global` rather than trusting the `x-identity-type: platform` header, so a caller that sets the header without holding the relation is refused.
 
@@ -639,7 +640,7 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `AddExposure` (explicit `workload_id`, sandbox-owned workload) | `can_connect` on `sandbox:<workload.owner_id>` |
 | `AddExposure` (explicit `workload_id`, any other owner) | `admin` on `cluster:global` |
 | `RemoveExposure` | Caller is the workload; `can_connect` on `sandbox:<exposure.owner_id>` when sandbox-owned; or `owner` on `organization:<exposure.organization_id>` |
-| `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+| `ListExposures` | Caller is the workload; `member` on `organization:<exposure.organization_id>`; or a verified [platform caller](#when-a-platform-service-does-present-an-identity) (`admin` on `cluster:global`) — the [Orchestrator](agents-orchestrator.md#hibernation) asking before it hibernates a workload |
 
 `can_connect` is the relation the [Terminal Proxy](terminal-proxy.md#authorization) already checks, used here for the same reason: a shell can run `agyn expose` itself, so managing a sandbox's ports from the [Sandboxes app](sandboxes-app.md) confers nothing a session does not. It introduces no relation and no tuple — `sandbox` already defines `can_connect`.
 

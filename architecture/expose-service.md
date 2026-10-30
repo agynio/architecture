@@ -316,7 +316,7 @@ sequenceDiagram
     end
 ```
 
-The Orchestrator and Expose service are fully decoupled. The Orchestrator does not know about exposures. The Expose service reacts to workload lifecycle changes via events and reconciliation.
+The Orchestrator and Expose service are decoupled: the Orchestrator never creates or removes an exposure, and the Expose service reacts to workload lifecycle changes via events and reconciliation. The one thing the Orchestrator asks Expose is whether a workload has an active exposure, before it [hibernates](agents-orchestrator.md#hibernation) it — see [Authorization](#authorization).
 
 ## Provisioning and Cleanup
 
@@ -359,7 +359,7 @@ The standard path — a workload exposing its own port — requires no OpenFGA c
 | `AddExposure` (explicit `workload_id`, sandbox-owned workload) | `can_connect` on `sandbox:<workload.owner_id>` |
 | `AddExposure` (explicit `workload_id`, any other owner) | `admin` on `cluster:global` |
 | `RemoveExposure` | Caller is the workload; `can_connect` on `sandbox:<exposure.owner_id>` when the exposure is sandbox-owned; or `owner` on `organization:<exposure.organization_id>` |
-| `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+| `ListExposures` | Caller is the workload; `member` on `organization:<exposure.organization_id>`; or a verified [platform caller](authz.md#when-a-platform-service-does-present-an-identity) (`admin` on `cluster:global`) — the [Orchestrator](agents-orchestrator.md#hibernation) asking before it hibernates a workload |
 
 **Whoever can open a shell may manage that sandbox's ports.** `can_connect` grants nothing new here: a shell can run [`agyn expose add`](agyn-cli.md#port-exposure-commands) itself, so doing it from the [Sandboxes app](sandboxes-app.md) is the same capability with fewer keystrokes. A stricter gate would refuse a button to someone the terminal in the next tab obeys.
 
