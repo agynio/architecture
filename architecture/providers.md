@@ -86,9 +86,11 @@ The vendor set is closed because each value determines three things the platform
 | `vendor` | Intercepted host | Upstream | Protocol | Injected upstream | Placeholder |
 |---|---|---|---|---|---|
 | `anthropic` | `api.anthropic.com` | `https://api.anthropic.com` | `anthropic_messages` | `Authorization: Bearer <token>` | env var `CLAUDE_CODE_OAUTH_TOKEN` |
-| `openai` | `chatgpt.com` | `https://chatgpt.com/backend-api/codex` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | file `~/.codex/auth.json` |
+| `openai` | `chatgpt.com` | `https://chatgpt.com` | `responses` | `Authorization: Bearer <token>`, `chatgpt-account-id: <account_id>` | none — [`agynd`](agynd-cli.md#native-mode-configuration) writes the Codex CLI's file |
 
 A subscription-mode Codex CLI calls `https://chatgpt.com/backend-api/codex/responses`, which is why the OpenAI row intercepts `chatgpt.com` rather than `api.openai.com` — the latter is where an *API-key* Codex CLI goes, and pairing that host with a subscription credential is what made an earlier version of this table incoherent.
+
+**Upstream is an origin, never a path.** The [LLM Proxy](llm-proxy.md) appends the caller's own request URI to it, so a prefix carried here is forwarded twice: `/backend-api/codex` in the OpenAI row turned the CLI's `/backend-api/codex/responses` into `/backend-api/codex/backend-api/codex/responses`, which the vendor answered `404 {"detail":"Not Found"}` — indistinguishable, from the agent's side, from an endpoint that does not exist.
 
 Adding a vendor is a platform change — a new enum value, a new intercept service, and a row here — not a configuration surface. An operator cannot point native mode at an arbitrary host, because native mode's whole premise is that the agent CLI is unmodified and therefore addresses only the hosts its vendor built it to address.
 
