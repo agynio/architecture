@@ -88,7 +88,7 @@ Each label a query can group or filter by has a column on [UsageEvent](#usageeve
 | Label | Description |
 |-------|-------------|
 | `resource_id` | UUID of the specific resource associated with the usage |
-| `resource` | Resource type (e.g., `model`, `subscription`, `workload`, `thread`, `message`, `egress`) |
+| `resource` | Resource type (e.g., `model`, `subscription`, `workload`, `snapshot`, `volume`, `thread`, `message`, `egress`). `snapshot` is the persisted state of a [hibernated](agents-orchestrator.md#hibernation) workload — storage billed in place of the flavor while it sleeps |
 | `identity_id` | UUID of the identity that caused the usage |
 | `identity_type` | Type of identity: `agent`, `user`, `app`, `sandbox` |
 | `agent_id` | Agent associated with the usage (present when the producer has agent context) |

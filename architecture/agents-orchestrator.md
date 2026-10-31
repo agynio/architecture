@@ -28,7 +28,7 @@ graph TB
 | **Notifications** | Hold the three [cluster-wide rooms](notifications.md#cluster-wide-rooms) — `agent_instances`, `sandboxes`, `workloads` — as the [platform](#subscribing-as-the-platform). Never an inbox: what an instance was sent is the instance's business, and the wake saying one has work reaches `agent_instances` |
 | **Secrets** | Resolve secret values for ENVs that reference secrets |
 | **[Runners](runners.md)** | Read and write workload runtime state (which workloads are running, on which runner). Query registered runners for [runner selection](runners.md#runner-selection) |
-| **Runner** | Start and stop agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
+| **Runner** | Start, stop, [hibernate and wake](#hibernation) agent workloads. List provisioned volumes for volume sync (via OpenZiti SDK — see [Authentication](authn.md#sdk-embedding)) |
 | **Ziti Management** | Create and delete OpenZiti identities for agent containers |
 
 ## Reconciliation
@@ -57,11 +57,12 @@ graph LR
 1. On startup, the orchestrator subscribes to the three cluster-wide Notifications rooms and fetches the current state from the Agents Service and the [Runners](runners.md) service. The room set is a **constant** — see [Why the rooms are named, not derived](#why-the-rooms-are-named-not-derived).
 2. **Compare:** For each `active` instance with unacked inbox items — check if a workload is running. For each running workload — check if it still has unacked items or recent activity. Instances in states `paused` or `terminated` are skipped entirely.
 3. **Act:**
-   - **Start:** If an instance has unacked inbox items, apply the [Start Decision](#start-decision) policy. When the policy clears a start → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service.
-   - **Stop:** If a running workload has been idle beyond the configured timeout → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity. The instance persists across stops (see [Agent Instances — Lifecycle](agent-instances.md#lifecycle)).
+   - **Start:** If an instance has unacked inbox items, apply the [Start Decision](#start-decision) policy. When the policy clears a start → assemble workload spec → create OpenZiti identity → start workload via Runner → record workload in [Runners](runners.md) service. When the instance's workload is merely asleep, the policy wakes it instead.
+   - **Hibernate:** If a running workload on a runner that can [hibernate](#hibernation) has finished its turn and its instance has nothing waiting → hibernate it via Runner. The workload record stays live; it costs storage rather than compute until the next item wakes it.
+   - **Stop:** If a running workload has been idle beyond the configured timeout, or a hibernated one has slept beyond its TTL → mark workload removed in [Runners](runners.md) service → stop workload via Runner → delete OpenZiti identity. The instance persists across stops (see [Agent Instances — Lifecycle](agent-instances.md#lifecycle)).
 4. **Wait:** Block until a notification arrives or the poll interval expires, then repeat from step 2.
 
-The polling loop is a consistency fallback. Notifications handle the latency-sensitive path: `message.created` and `instance.updated` on `agent_instances` wake the main loop, `sandbox.updated` on `sandboxes` wakes the sandbox loop, and `workload.status_changed` on `workloads` wakes whichever loop owns the workload that moved.
+The polling loop is a consistency fallback. Notifications handle the latency-sensitive path: `message.created` and `instance.updated` on `agent_instances` wake the main loop, `sandbox.updated` on `sandboxes` wakes the sandbox loop, and `workload.status_changed` on `workloads` wakes whichever loop owns the workload that moved. `workload.updated` arrives on `workloads` too; the main loop reads it for the `agent_state` flip that opens a [hibernation](#hibernation) decision and ignores the rest.
 
 Every loop selects on both its wake channel and its ticker, so the interval remains the backstop with no extra machinery: a lost event costs latency until the next tick, never correctness.
 
@@ -82,9 +83,11 @@ For each `instance_id` identified in step 2 of the loop:
 ```
 active = Runners.ListWorkloadsByAgentInstance(
     instance_id,
-    status_in: [starting, running, stopping])
+    status_in: [starting, running, hibernating, hibernated, waking, stopping])
 if active is not empty:
-    continue                                     # already starting/running — reconciliation owns it
+    if active.first().status == hibernated:
+        WakeWorkload(active.first())             # asleep with work waiting — wake it, start nothing
+    continue                                     # otherwise starting/running/in transition — reconciliation owns it
 
 latest = Runners.ListWorkloadsByAgentInstance(
     instance_id,
@@ -148,13 +151,45 @@ The `last_activity_at` timestamp is maintained by [`agynd`](agynd-cli.md), which
 
 The agent container does not implement idle detection or self-termination. It may exit naturally (process completion, crash), but the orchestrator is the authority for lifecycle management.
 
+On a runner that can hibernate, the idle timeout is the stop of last resort: the workload is [hibernated](#hibernation) long before it, and only one that is still awake when the timeout elapses — because hibernation is failing — is stopped by it.
+
+### Hibernation
+
+On a runner that advertises the `hibernate` [capability](runners.md#runner-catalog), an idle workload is neither left running until its idle timeout nor stopped. It is **hibernated**: paused and persisted by the runner — memory, scratch disks, volumes, open shells, the lot — so that it occupies no compute, and resumed by the next inbox item in milliseconds with every process where it was. The Orchestrator owns the decision in both directions; the runner owns the mechanism (see [k8s-microvm-runner — Workload Lifecycle](k8s-microvm-runner.md#workload-lifecycle)).
+
+**When to hibernate.** The main loop considers a `running` agent-instance workload when it wakes on `workload.updated` carrying `agent_state=idle` — which [`agynd` reports](agynd-cli.md#7-turn-boundary) the moment a turn ends — and on every tick. It hibernates when all of these hold:
+
+- the hosting runner advertises `hibernate`;
+- the workload's `agent_state` is `idle` — the agent reported its turn over, or the sweep found it quiet, and nothing has touched it since. A [terminal session](terminal-proxy.md#sandbox-activity-reporting) attached to the workload touches it, so a person inspecting an agent is never frozen mid-session;
+- the class's [`hibernate`](resource-definitions.md#agent) is on, and `now - last_activity_at >= hibernate_after`;
+- the instance has no unacked inbox items (`Agents.GetInstance` → `unacked_count == 0`), checked immediately before the runner call;
+- the workload has no active [port exposure](expose-service.md) — `Expose.ListExposures(workload_id)`, asked [as the platform](#subscribing-as-the-platform). An exposed port is a standing request to be reachable, and a frozen guest is not; the workload stays awake until the exposure is removed, and `idle_timeout` governs it meanwhile as it does on a runner that cannot hibernate.
+
+A sandbox workload is considered when its `idle_timeout` has elapsed since `last_activity_at` — the point at which the k8s-runner path would stop it — and is hibernated instead; nothing is attached to it by definition.
+
+The inbox check is a check, not a lock: an item can land between it and the runner's pause. That costs one wake directly after the hibernation — the next tick finds unacked items and a `hibernated` workload — and never an item, because the item is in the inbox either way and the workload comes back holding everything it had.
+
+**When to wake.** The [Start Decision](#start-decision) wakes rather than starts: an instance with unacked items whose live workload is `hibernated` gets `WakeWorkload`, and the wake is complete when the runner reports `running`. A `hibernating` workload is left to finish — a hibernation is not interrupted, and the wake that follows is still far cheaper than a cold start — and a `waking` one is already on its way. `EnsureSandboxRunning` wakes a `hibernated` sandbox the same way. A connect that lands while the sandbox's workload is still `hibernating` finds the sandbox `running` and gets the no-op; the attach that follows fails as the guest pauses, the sandbox reads `hibernated` moments later, and the next connect wakes it. The window is the length of one hibernation, and it is left open rather than closed by interrupting the pause: a sandbox is hibernated because nothing was attached to it, and the connect that races the pause costs one reconnect.
+
+**Hibernation TTL.** A hibernated workload is stopped — persisted state discarded, volumes kept — once `now - hibernated_at` exceeds the class's [`hibernation_ttl`](resource-definitions.md#agent), checked each tick like the idle timeout, and whenever its instance is paused or terminated, since nothing will ever wake it. A sandbox's sleep is bounded by the sandbox's own `ttl`, which terminates it regardless of state. Stopping a hibernated workload goes through the [stop flow](#agent-stop-flow): `StopWorkload` discards the persisted state, the identity is deleted, and no layout snapshot is attempted — a frozen container cannot be read, which is why the snapshot is taken [before hibernation](#layout-snapshot-before-stop) instead.
+
+**What hibernation keeps, and what it revokes.** The workload record stays live — `status=hibernated`, `removed_at` NULL — so it still precludes a second workload for the instance and keeps the owner's [volume TTL](#volume-reconciliation) clock stopped. The OpenZiti identity is kept: the guest holds its enrolled certificate, the sidecar reconnects on wake, and [identity reconciliation](#openziti-identity-reconciliation) counts hibernated workloads as live. Port exposures and their policies stay, since they hang off the identity. The image pull credential is **revoked** on hibernation and a fresh one minted on wake — nothing pulls while frozen, and a credential valid for the days a workload may sleep would be the one grant to outlive its activity.
+
+**Failure.** `HibernateWorkload` failing — the runner could not persist the state — leaves the workload `running` and nothing recorded as terminal; the Orchestrator retries no sooner than `HIBERNATE_RETRY` later, and the idle timeout remains the stop of last resort. A sandbox has no stop behind its idle timeout, since that timeout is what hibernates it: one whose hibernation keeps failing stays running, retried at the same interval, until its own `ttl`. `WakeWorkload` failing marks the workload `failed` with `failure_reason=wake_failed` and `removed_at=now` and deletes its identity; the next tick cold-starts the instance on its volumes through the ordinary [Start Decision](#start-decision) — one failure, one short backoff. A hibernated workload the runner no longer holds is `snapshot_lost`, found by [reconciliation](#workload-reconciliation) and handled the same way.
+
+| Parameter | Default | Purpose |
+|---|---|---|
+| `HIBERNATE_RETRY` | `1m` | Minimum interval between hibernation attempts on one workload after a failed one |
+
+**Why the Orchestrator decides, not the runner.** The runner can see that a guest is quiet; it cannot see that an inbox is empty, which is the only fact that makes a pause safe — an agent that is quiet because it is waiting on a tool call is not idle. The runner owns the mechanism and the Orchestrator the decision, as everywhere else in this document.
+
 ### OpenZiti Identity Reconciliation
 
 In addition to agent workloads, the orchestrator reconciles OpenZiti identities:
 
 1. Each reconciliation pass: call `ZitiManagement.ListManagedIdentities()`.
-2. Compare against active workloads from the [Runners](runners.md) service.
-3. Delete OpenZiti identities that have no matching running workload via `ZitiManagement.DeleteIdentity()`.
+2. Compare against live workloads from the [Runners](runners.md) service — `starting`, `running`, `hibernating`, `hibernated` and `waking`. A hibernated workload's identity is in use the moment it wakes.
+3. Delete OpenZiti identities that have no matching live workload via `ZitiManagement.DeleteIdentity()`.
 
 Orphaned identities arise from Runner crashes, container crashes, or orchestrator restarts. An orphaned identity with no running container is inert (the enrollment JWT has expired or the enrolled certificate is inside a stopped container), but cleanup is important for hygiene and OpenZiti Controller resource limits.
 
@@ -269,9 +304,46 @@ See [Agent Init Container](agent-init.md).
 
 The orchestrator is the only service that performs this assembly. The Runner receives an opaque workload spec — it does not know about agents, agent resources, or secrets.
 
+## Hibernate and Wake Flows
+
+When the [hibernation decision](#hibernation) clears:
+
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant RS as Runners Service
+    participant R as Runner
+    participant IP as Image Proxy
+
+    O->>RS: UpdateWorkload(status=hibernating)
+    O->>R: HibernateWorkload(workloadId)
+    R->>RS: ReportWorkloadState(hibernated, snapshot size)
+    R-->>O: OK
+    O->>IP: RevokePullCredential(workloadId)
+```
+
+And when the [Start Decision](#start-decision) finds the instance's workload asleep:
+
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant IP as Image Proxy
+    participant RS as Runners Service
+    participant R as Runner
+
+    O->>IP: MintPullCredential(workload, images)
+    IP-->>O: Username + password
+    O->>RS: UpdateWorkload(status=waking)
+    O->>R: WakeWorkload(workloadId, image_pull_credentials)
+    R->>RS: ReportWorkloadState(running)
+    R-->>O: OK
+```
+
+Both transitions are recorded by whichever writer sees them first, the runner's report or the Orchestrator's [reconciliation](#workload-reconciliation). The `waking → running` transition carries its resets with it in the Runners service — `woken_at`, `last_activity_at` and `last_metering_sampled_at` to now, `agent_state` to `processing` — so that neither writer has to remember them. See [Runners — Workload State Management](runners.md#workload-state-management).
+
 ## Agent Stop Flow
 
-When the orchestrator decides an agent workload should stop (idle timeout exceeded):
+When the orchestrator decides an agent workload should stop (idle timeout exceeded, or hibernation TTL exceeded for a hibernated one):
 
 ```mermaid
 sequenceDiagram
@@ -297,6 +369,8 @@ The pull credential is revoked alongside the OpenZiti identity — both are per-
 
 `status=stopping` is set before the runner call so the console can show the workload as being stopped. `removed_at` is set after `StopWorkload` succeeds — it reflects the actual removal time. The metering sampling loop picks up the workload on its next tick (since `removed_at > last_metering_sampled_at`) and emits the tail sample. The workload record is retained for audit history.
 
+A hibernated workload stops through the same sequence. `StopWorkload` discards its persisted state on the runner, there is no pull credential left to revoke, and the tail sample is a storage sample rather than a compute one.
+
 ## Layout Snapshot Before Stop
 
 Stopping a **sandbox** workload has one extra step, taken before `StopWorkload` and after `status=stopping`: the orchestrator reads the working directory of every [shell](terminal-proxy.md#persistent-shells) in the container and writes them onto the sandbox's [layouts](resource-definitions.md#sandbox-layout) through `SetSandboxLayoutDirectories`.
@@ -308,6 +382,8 @@ The snapshot is **best-effort and never blocks the stop.** It is bounded by a sh
 Stops the platform did not initiate get no snapshot: an evicted pod, a node failure, or a crash leaves the previously recorded value. This is the reason the field is described as last *known* rather than last used.
 
 Agent workloads are skipped — they have no layout and no shells worth recording.
+
+The same step runs before a sandbox is [hibernated](#hibernation), for the stop that may eventually follow: a hibernated sandbox that reaches its TTL is stopped without ever being thawed, and a frozen container cannot be read. The value recorded at hibernation is the last known one until the sandbox wakes.
 
 ## Leader Election
 
@@ -329,7 +405,7 @@ See [Control Plane & Data Plane — Reconciliation](control-data-plane.md#reconc
 | **API** | None — pure background reconciler |
 | **State** | Stateless — reads/writes workload state via [Runners](runners.md) service |
 | **Scaling** | Leader-elected; scales with number of agent definitions, not traffic |
-| **Failure impact** | Temporary loss delays new agent starts and idle stops; already-running agents continue |
+| **Failure impact** | Temporary loss delays new agent starts, wakes, hibernations and idle stops; already-running agents continue, and hibernated ones stay asleep |
 
 ## Metering
 
@@ -349,13 +425,15 @@ Metering state is stored in the [Runners](runners.md) service alongside the work
 On each tick:
 
 1. Fix `tick_time = now()` once at the start of the iteration. All interval calculations in this tick use this value.
-2. Call `ListWorkloads(pending_sample: true)` and `ListVolumes(pending_sample: true)` on the [Runners](runners.md) service. Returns only resources where `removed_at IS NULL OR removed_at > last_metering_sampled_at` — active resources and stopped resources with a pending tail sample. The filter is applied in the DB.
+2. Call `ListWorkloads(pending_sample: true)` and `ListVolumes(pending_sample: true)` on the [Runners](runners.md) service. Returns only resources with something left to sample — active resources, stopped resources with a pending tail sample, workloads hibernated since their last sample, and hibernated workloads for their storage. The filter is applied in the DB.
 3. For each resource, compute the usage record:
    - `interval_start = last_metering_sampled_at ?? created_at`
-   - `interval_end = removed_at ?? tick_time`
+   - `interval_end = removed_at ?? tick_time` — for a workload that is `hibernated`, `hibernated_at` when it is later than `interval_start`: the compute interval ends at the pause
    - `duration_s = interval_end − interval_start`
    - `value = allocated × duration_s`
    - `timestamp = interval_start` — used as the Metering record timestamp and partition key
+
+   A `hibernated` workload whose compute tail is already sampled (`last_metering_sampled_at >= hibernated_at`) emits a storage record instead — its [snapshot](#records) for the interval — and a wake sets `last_metering_sampled_at` to the wake time, so compute billing resumes from there and never covers the sleep. The storage interval between the last tick and the wake, at most one sampling interval, is not billed.
 4. Publish all records to the [Metering Service](metering.md) in a single batch call.
 5. On success: call `BatchUpdateWorkloadSampledAt` and `BatchUpdateVolumeSampledAt` with `{id → interval_end}` for all successfully published resources.
 
@@ -387,13 +465,21 @@ Every started workload carries a flavor. An agent workload takes it from the age
 
 `size_gb` comes from the actual volume record in the [Runners](runners.md) service, not the volume definition in the Agents service. Idempotency keys are derived deterministically — if the Metering Service call fails and the Orchestrator retries, duplicate records are dropped by the Metering Service without error. See [Metering — Deduplication](metering.md#deduplication).
 
+**Snapshot storage** — one record per [hibernated](#hibernation) workload each interval:
+
+| unit | value | labels | idempotency_key |
+|------|-------|--------|-----------------|
+| `GB_SECONDS` | snapshot_size_gb × interval_s | resource_id=workload_id, resource=snapshot, identity_id, identity_type, runner_id, kind=storage | deterministic(workload_id+"snapshot"+interval_start) |
+
+A sleeping workload costs what its persisted state occupies and nothing else: no `FLAVOR_SECONDS` are emitted between `hibernated_at` and the wake. `snapshot_size_gb` is the `snapshot_size_bytes` the runner reported with `hibernated`, read from the workload record. `runner_id` accompanies it for the same reason it accompanies a flavor — what a gigabyte of snapshot costs is the runner's store's business.
+
 ## Workload Reconciliation
 
 The Orchestrator reconciles workload state on a fixed interval (default 60 seconds), independently of the main reconciliation loop. The [Runners](runners.md) service is the source of truth — workload records are created there by the Orchestrator when a workload starts. The reconciliation loop syncs actual workload state on each runner against those records.
 
 On each tick, for each enrolled runner:
 
-1. Call `Runners.ListWorkloads(runner_id, status_in: [starting, running, stopping])` — only non-terminal records. Historical stopped/failed workloads are excluded; they need no reconciliation.
+1. Call `Runners.ListWorkloads(runner_id, status_in: [starting, running, hibernating, hibernated, waking, stopping])` — only non-terminal records. Historical stopped/failed workloads are excluded; they need no reconciliation.
 2. Call `Runner.ListWorkloads()` to get workloads actually running on the runner.
 3. For each workload still present on the runner, call `Runner.InspectWorkload(instance_id)` to refresh container state (`status`, `reason`, `message`, `exit_code`, `restart_count`, `started_at`, `finished_at`). This is the input to the health classification below.
 4. Match by `workload_key` (the label set on the Pod at creation time, equal to the Runners service record `id`) and reconcile. Every `Runners.UpdateWorkload` call in this step also persists the refreshed container list so the Console sees runtime state (`ImagePullBackOff`, `CrashLoopBackOff`, `OOMKilled`, exit codes) within one interval:
@@ -409,6 +495,14 @@ On each tick, for each enrolled runner:
 | `running` | yes | main container `reason=CrashLoopBackOff` and `restart_count ≥ CRASHLOOP_THRESHOLD` | mark failed (`failure_reason=crashloop`); `Runner.StopWorkload` |
 | `running` | yes | healthy | `UpdateWorkload(containers=...)` (no status change) |
 | `running` | no | — | mark failed (`failure_reason=runtime_lost`) — workload crashed or was lost |
+| `hibernating` | yes, reported `hibernated` | — | `UpdateWorkload(status=hibernated, hibernated_at=now, snapshot_size_bytes=...)` — the runner's report was missed |
+| `hibernating` | yes, still running | — | the runner could not persist it: `UpdateWorkload(status=running)`; retried per [Hibernation](#hibernation) |
+| `hibernating` | no | — | mark failed (`failure_reason=runtime_lost`) — lost before it was persisted, as a `running` one is |
+| `hibernated` | yes | — | no-op — `hibernation_ttl` is the main loop's to check |
+| `hibernated` | no | — | mark failed (`failure_reason=snapshot_lost`) — the runner no longer holds the state; the instance cold-starts on its volumes |
+| `waking` | yes, running | — | `UpdateWorkload(status=running)` with the wake resets — the runner's report was missed |
+| `waking` | yes, still `hibernated` | — | the wake did not take: retry `Runner.WakeWorkload`; mark failed (`failure_reason=wake_failed`) after `WAKE_ATTEMPTS` |
+| `waking` | no | — | mark failed (`failure_reason=wake_failed`) |
 | `stopping` | yes | — | retry `Runner.StopWorkload` |
 | `stopping` | no | — | `UpdateWorkload(status=stopped, removed_at=now)` |
 | not in Runners service | yes | — | orphan — `Runner.StopWorkload` |
@@ -433,6 +527,7 @@ After `Runner.StopWorkload` completes, the Orchestrator calls `ZitiManagement.De
 | `START_GRACE_S` | 60 | Time allowed for image pull and container creation before a waiting container is considered unrecoverable. Measured as `now - workload.created_at`, since `container.started_at` is NULL until the container first enters `running` |
 | `INIT_RETRY_THRESHOLD` | 3 | Init container retry count above which the workload is considered unable to initialize |
 | `CRASHLOOP_THRESHOLD` | 3 | Main container `restart_count` at which a `CrashLoopBackOff` is considered unrecoverable. The K8s `CrashLoopBackOff` reason is the primary signal; the count threshold guards against single-flake restarts |
+| `WAKE_ATTEMPTS` | 3 | Consecutive `WakeWorkload` attempts on one hibernated workload before it is failed and the instance cold-started on its volumes |
 
 Failing the workload here is the *only* source of the `failed` status — once written, the record is terminal. Retry of the instance is the responsibility of the main loop's [Start Decision](#start-decision), which reads these records to compute backoff and decide when (or whether) to start a new workload.
 
@@ -480,7 +575,7 @@ This applies to workload and volume reconciliation reads on Runners, the meterin
 
 ### Subscribing as the platform
 
-[Notifications](notifications.md) is the exception, and it cannot be served the same way: it authorizes every room against a caller, so it has no reading of an absent identity to fall back on. The Orchestrator therefore identifies itself there — `x-identity-id` set to the [platform identity](identity-service.md), `x-identity-type: platform` — and Notifications settles that claim against `admin` on `cluster:global` rather than believing the header. It is the same identity [Identity](identity-service.md) registers from `PLATFORM_IDENTITY_ID` and grants cluster admin at startup; the Orchestrator reads the id from the same configuration value.
+[Notifications](notifications.md) is the exception, and it cannot be served the same way: it authorizes every room against a caller, so it has no reading of an absent identity to fall back on. The Orchestrator therefore identifies itself there — `x-identity-id` set to the [platform identity](identity-service.md), `x-identity-type: platform` — and Notifications settles that claim against `admin` on `cluster:global` rather than believing the header. The [hibernation](#hibernation) check on [Expose](expose-service.md#authorization) is served the same way: `ListExposures` authorizes its caller against the exposure's organization, so the Orchestrator asks as the platform and Expose settles the claim against the same relation. It is the same identity [Identity](identity-service.md) registers from `PLATFORM_IDENTITY_ID` and grants cluster admin at startup; the Orchestrator reads the id from the same configuration value.
 
 That grant is what admits it to the three [cluster-wide rooms](notifications.md#cluster-wide-rooms), which carry every organization's lifecycle and are the platform's alone. It is deliberately **not** admitted to the identity-keyed rooms: `instance_inbox:`, `thread_participant:` and `sandbox_owner:` stay closed to it. The wake saying an instance has work waiting reaches `agent_instances`, which [Agents](agents-service.md) publishes `message.created` to alongside the instance's own inbox — carrying ids and a source kind, never the message — so the Orchestrator learns an inbox is non-empty without ever being able to read one.
 

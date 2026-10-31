@@ -25,6 +25,7 @@
 - Marks the turn's thread messages read via `Threads.AckMessages(message_ids)`, at the same point and for the same items — every item of `source_kind = thread` carries the `message_id` to pass. This is a separate call with a separate meaning: the inbox ack says the runtime processed the item, the message ack says the agent was shown it. `direct` items have no message and are not marked. The call is idempotent, so messages a shell already fetched with [`agyn threads read --unread`](agyn-cli.md#unread-and-acknowledgment) during the turn cost nothing to re-mark.
 - Follows the [Consumer Sync Protocol](notifications.md#consumer-sync-protocol) for reliable delivery.
 - Sends keepalive signals to the [Runners](runners.md) service (via [Gateway](gateway.md)) while the agent is actively processing. See [Activity Keepalive](#5-activity-keepalive).
+- Reports the end of every turn, so the platform can put the workload to sleep the moment it has nothing to do. See [Turn Boundary](#7-turn-boundary).
 
 ### 2. Message Formatting
 
@@ -224,7 +225,7 @@ The agent CLI can be:
 
 `agynd` reports agent activity to the [Runners](runners.md) service for [idle timeout](runners.md#idle-timeout) enforcement. While the agent CLI is actively processing (executing LLM calls, running tools, producing output), `agynd` calls `TouchWorkload` on the [Runners](runners.md) service (via [Gateway](gateway.md)) every 10 seconds. This updates the `last_activity_at` timestamp on the workload record.
 
-When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long.
+When the agent is idle (turn complete, waiting for new messages), `agynd` stops sending keepalives. The [Agents Orchestrator](agents-orchestrator.md) compares `last_activity_at` against the agent's [`idle_timeout`](resource-definitions.md#agent) and stops workloads that have been idle too long. On a runner that can [hibernate](k8s-microvm-runner.md#hibernate), the turn boundary `agynd` reports (below) is what the Orchestrator acts on first; the idle timeout remains the stop of last resort.
 
 `agynd` determines activity state from the agent CLI SDK — it knows when the agent is processing a request vs. waiting for input. The keepalive is SDK-agnostic: regardless of which agent CLI is running (Codex, Claude Code, `agn`), `agynd` uses the same `TouchWorkload` mechanism.
 
@@ -235,6 +236,24 @@ An agent CLI ends a turn with plain assistant text. No agent CLI protocol carrie
 When the class sets [`final_message`](resource-definitions.md#agent) to `default_thread`, `agynd` additionally posts that final text to the instance's [`default_thread_id`](agent-instances.md#default-thread), after the turn completes and before acking the turn's inbox items. The post is unconditional — `agynd` does not inspect whether the agent already sent something, which is why the default is `discard` for agents that manage their own sends. Nothing is posted when the final text is empty or the instance's default thread is NULL; `agynd` logs and continues to ack.
 
 `agynd` never derives a target from the turn's inbox items. An instance handling a sub-thread reply is frequently answering a *different* thread than the one that woke it — see [Agent Instances — Outbound](agent-instances.md#outbound).
+
+### 7. Turn Boundary
+
+After the turn's inbox items are acked — the last thing a turn does — `agynd` calls `ReportWorkloadIdle` on the [Runners](runners.md#workload-state) service (via Gateway). The call flips the workload's `agent_state` to `idle` immediately rather than after the keepalive grace, and the [Agents Orchestrator](agents-orchestrator.md#hibernation) treats it as the moment the workload may be hibernated: if the inbox is still empty when it looks, the workload goes to sleep right there, between one turn and the next.
+
+`agynd` reports after the ack, not before, so the ack is the last word of a turn and a workload is never frozen between finishing an item and acknowledging it. A report that never arrives — a crash, an SDK that cannot see a turn end — costs nothing but latency: the [activity sweep](runners.md#agent-activity-sweep) reaches the same state on its own schedule.
+
+In holder mode there is no turn, so there is no report; a sandbox's idleness is the Terminal Proxy's to observe.
+
+### 8. Wake
+
+A hibernated workload resumes with every process intact and every connection it held — to the Gateway, to Notifications, to the LLM Proxy — dead on the far side, which cannot tell a frozen peer from a vanished one. The runner [signals the wake](k8s-microvm-runner.md#wake) by sending `SIGCONT` to the main container's init process, which is `agynd`, once the guest's clock has been set.
+
+On `SIGCONT`, `agynd` drops its Notifications subscription and reopens it, fetches the inbox with `GetUnackedInboxItems`, and resumes keepalives if the agent CLI is mid-turn. Nothing is replayed to the agent CLI: items that arrived while the workload slept are in the inbox and are processed as a normal turn. An agent CLI's own connections — an LLM call in flight when the workload was frozen — fail on their own timeouts and are retried by the CLI as any dropped connection is.
+
+`agynd` does not depend on the signal arriving. Its keepalive timer compares the wall clock with monotonic time between ticks; a wall clock that has jumped ahead by more than a tick is what a restore looks like from inside — the runner sets the guest's clock after every wake — and triggers the same reconnect. The signal makes the wake prompt; the clock makes it certain.
+
+`SIGCONT` is the signal because a process that has not asked for it never sees it: an MCP sidecar, a DinD daemon or a shell is unaffected, and `agynd` is the only process in the workload that has something to do.
 
 ## Shell Supervision
 
@@ -395,6 +414,7 @@ sequenceDiagram
             D->>GW: Threads.SendMessage(default_thread_id, body, files)
         end
         D->>GW: AckInboxItems(instanceId, itemIds)
+        D->>GW: ReportWorkloadIdle(workloadId)
     end
 
     Note over D: Wait for notification or poll

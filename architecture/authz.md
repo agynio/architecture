@@ -415,19 +415,20 @@ Reconciliation, metering, and workload assembly are internal-only paths gated by
 
 #### When a platform service does present an identity
 
-A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Three paths need it:
+A few callees authorize a caller rather than serving an absent one, and the Orchestrator reaches those as **itself**: the [platform identity](identity.md), configured as `PLATFORM_IDENTITY_ID` and holding `admin` on `cluster:global`. Four paths need it:
 
 | Callee | Why an identity is required |
 |--------|------------------------------|
 | [Notifications](notifications.md#platform-callers) `Subscribe` | Rooms are authorized per caller; there is no absent-identity path. |
 | [Agents](agents-service.md) `GetUnackedInboxItems`, `GetUnackedInboxCount` | Instance-scoped reads. The Orchestrator must know which thread an instance was handed work for before it can place a workload. |
 | [Groups](groups-service.md) `ListMemberGroups` | Reads an agent's groups to resolve the role attributes its workload carries. |
+| [Expose](expose-service.md#authorization) `ListExposures` | Authorized against the exposure's organization. The Orchestrator asks whether a workload has an active exposure before it [hibernates](agents-orchestrator.md#hibernation) it. |
 
 Each verifies the claim against `admin` on `cluster:global` rather than trusting the `x-identity-type: platform` header, so a caller that sets the header without holding the relation is refused.
 
 **This replaced impersonation.** The Orchestrator previously sent an agent instance's or agent's own `identity_id` as the caller on these paths — and, for anything organization-scoped, elected the first agent it found in each organization and borrowed that one. It was a platform service claiming to be one of the things it manages, in order to satisfy checks written for that thing. It also could not work for `sandbox_org:`, which wants `can_list_sandboxes`: an instance is a `member` of its organization and holds no such relation, so that subscription was refused on every attempt.
 
-The grants are read-only. Writes stay with the principal who owns them — Groups' create/update/delete remain owner-gated, and `AckInboxItems` remains the instance's alone.
+The grants are read-only. Writes stay with the principal who owns them — Groups' create/update/delete remain owner-gated, and `AckInboxItems` remains the instance's alone. Where a write already admits any cluster admin — Expose's `AddExposure` and `RemoveExposure` with an explicit `workload_id` — the platform identity is admitted as the cluster admin it is, by the identity and not by the type header; the Orchestrator makes no such call.
 
 The [Ziti Management Service](#ziti-management-service) is the canonical example of this pattern. The same model applies to internal methods on Runners, Agents, Threads, Secrets, LLM, and Notifications listed in the per-service tables below.
 
@@ -513,7 +514,8 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
-| `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`). For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio after terminal ticket validation |
+| `ReportWorkloadIdle` | Agent instance's own identity (`workload.owner_id == caller.identity_id`), as `TouchWorkload` |
+| `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`), or internal from Terminal Proxy via Istio while a TTY session is attached. For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio after terminal ticket validation |
 | `CreateVolume`, `UpdateVolume`, `BatchUpdateVolumeSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListVolumes` (via Gateway) | `can_view_volumes` on `organization:<org_id>` (required request parameter) |
 | `ListVolumes` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [volume reconciliation](agents-orchestrator.md#volume-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
@@ -638,7 +640,7 @@ App visibility affects who can read app records: `public` apps are visible to an
 | `AddExposure` (explicit `workload_id`, sandbox-owned workload) | `can_connect` on `sandbox:<workload.owner_id>` |
 | `AddExposure` (explicit `workload_id`, any other owner) | `admin` on `cluster:global` |
 | `RemoveExposure` | Caller is the workload; `can_connect` on `sandbox:<exposure.owner_id>` when sandbox-owned; or `owner` on `organization:<exposure.organization_id>` |
-| `ListExposures` | Caller is the workload, or `member` on `organization:<exposure.organization_id>` |
+| `ListExposures` | Caller is the workload; `member` on `organization:<exposure.organization_id>`; or a verified [platform caller](#when-a-platform-service-does-present-an-identity) (`admin` on `cluster:global`) — the [Orchestrator](agents-orchestrator.md#hibernation) asking before it hibernates a workload |
 
 `can_connect` is the relation the [Terminal Proxy](terminal-proxy.md#authorization) already checks, used here for the same reason: a shell can run `agyn expose` itself, so managing a sandbox's ports from the [Sandboxes app](sandboxes-app.md) confers nothing a session does not. It introduces no relation and no tuple — `sandbox` already defines `can_connect`.
 

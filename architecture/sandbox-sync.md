@@ -33,7 +33,7 @@ Shared storage remains the right answer *inside* the cluster — a read-write-ma
 
 The **controller runs on the engineer's machine**. It holds session state, computes reconciliation, and decides every action. The container-side endpoint executes filesystem operations it is told to perform and computes nothing.
 
-This split follows from the sandbox lifecycle rather than from preference. The endpoint process is terminated without warning whenever the WebSocket drops (the proxy cancels the exec), the sandbox idles out, or the TTL fires. Anything authoritative held there is state that is routinely lost. The endpoint therefore persists exactly two things, both disposable: a root marker file and a staging directory.
+This split follows from the sandbox lifecycle rather than from preference. The endpoint process is terminated without warning whenever the WebSocket drops (the proxy cancels the exec), the sandbox idles out — stopped or [hibernated](k8s-microvm-runner.md#hibernate), the exec stream ends either way — or the TTL fires. Anything authoritative held there is state that is routinely lost. The endpoint therefore persists exactly two things, both disposable: a root marker file and a staging directory.
 
 The **ancestor snapshot** — the merge base that distinguishes "created locally" from "deleted remotely," which are otherwise the same observation — lives only on the engineer's machine.
 
@@ -194,7 +194,7 @@ The exec stream is expected to break routinely: machine sleep, network loss, san
 | Condition | Response |
 |---|---|
 | Transport failure (network, proxy restart) | Reconnect with exponential backoff and jitter |
-| Sandbox `stopped` | Pause. **Automatic resumption never restarts the sandbox** — a background file change must not start billable compute. An explicit `agyn sandbox sync` does call `EnsureSandboxRunning`, exactly as `connect` does: a person asking is not the same event as a file changing |
+| Sandbox `stopped` or `hibernated` | Pause. **Automatic resumption never restarts or wakes the sandbox** — a background file change must not start billable compute. An explicit `agyn sandbox sync` does call `EnsureSandboxRunning`, exactly as `connect` does: a person asking is not the same event as a file changing |
 | Sandbox `terminated` | Halt; the session requires explicit action |
 | Root identity mismatch on either side | Halt; nothing applied |
 | A side has lost most of its tracked content | Halt; nothing applied |

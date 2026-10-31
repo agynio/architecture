@@ -346,7 +346,7 @@ connection and the workload's identity authenticates it.
 
 ### The trace is the wake cycle
 
-A workload is started when an [agent instance](agent-instances.md) has work and stopped when it goes idle, so the workload *is* one wake cycle. `agynd` opens a trace for it during [environment preparation](agynd-cli.md#3-environment-preparation) and hands the id to the trace hook it installs, so both producers write into one trace.
+A workload is started when an [agent instance](agent-instances.md) has work and stopped when it goes idle, so the workload *is* one wake cycle. On a runner that [hibernates](k8s-microvm-runner.md#hibernate), the same workload sleeps and wakes many times between its start and its stop, and the trace follows it — a wake opens no new trace. `agynd` opens a trace for it during [environment preparation](agynd-cli.md#3-environment-preparation) and hands the id to the trace hook it installs, so both producers write into one trace.
 
 The id is derived from `WORKLOAD_ID` rather than drawn, so an `agynd` restarting inside the pod reopens the trace it was already writing instead of splitting the cycle in two.
 

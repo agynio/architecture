@@ -148,6 +148,8 @@ sequenceDiagram
     ZM->>ZM: Remove mapping from PostgreSQL
 ```
 
+A workload that is [hibernated](k8s-microvm-runner.md#hibernate) rather than stopped **keeps its identity**. The enrolled certificate is in the guest's memory, which is exactly what the snapshot preserves, and the identity on the Controller must still exist when the guest wakes and its sidecar reconnects. `DeleteIdentity` is called only when the workload is stopped — after its hibernation TTL, by an explicit stop, or on failure — never on hibernation. See [Agents Orchestrator — Hibernation](agents-orchestrator.md#hibernation).
+
 ### Identity Creation Request
 
 When Ziti Management creates an agent identity, it sends:
@@ -176,10 +178,10 @@ When Ziti Management creates an agent identity, it sends:
 The Orchestrator's existing reconciliation loop handles orphaned identities (from Runner crashes, pod crashes, or Orchestrator restarts):
 
 1. Each reconciliation pass: Orchestrator calls `ZitiManagement.ListManagedIdentities()`.
-2. Compares against active workloads from `Runner.FindWorkloadsByLabels()`.
-3. Deletes OpenZiti identities that have no matching running workload via `ZitiManagement.DeleteIdentity()`.
+2. Compares against live workloads in the [Runners](runners.md) service — every record that is `starting`, `running`, `hibernating`, `hibernated` or `waking`.
+3. Deletes OpenZiti identities that have no matching live workload via `ZitiManagement.DeleteIdentity()`.
 
-This is the same reconciliation pattern used for agent workloads — no new mechanism needed. An orphaned identity with no running pod is inert (it can't be used because the enrollment JWT has expired or the enrolled certificate is inside a stopped pod), but cleanup is important for hygiene and OpenZiti Controller resource limits.
+A hibernated workload counts as live: its identity is in use the moment it wakes. This is the same reconciliation pattern used for agent workloads — no new mechanism needed. An orphaned identity with no running pod is inert (it can't be used because the enrollment JWT has expired or the enrolled certificate is inside a stopped pod), but cleanup is important for hygiene and OpenZiti Controller resource limits.
 
 ## Service Identity Self-Enrollment
 
@@ -509,7 +511,7 @@ The Gateway routes agent requests to internal services (Threads, Files, etc.) vi
 |----------|-----------|--------------|--------------------|
 | Agents Orchestrator | Ephemeral (per pod) | Self-enrollment via Ziti Management | Runner (dial) |
 | Runner | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | — (binds `runner-{runnerId}` service) |
-| Agent pod (Ziti sidecar) | Ephemeral (per workload) | Orchestrator via Ziti Management → `ZITI_ENROLLMENT_JWT` → Ziti sidecar enrolls at startup | Gateway (dial), LLM Proxy (dial), Tracing (dial) |
+| Agent pod (Ziti sidecar) | Ephemeral (per workload; survives [hibernation](k8s-microvm-runner.md#hibernate), deleted at stop) | Orchestrator via Ziti Management → `ZITI_ENROLLMENT_JWT` → Ziti sidecar enrolls at startup | Gateway (dial), LLM Proxy (dial), Tracing (dial) |
 | App | Persistent (enrolled via service token) | Service token (Terraform/CLI → enrollment endpoint) | Gateway (dial) + own service (bind) |
 | Ziti Management | N/A — no OpenZiti network identity | Controller API credential (Terraform) | OpenZiti Controller (via Istio, not overlay) |
 | Gateway | Ephemeral (per pod) | Self-enrollment via Ziti Management | — (binds `gateway` service) |

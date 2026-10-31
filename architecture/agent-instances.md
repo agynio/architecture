@@ -166,7 +166,7 @@ An instance transitions to `terminated` on explicit `DeleteInstance`. Terminated
 
 - **Storage** is per-instance. Every persistent [Volume](resource-definitions.md#volume) the instance's [environment](resource-definitions.md#environment) declares is provisioned once per instance — records in [Runners](runners.md) are keyed by `agent_instance_id`. Workload starts mount them; workload stops leave them in place. An environment declaring no persistent volume gives its instances no state that outlives a workload.
 - **Workload identity** is the instance identity. The [Orchestrator](agents-orchestrator.md) starts a workload with `AGENT_INSTANCE_ID = instance.id` in the environment; `agynd` uses this to fetch its inbox and to identify itself in platform calls. (In [Runners](runners.md) records the field is `agent_instance_id` — distinct from the runner-local `instance_id`, which is the Pod/PVC name.)
-- One workload at a time per instance. A `starting`/`running`/`stopping` workload precludes another for the same instance.
+- One workload at a time per instance. A `starting`/`running`/`stopping` workload precludes another for the same instance, and so does a [hibernated](agents-orchestrator.md#hibernation) one — it is the workload the next inbox item wakes, not one to replace.
 
 ## Handles
 
