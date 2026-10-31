@@ -139,7 +139,7 @@ External `Subscribe` (through the Gateway) requires an authenticated caller. Roo
 |--------------|-------------|
 | `thread_participant:{id}` | `id == caller.identity_id` (identity equality — only the participant subscribes to their own room). The [`:me` sentinel](#self-subscription-sentinel) is rewritten to the caller's `identity_id` before this check. |
 | `instance_inbox:{id}` | `id == caller.identity_id` and `caller.identity_type == agent_instance` (only the instance itself subscribes). `:me` is rewritten before the check. |
-| `workload:{id}` | `member` on `organization:<workload.org_id>` |
+| `workload:{id}` | `member` on `organization:<workload.org_id>` (org read from [Runners](runners.md#authorization) `GetWorkload`, an internal call with no identity) |
 | `agent:{id}` | `member` on `organization:<agent.org_id>` |
 | `sandbox_owner:{owner_id}` | `owner_id == caller.identity_id` (identity equality — only the sandbox owner subscribes to their own live sandbox list/detail room). `:me` is not accepted for this room pattern. |
 | `sandbox:{sandbox_id}` | `can_read` on `sandbox:<sandbox_id>`. Resource-keyed rather than identity-keyed, so it reaches the identities a sandbox owner has shared with — the owner room cannot, being keyed by an owner id that is not theirs. |
