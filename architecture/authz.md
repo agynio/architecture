@@ -508,10 +508,14 @@ Runners can be cluster-scoped (`organization_id` null) or org-scoped.
 | `UpdateRunner`, `DeleteRunner` (cluster-scoped) | `admin` on `cluster:global` |
 | `UpdateRunner`, `DeleteRunner` (org-scoped) | `owner` on `organization:<org_id>` |
 | `EnrollRunner` | Runner's own identity (service token verification, not OpenFGA) |
+| `ListFlavors`, `ListStorageClasses` (via Gateway, org-scoped runners) | `member` on `organization:<org_id>` |
+| `ListFlavors`, `ListStorageClasses` (via Gateway, cluster-scoped runners) | Any authenticated identity |
+| `ListFlavors`, `ListStorageClasses` (internal) | Internal only (Orchestrator via Istio) — used by [runner selection](agents-orchestrator.md#runner-selection) to resolve flavor and storage class names |
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required. Used by [workload reconciliation](agents-orchestrator.md#workload-reconciliation) and the [metering sampling loop](agents-orchestrator.md#sampling-algorithm) |
-| `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
+| `GetWorkload`, `StreamWorkloadLogs` (via Gateway) | `can_view_workloads` on `organization:<workload.org_id>` |
+| `GetWorkload` (internal) | Internal only (Terminal Proxy and Notifications via Istio) — the [Terminal Proxy](terminal-proxy.md#session-establishment) resolves the runner hosting a workload after validating its own ticket, and [Notifications](notifications.md#authorization) reads the organization a `workload:{id}` subscription is checked against: that room admits any `member`, and reading the workload as a member would require `can_view_workloads` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
 | `ReportWorkloadIdle` | Agent instance's own identity (`workload.owner_id == caller.identity_id`), as `TouchWorkload` |

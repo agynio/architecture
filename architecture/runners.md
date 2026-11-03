@@ -394,7 +394,7 @@ The sweep does not interact with runners — it is a DB scan plus notification e
 
 ## Authorization
 
-Runner management authorization depends on the runner's scope. Workload and volume read methods have two call paths: external (via [Gateway](gateway.md), authorized via OpenFGA) and internal (Orchestrator via Istio, gated by `AuthorizationPolicy`). Write methods are internal-only. See [Internal RPC Authorization](authz.md#internal-rpc-authorization) for the enforcement model.
+Runner management authorization depends on the runner's scope. Workload and volume read methods have two call paths: external (via [Gateway](gateway.md), authorized via OpenFGA) and internal (Orchestrator via Istio, gated by `AuthorizationPolicy`; `GetWorkload` also from the Terminal Proxy and Notifications). Write methods are internal-only. See [Internal RPC Authorization](authz.md#internal-rpc-authorization) for the enforcement model.
 
 | Operation | Check |
 |-----------|-------|
@@ -413,7 +413,8 @@ Runner management authorization depends on the runner's scope. Workload and volu
 | `CreateWorkload`, `UpdateWorkload`, `BatchUpdateWorkloadSampledAt` | Internal only (Orchestrator via Istio) |
 | `ListWorkloads` (via Gateway) | `can_view_workloads` on `organization:<org_id>` (required request parameter) |
 | `ListWorkloads` (internal) | Internal only (Orchestrator via Istio) — supports `runner_id_in`, `pending_sample`, and `status_in` filters across organizations; `organization_id` not required |
-| `GetWorkload`, `StreamWorkloadLogs` | `can_view_workloads` on `organization:<workload.org_id>` |
+| `GetWorkload`, `StreamWorkloadLogs` (via Gateway) | `can_view_workloads` on `organization:<workload.org_id>` |
+| `GetWorkload` (internal) | Internal only (Terminal Proxy and Notifications via Istio) — the [Terminal Proxy](terminal-proxy.md#session-establishment) resolves the runner hosting a workload after validating its own ticket, and [Notifications](notifications.md#authorization) reads the organization a `workload:{id}` subscription is checked against: that room admits any `member`, and reading the workload as a member would require `can_view_workloads` |
 | `ListWorkloadsByAgentInstance` (via Gateway) | `member` on `organization:<workload.org_id>` |
 | `ListWorkloadsByAgentInstance` (internal) | Internal only (Orchestrator via Istio) — used by the [start decision](agents-orchestrator.md#start-decision) |
 | `TouchWorkload` | For `owner_kind=agent_instance`: agent instance's own identity (`workload.owner_id == caller.identity_id`), or internal from Terminal Proxy via Istio while a TTY session is attached. For `owner_kind=sandbox`: internal only from Terminal Proxy via Istio, after ticket validation, to report attached-session activity |
