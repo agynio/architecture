@@ -175,7 +175,7 @@ The inbox check is a check, not a lock: an item can land between it and the runn
 
 **What hibernation keeps, and what it revokes.** The workload record stays live — `status=hibernated`, `removed_at` NULL — so it still precludes a second workload for the instance and keeps the owner's [volume TTL](#volume-reconciliation) clock stopped. The OpenZiti identity is kept: the guest holds its enrolled certificate, the sidecar reconnects on wake, and [identity reconciliation](#openziti-identity-reconciliation) counts hibernated workloads as live. Port exposures and their policies stay, since they hang off the identity. The image pull credential is **revoked** on hibernation and a fresh one minted on wake — nothing pulls while frozen, and a credential valid for the days a workload may sleep would be the one grant to outlive its activity.
 
-**Failure.** `HibernateWorkload` failing — the runner could not persist the state — leaves the workload `running` and nothing recorded as terminal; the Orchestrator retries no sooner than `HIBERNATE_RETRY` later, and the idle timeout remains the stop of last resort. A sandbox has no stop behind its idle timeout, since that timeout is what hibernates it: one whose hibernation keeps failing stays running, retried at the same interval, until its own `ttl`. `WakeWorkload` failing marks the workload `failed` with `failure_reason=wake_failed` and `removed_at=now` and deletes its identity; the next tick cold-starts the instance on its volumes through the ordinary [Start Decision](#start-decision) — one failure, one short backoff. A hibernated workload the runner no longer holds is `snapshot_lost`, found by [reconciliation](#workload-reconciliation) and handled the same way.
+**Failure.** `HibernateWorkload` failing — the runner could not persist the state — leaves the workload `running` and nothing recorded as terminal; the Orchestrator retries no sooner than `HIBERNATE_RETRY` later, and the idle timeout remains the stop of last resort. A sandbox has no stop behind its idle timeout, since that timeout is what hibernates it: one whose hibernation keeps failing stays running, retried at the same interval, until its own `ttl`. `WakeWorkload` failing marks the workload `failed` with `failure_reason=wake_failed` and `removed_at=now` and deletes its identity; the next tick cold-starts the instance on its volumes through the ordinary [Start Decision](#start-decision) — one failure, one short backoff. A call the runner [did not answer](#a-runner-that-does-not-answer) is no failure of the wake: the workload stays `waking`, whatever the runner holds is left alone, and reconciliation retries once the runner answers. A hibernated workload the runner no longer holds is `snapshot_lost`, found by [reconciliation](#workload-reconciliation) and handled the same way.
 
 | Parameter | Default | Purpose |
 |---|---|---|
@@ -528,8 +528,17 @@ After `Runner.StopWorkload` completes, the Orchestrator calls `ZitiManagement.De
 | `INIT_RETRY_THRESHOLD` | 3 | Init container retry count above which the workload is considered unable to initialize |
 | `CRASHLOOP_THRESHOLD` | 3 | Main container `restart_count` at which a `CrashLoopBackOff` is considered unrecoverable. The K8s `CrashLoopBackOff` reason is the primary signal; the count threshold guards against single-flake restarts |
 | `WAKE_ATTEMPTS` | 3 | Consecutive `WakeWorkload` attempts on one hibernated workload before it is failed and the instance cold-started on its volumes |
+| `RUNNER_LOST_AFTER` | `30m` | Time a runner stays without an OpenZiti terminator, without once answering, before it is taken to be gone. Outlasts a restart of the runner together with the overlay it re-enrolls through |
 
 Failing the workload here is the *only* source of the `failed` status — once written, the record is terminal. Retry of the instance is the responsibility of the main loop's [Start Decision](#start-decision), which reads these records to compute backoff and decide when (or whether) to start a new workload.
+
+### A runner that does not answer
+
+The table reads the runner's answer. A `Runner.ListWorkloads` that fails is not one: it says nothing about what the runner holds, so nothing is concluded from it. Every record stays as it is and the next tick asks again.
+
+That is the ordinary state of a runner that is restarting. Until it has re-enrolled, its OpenZiti service has no terminator and it cannot be reached. That takes seconds, and minutes when the overlay it enrolls through is restarting too, as it does in a platform upgrade. It still holds its workloads throughout: running ones in their Pods, hibernated ones in its store. A stop or a wake that gets no answer is held to the same reading. A stop stays `stopping` and a wake stays `waking`, both retried by the table's rows once the runner answers, and neither takes anything from the runner.
+
+A runner can also be gone for good while its record stays `enrolled`, its data plane removed from under it. That is taken to be so only once the runner has stayed without a terminator for `RUNNER_LOST_AFTER`, without once answering. Its workloads are then reconciled as the table's "on runner: no" rows. Only a missing terminator counts toward this; no other failed call does. The Orchestrator keeps the clock in memory, so a restart starts it over, which postpones the verdict and costs nothing else. A runner no longer `enrolled` needs no such wait: its status already says so.
 
 ## Volume Reconciliation
 
@@ -550,6 +559,8 @@ On each tick, for each enrolled runner:
 | `deprovisioning` | yes | retry `Runner.RemoveVolume` |
 | `deprovisioning` | no | `UpdateVolume(status=deleted, removed_at=now)` |
 | not in Runners service | yes | orphan — `Runner.RemoveVolume` |
+
+A runner that [does not answer](#a-runner-that-does-not-answer) is read as it is for workloads: nothing is concluded until it answers or `RUNNER_LOST_AFTER` passes. A lost runner closes its `deprovisioning` records as `deleted` and leaves `provisioning` and `active` ones alone, since a runner out of reach is no evidence that a PVC is gone.
 
 TTL is checked for `active` volumes whose owner has no running workload. TTL is read from the Agents service [Volume](resource-definitions.md#volume) definition — the environment's or the MCP's. The clock starts from `removed_at` of the owner's most recent workload, available from `Runners.ListWorkloadsByAgentInstance` (or the sandbox-owner equivalent). Volumes with `ttl: null` are never expired automatically.
 
