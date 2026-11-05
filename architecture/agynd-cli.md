@@ -17,7 +17,7 @@
 
 `agynd` implements the [agent contract](agent/overview.md) on behalf of a specific [agent instance](agent-instances.md):
 
-- Subscribes to `instance_inbox:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` (this workload's instance id) before authorization, so `agynd` does not need to hard-code its id.
+- Subscribes to `instance_inbox:me` via [Gateway](gateway.md) → [Notifications](notifications.md) (server-streaming). See [Self-Subscription Sentinel](notifications.md#self-subscription-sentinel) — Notifications rewrites `:me` to the caller's `identity_id` (this workload's instance id) before authorization, so `agynd` does not need to hard-code its id. Whenever the stream reopens, `agynd` pulls the inbox once: what was published while it was down was announced to nobody.
 - Pulls unacknowledged [inbox items](agent-instances.md#inbox) via `GetUnackedInboxItems(instance_id: AGENT_INSTANCE_ID)` on the [Agents Service](agents-service.md) (via Gateway). Each item is tagged with `source_kind` (`thread` or `direct`), and — when routed from a thread — `thread_id`, `message_id`, and `sender_id`.
 - Posts agent responses to threads via `Threads.SendMessage(thread_id, ...)`. Sends carry an explicit `thread_id`; an omitted one resolves server-side to the instance's [`default_thread_id`](agent-instances.md#default-thread). There is no "current thread" derived from the turn's inbox items — see [Agent Instances — Outbound](agent-instances.md#outbound).
 - Posts the agent CLI's final turn text to the default thread when the class sets [`final_message = default_thread`](resource-definitions.md#agent). See [Final Turn Message](#6-final-turn-message).
@@ -251,7 +251,9 @@ A hibernated workload resumes with every process intact and every connection it 
 
 On `SIGCONT`, `agynd` drops its Notifications subscription and reopens it, fetches the inbox with `GetUnackedInboxItems`, and resumes keepalives if the agent CLI is mid-turn. Nothing is replayed to the agent CLI: items that arrived while the workload slept are in the inbox and are processed as a normal turn. An agent CLI's own connections — an LLM call in flight when the workload was frozen — fail on their own timeouts and are retried by the CLI as any dropped connection is.
 
-`agynd` does not depend on the signal arriving. Its keepalive timer compares the wall clock with monotonic time between ticks; a wall clock that has jumped ahead by more than a tick is what a restore looks like from inside — the runner sets the guest's clock after every wake — and triggers the same reconnect. The signal makes the wake prompt; the clock makes it certain.
+`agynd` does not depend on the signal arriving. Its keepalive timer compares the wall clock with monotonic time between ticks; a wall clock that has moved ahead by a second or more is what a restore looks like from inside — the runner sets the guest's clock after every wake — and triggers the same reconnect. The signal makes the wake prompt; the clock makes it certain.
+
+One wake gives several signs of itself: the runner signals twice, and the clock reports the same sleep a tick later. The clocks tell them from a new wake, and how close together they come does not: no sleep lies between the signs of one wake, however far apart they arrive, and a sleep lies between two wakes, however close. A turn can start, end and hibernate again inside a few seconds, so the next wake can follow the last that soon, and taking it for a repeat would leave the message that caused it unread.
 
 `SIGCONT` is the signal because a process that has not asked for it never sees it: an MCP sidecar, a DinD daemon or a shell is unaffected, and `agynd` is the only process in the workload that has something to do.
 
